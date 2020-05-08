@@ -11,6 +11,7 @@
 #include <ibase.h>
 
 void insert_simple(isc_tr_handle *tr, isc_db_handle *conn);
+void insert(isc_tr_handle *tr, isc_db_handle *conn);
 void query(isc_tr_handle *tr, isc_db_handle *conn);
 
 int main (int argc, char** argv) {
@@ -44,6 +45,10 @@ int main (int argc, char** argv) {
     printf("Insert...\n");
     insert_simple(&tr, &conn);
     printf("Insert...OK\n");
+
+    printf("Insert2...\n");
+    insert(&tr, &conn);
+    printf("Insert2...OK\n");
 
     printf("Query...\n");
     query(&tr, &conn);
@@ -169,4 +174,64 @@ void insert_simple(isc_tr_handle *tr, isc_db_handle *conn) {
 	    fprintf(stderr, "%d - ", isc_sqlcode(status));
 	    isc_print_status(status);
 	}
+}
+
+void insert(isc_tr_handle *tr, isc_db_handle *conn) {
+    ISC_STATUS_ARRAY status;
+
+    if (isc_dsql_execute_immediate(status, conn, tr, 0, "delete from cross_rate where from_currency = 'Euro' and to_currency = 'Real'", 1, NULL)) {
+	    fprintf(stderr, "%d - ", isc_sqlcode(status));
+	    isc_print_status(status);
+	}
+
+    isc_stmt_handle stmt = 0;
+
+    if (isc_dsql_alloc_statement2(status, conn, &stmt)) {
+        fprintf(stderr, "on allocate: ");
+		isc_print_sqlerror(isc_sqlcode(status), status);
+        return;
+    }
+
+    XSQLDA *sqlda = (XSQLDA *) malloc(XSQLDA_LENGTH(3));
+    sqlda->version = 1;
+    sqlda->sqln = 3;
+    
+    char sql[] = "insert into cross_rate (from_currency, to_currency, conv_rate) values (?, ?, ?)";
+
+    if (isc_dsql_prepare(status, tr, &stmt, 0, sql, 3, sqlda)) {
+        fprintf(stderr, "on prepare: ");
+	    isc_print_sqlerror(isc_sqlcode(status), status);
+        return;
+    }
+
+    if (isc_dsql_describe_bind(status, &stmt, 1, sqlda)) {
+        fprintf(stderr, "on describe: ");
+        isc_print_sqlerror(isc_sqlcode(status), status);
+        return;
+    }
+
+    char *from_currency = "Euro";
+    sqlda->sqlvar[0].sqltype = SQL_VARYING;
+    sqlda->sqlvar[0].sqldata = (char*) malloc(sizeof(from_currency));
+    VARY *vary = (VARY *) sqlda->sqlvar[0].sqldata;
+    vary->vary_length = 4;
+    memcpy(vary->vary_string, from_currency, 4);
+
+    char *to_currency = "Real";
+    sqlda->sqlvar[1].sqltype = SQL_VARYING;
+    sqlda->sqlvar[1].sqldata = (char*) malloc(sizeof(to_currency));
+    vary = (VARY *) sqlda->sqlvar[1].sqldata;
+    vary->vary_length = 4;
+    memcpy(vary->vary_string, to_currency, 4);
+
+    double conv_rate = 0.5;
+    sqlda->sqlvar[2].sqltype = SQL_FLOAT;
+    sqlda->sqlvar[2].sqllen = sizeof(conv_rate);
+    sqlda->sqlvar[2].sqldata = &conv_rate;
+
+    if (isc_dsql_execute(status, tr, &stmt, 3, sqlda)) {
+        fprintf(stderr, "on execute: ");
+		isc_print_sqlerror(isc_sqlcode(status), status);
+        return;
+    }
 }
