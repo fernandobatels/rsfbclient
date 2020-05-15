@@ -18,8 +18,6 @@ int main (int argc, char** argv) {
 
     ISC_STATUS_ARRAY status;
     isc_db_handle conn = 0;
-    long* dbp_len;
-    long sqlcode;
 
     char host_db[] = "localhost:employe2.fdb";
     char login[] = "SYSDBA";
