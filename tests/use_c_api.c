@@ -19,7 +19,7 @@ int main (int argc, char** argv) {
     ISC_STATUS_ARRAY status;
     isc_db_handle conn = 0;
 
-    char host_db[] = "localhost:employe2.fdb";
+    char host_db[] = "localhost/3050:employe2.fdb";
     char login[] = "SYSDBA";
     char pass[] = "masterkey";
     
