@@ -441,29 +441,29 @@ pub const isc_dpb_shut_single: u32 = 48;
 pub const isc_dpb_shut_full: u32 = 64;
 pub const RDB_system: u32 = 1;
 pub const RDB_id_assigned: u32 = 2;
-pub const isc_tpb_version1: u32 = 1;
-pub const isc_tpb_version3: u32 = 3;
-pub const isc_tpb_consistency: u32 = 1;
-pub const isc_tpb_concurrency: u32 = 2;
-pub const isc_tpb_shared: u32 = 3;
-pub const isc_tpb_protected: u32 = 4;
-pub const isc_tpb_exclusive: u32 = 5;
-pub const isc_tpb_wait: u32 = 6;
-pub const isc_tpb_nowait: u32 = 7;
-pub const isc_tpb_read: u32 = 8;
-pub const isc_tpb_write: u32 = 9;
-pub const isc_tpb_lock_read: u32 = 10;
-pub const isc_tpb_lock_write: u32 = 11;
-pub const isc_tpb_verb_time: u32 = 12;
-pub const isc_tpb_commit_time: u32 = 13;
-pub const isc_tpb_ignore_limbo: u32 = 14;
-pub const isc_tpb_read_committed: u32 = 15;
-pub const isc_tpb_autocommit: u32 = 16;
-pub const isc_tpb_rec_version: u32 = 17;
-pub const isc_tpb_no_rec_version: u32 = 18;
-pub const isc_tpb_restart_requests: u32 = 19;
-pub const isc_tpb_no_auto_undo: u32 = 20;
-pub const isc_tpb_lock_timeout: u32 = 21;
+pub const isc_tpb_version1: i8 = 1;
+pub const isc_tpb_version3: i8 = 3;
+pub const isc_tpb_consistency: i8 = 1;
+pub const isc_tpb_concurrency: i8 = 2;
+pub const isc_tpb_shared: i8 = 3;
+pub const isc_tpb_protected: i8 = 4;
+pub const isc_tpb_exclusive: i8 = 5;
+pub const isc_tpb_wait: i8 = 6;
+pub const isc_tpb_nowait: i8 = 7;
+pub const isc_tpb_read: i8 = 8;
+pub const isc_tpb_write: i8 = 9;
+pub const isc_tpb_lock_read: i8 = 10;
+pub const isc_tpb_lock_write: i8 = 11;
+pub const isc_tpb_verb_time: i8 = 12;
+pub const isc_tpb_commit_time: i8 = 13;
+pub const isc_tpb_ignore_limbo: i8 = 14;
+pub const isc_tpb_read_committed: i8 = 15;
+pub const isc_tpb_autocommit: i8 = 16;
+pub const isc_tpb_rec_version: i8 = 17;
+pub const isc_tpb_no_rec_version: i8 = 18;
+pub const isc_tpb_restart_requests: i8 = 19;
+pub const isc_tpb_no_auto_undo: i8 = 20;
+pub const isc_tpb_lock_timeout: i8 = 21;
 pub const isc_bpb_version1: u32 = 1;
 pub const isc_bpb_source_type: u32 = 1;
 pub const isc_bpb_target_type: u32 = 2;
@@ -3627,7 +3627,7 @@ extern "C" {
     pub fn isc_commit_retaining(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_commit_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
+    pub fn isc_commit_transaction(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_tr_handle) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_create_blob(
@@ -3992,7 +3992,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_start_transaction(
-        arg1: *mut ISC_STATUS,
+        arg1: *mut ISC_STATUS_ARRAY,
         arg2: *mut isc_tr_handle,
         arg3: ::std::os::raw::c_short,
         ...

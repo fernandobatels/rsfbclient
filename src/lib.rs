@@ -5,6 +5,10 @@
 extern crate libc;
 
 mod ibase;
+mod error;
+mod connection;
+mod transaction;
 
-pub mod error;
-pub mod connection;
+pub use self::connection::Connection;
+pub use self::error::FbError;
+pub use self::transaction::Transaction;
