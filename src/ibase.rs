@@ -3751,7 +3751,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_execute_immediate(
-        arg1: *mut ISC_STATUS,
+        arg1: *mut ISC_STATUS_ARRAY,
         arg2: *mut isc_db_handle,
         arg3: *mut isc_tr_handle,
         arg4: ::std::os::raw::c_ushort,

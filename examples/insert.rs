@@ -16,6 +16,9 @@ fn main() {
 
     println!("??");
 
+    tr.test()
+        .expect("Erro no teste");
+
     tr.commit()
         .expect("Error on commit the transaction");
 
