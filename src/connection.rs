@@ -10,6 +10,7 @@ use std::os::raw::c_char;
 use std::os::raw::c_void;
 use std::ffi::CString;
 use std::mem;
+use std::ptr;
 use std::cell::RefCell;
 
 use super::ibase;
@@ -68,6 +69,66 @@ impl Connection {
             handle: handle
         })
     }
+ 
+    /// Open a new connection to the local database 
+    pub fn open_local(db_name: String) -> Result<Connection, FbError> {
+
+        let handle = RefCell::new(0 as u32);
+
+        unsafe {
+
+            let c_db_name = match CString::new(db_name.clone()) {
+                Ok(c) => c.into_raw(),
+                Err(e) => return Err(FbError { code: -1, msg: e.to_string() })
+            };
+            
+            let status: *mut ibase::ISC_STATUS_ARRAY = libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>()) as *mut ibase::ISC_STATUS_ARRAY;
+            let handle_ptr = handle.as_ptr(); 
+            if ibase::isc_attach_database(status, 0, c_db_name, handle_ptr, 0, ptr::null()) != 0 {
+                return Err(FbError::from_status(status)); 
+            }
+
+            libc::free(status as *mut c_void);
+        }
+
+        Ok(Connection {
+            handle: handle
+        })
+    }
+
+    /// Create a new local database 
+    pub fn create_local(db_name: String) -> Result<(), FbError> {
+
+        let local = Connection {
+            handle: RefCell::new(0 as u32)
+        };
+
+        let local_tr = Transaction {
+            handle: RefCell::new(0 as u32),
+            conn: &local
+        };
+
+        let sql = format!("create database \"{}\"", db_name);
+        
+        local_tr.execute_immediate(sql)
+    }
+
+    /// Drop the current database 
+    pub fn drop(self) -> Result<(), FbError> {
+    
+        unsafe {
+            let status: *mut ibase::ISC_STATUS_ARRAY = libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>()) as *mut ibase::ISC_STATUS_ARRAY;
+
+            let handle_ptr = self.handle.as_ptr();
+            if ibase::isc_drop_database(status, handle_ptr) != 0 {
+                return Err(FbError::from_status(status)); 
+            }
+
+            libc::free(status as *mut c_void);
+        }
+
+        Ok(())
+    }
    
     /// Close the current connection
     pub fn close(self) -> Result<(), FbError> {
@@ -86,7 +147,7 @@ impl Connection {
         Ok(())
     }
 
-    pub fn start_transaction(&mut self) -> Result<Transaction, FbError> {
+    pub fn start_transaction(&self) -> Result<Transaction, FbError> {
         Transaction::start_transaction(self)
     }
 }

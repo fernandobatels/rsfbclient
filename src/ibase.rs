@@ -3686,7 +3686,7 @@ extern "C" {
     pub fn isc_detach_database(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_db_handle) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_drop_database(arg1: *mut ISC_STATUS, arg2: *mut isc_db_handle) -> ISC_STATUS;
+    pub fn isc_drop_database(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_db_handle) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_dsql_allocate_statement(
