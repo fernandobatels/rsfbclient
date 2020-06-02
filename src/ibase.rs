@@ -280,9 +280,9 @@ pub const dtype_boolean: u32 = 21;
 pub const DTYPE_TYPE_MAX: u32 = 22;
 pub const ISC_TIME_SECONDS_PRECISION: u32 = 10000;
 pub const ISC_TIME_SECONDS_PRECISION_SCALE: i32 = -4;
-pub const DSQL_close: u32 = 1;
-pub const DSQL_drop: u32 = 2;
-pub const DSQL_unprepare: u32 = 4;
+pub const DSQL_close: u16 = 1;
+pub const DSQL_drop: u16 = 2;
+pub const DSQL_unprepare: u16 = 4;
 pub const SQLDA_VERSION1: u32 = 1;
 pub const SQL_TEXT: u32 = 452;
 pub const SQL_VARYING: u32 = 448;
@@ -2151,43 +2151,6 @@ pub struct max_align_t {
     pub __bindgen_padding_0: u64,
     pub __clang_max_align_nonce2: u128,
 }
-#[test]
-fn bindgen_test_layout_max_align_t() {
-    assert_eq!(
-        ::std::mem::size_of::<max_align_t>(),
-        32usize,
-        concat!("Size of: ", stringify!(max_align_t))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<max_align_t>(),
-        16usize,
-        concat!("Alignment of ", stringify!(max_align_t))
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<max_align_t>())).__clang_max_align_nonce1 as *const _ as usize
-        },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(max_align_t),
-            "::",
-            stringify!(__clang_max_align_nonce1)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<max_align_t>())).__clang_max_align_nonce2 as *const _ as usize
-        },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(max_align_t),
-            "::",
-            stringify!(__clang_max_align_nonce2)
-        )
-    );
-}
 pub type __u_char = ::std::os::raw::c_uchar;
 pub type __u_short = ::std::os::raw::c_ushort;
 pub type __u_int = ::std::os::raw::c_uint;
@@ -2218,29 +2181,6 @@ pub type __pid_t = ::std::os::raw::c_int;
 #[derive(Debug, Copy, Clone)]
 pub struct __fsid_t {
     pub __val: [::std::os::raw::c_int; 2usize],
-}
-#[test]
-fn bindgen_test_layout___fsid_t() {
-    assert_eq!(
-        ::std::mem::size_of::<__fsid_t>(),
-        8usize,
-        concat!("Size of: ", stringify!(__fsid_t))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<__fsid_t>(),
-        4usize,
-        concat!("Alignment of ", stringify!(__fsid_t))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<__fsid_t>())).__val as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(__fsid_t),
-            "::",
-            stringify!(__val)
-        )
-    );
 }
 pub type __clock_t = ::std::os::raw::c_long;
 pub type __rlim_t = ::std::os::raw::c_ulong;
@@ -2294,39 +2234,6 @@ pub type __gwchar_t = ::std::os::raw::c_int;
 pub struct imaxdiv_t {
     pub quot: ::std::os::raw::c_long,
     pub rem: ::std::os::raw::c_long,
-}
-#[test]
-fn bindgen_test_layout_imaxdiv_t() {
-    assert_eq!(
-        ::std::mem::size_of::<imaxdiv_t>(),
-        16usize,
-        concat!("Size of: ", stringify!(imaxdiv_t))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<imaxdiv_t>(),
-        8usize,
-        concat!("Alignment of ", stringify!(imaxdiv_t))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<imaxdiv_t>())).quot as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(imaxdiv_t),
-            "::",
-            stringify!(quot)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<imaxdiv_t>())).rem as *const _ as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(imaxdiv_t),
-            "::",
-            stringify!(rem)
-        )
-    );
 }
 extern "C" {
     pub fn imaxabs(__n: intmax_t) -> intmax_t;
@@ -2385,77 +2292,11 @@ pub struct ISC_TIMESTAMP {
     pub timestamp_date: ISC_DATE,
     pub timestamp_time: ISC_TIME,
 }
-#[test]
-fn bindgen_test_layout_ISC_TIMESTAMP() {
-    assert_eq!(
-        ::std::mem::size_of::<ISC_TIMESTAMP>(),
-        8usize,
-        concat!("Size of: ", stringify!(ISC_TIMESTAMP))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<ISC_TIMESTAMP>(),
-        4usize,
-        concat!("Alignment of ", stringify!(ISC_TIMESTAMP))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<ISC_TIMESTAMP>())).timestamp_date as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_TIMESTAMP),
-            "::",
-            stringify!(timestamp_date)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<ISC_TIMESTAMP>())).timestamp_time as *const _ as usize },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_TIMESTAMP),
-            "::",
-            stringify!(timestamp_time)
-        )
-    );
-}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct GDS_QUAD_t {
     pub gds_quad_high: ISC_LONG,
     pub gds_quad_low: ISC_ULONG,
-}
-#[test]
-fn bindgen_test_layout_GDS_QUAD_t() {
-    assert_eq!(
-        ::std::mem::size_of::<GDS_QUAD_t>(),
-        8usize,
-        concat!("Size of: ", stringify!(GDS_QUAD_t))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<GDS_QUAD_t>(),
-        4usize,
-        concat!("Alignment of ", stringify!(GDS_QUAD_t))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<GDS_QUAD_t>())).gds_quad_high as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(GDS_QUAD_t),
-            "::",
-            stringify!(gds_quad_high)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<GDS_QUAD_t>())).gds_quad_low as *const _ as usize },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(GDS_QUAD_t),
-            "::",
-            stringify!(gds_quad_low)
-        )
-    );
 }
 pub type GDS_QUAD = GDS_QUAD_t;
 pub type ISC_QUAD = GDS_QUAD_t;
@@ -2499,43 +2340,6 @@ pub struct ISC_ARRAY_BOUND {
     pub array_bound_lower: ::std::os::raw::c_short,
     pub array_bound_upper: ::std::os::raw::c_short,
 }
-#[test]
-fn bindgen_test_layout_ISC_ARRAY_BOUND() {
-    assert_eq!(
-        ::std::mem::size_of::<ISC_ARRAY_BOUND>(),
-        4usize,
-        concat!("Size of: ", stringify!(ISC_ARRAY_BOUND))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<ISC_ARRAY_BOUND>(),
-        2usize,
-        concat!("Alignment of ", stringify!(ISC_ARRAY_BOUND))
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<ISC_ARRAY_BOUND>())).array_bound_lower as *const _ as usize
-        },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_ARRAY_BOUND),
-            "::",
-            stringify!(array_bound_lower)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<ISC_ARRAY_BOUND>())).array_bound_upper as *const _ as usize
-        },
-        2usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_ARRAY_BOUND),
-            "::",
-            stringify!(array_bound_upper)
-        )
-    );
-}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ISC_ARRAY_DESC {
@@ -2548,109 +2352,6 @@ pub struct ISC_ARRAY_DESC {
     pub array_desc_flags: ::std::os::raw::c_short,
     pub array_desc_bounds: [ISC_ARRAY_BOUND; 16usize],
 }
-#[test]
-fn bindgen_test_layout_ISC_ARRAY_DESC() {
-    assert_eq!(
-        ::std::mem::size_of::<ISC_ARRAY_DESC>(),
-        136usize,
-        concat!("Size of: ", stringify!(ISC_ARRAY_DESC))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<ISC_ARRAY_DESC>(),
-        2usize,
-        concat!("Alignment of ", stringify!(ISC_ARRAY_DESC))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<ISC_ARRAY_DESC>())).array_desc_dtype as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_ARRAY_DESC),
-            "::",
-            stringify!(array_desc_dtype)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<ISC_ARRAY_DESC>())).array_desc_scale as *const _ as usize },
-        1usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_ARRAY_DESC),
-            "::",
-            stringify!(array_desc_scale)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<ISC_ARRAY_DESC>())).array_desc_length as *const _ as usize
-        },
-        2usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_ARRAY_DESC),
-            "::",
-            stringify!(array_desc_length)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<ISC_ARRAY_DESC>())).array_desc_field_name as *const _ as usize
-        },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_ARRAY_DESC),
-            "::",
-            stringify!(array_desc_field_name)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<ISC_ARRAY_DESC>())).array_desc_relation_name as *const _ as usize
-        },
-        36usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_ARRAY_DESC),
-            "::",
-            stringify!(array_desc_relation_name)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<ISC_ARRAY_DESC>())).array_desc_dimensions as *const _ as usize
-        },
-        68usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_ARRAY_DESC),
-            "::",
-            stringify!(array_desc_dimensions)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<ISC_ARRAY_DESC>())).array_desc_flags as *const _ as usize },
-        70usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_ARRAY_DESC),
-            "::",
-            stringify!(array_desc_flags)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<ISC_ARRAY_DESC>())).array_desc_bounds as *const _ as usize
-        },
-        72usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_ARRAY_DESC),
-            "::",
-            stringify!(array_desc_bounds)
-        )
-    );
-}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ISC_BLOB_DESC {
@@ -2659,75 +2360,6 @@ pub struct ISC_BLOB_DESC {
     pub blob_desc_segment_size: ::std::os::raw::c_short,
     pub blob_desc_field_name: [ISC_UCHAR; 32usize],
     pub blob_desc_relation_name: [ISC_UCHAR; 32usize],
-}
-#[test]
-fn bindgen_test_layout_ISC_BLOB_DESC() {
-    assert_eq!(
-        ::std::mem::size_of::<ISC_BLOB_DESC>(),
-        70usize,
-        concat!("Size of: ", stringify!(ISC_BLOB_DESC))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<ISC_BLOB_DESC>(),
-        2usize,
-        concat!("Alignment of ", stringify!(ISC_BLOB_DESC))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<ISC_BLOB_DESC>())).blob_desc_subtype as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_BLOB_DESC),
-            "::",
-            stringify!(blob_desc_subtype)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<ISC_BLOB_DESC>())).blob_desc_charset as *const _ as usize },
-        2usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_BLOB_DESC),
-            "::",
-            stringify!(blob_desc_charset)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<ISC_BLOB_DESC>())).blob_desc_segment_size as *const _ as usize
-        },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_BLOB_DESC),
-            "::",
-            stringify!(blob_desc_segment_size)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<ISC_BLOB_DESC>())).blob_desc_field_name as *const _ as usize
-        },
-        6usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_BLOB_DESC),
-            "::",
-            stringify!(blob_desc_field_name)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<ISC_BLOB_DESC>())).blob_desc_relation_name as *const _ as usize
-        },
-        38usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(ISC_BLOB_DESC),
-            "::",
-            stringify!(blob_desc_relation_name)
-        )
-    );
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -2747,161 +2379,6 @@ pub struct isc_blob_ctl {
     pub ctl_status: *mut ISC_STATUS,
     pub ctl_data: [::std::os::raw::c_long; 8usize],
 }
-#[test]
-fn bindgen_test_layout_isc_blob_ctl() {
-    assert_eq!(
-        ::std::mem::size_of::<isc_blob_ctl>(),
-        136usize,
-        concat!("Size of: ", stringify!(isc_blob_ctl))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<isc_blob_ctl>(),
-        8usize,
-        concat!("Alignment of ", stringify!(isc_blob_ctl))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_source as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_source)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_source_handle as *const _ as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_source_handle)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_to_sub_type as *const _ as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_to_sub_type)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_from_sub_type as *const _ as usize },
-        18usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_from_sub_type)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_buffer_length as *const _ as usize },
-        20usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_buffer_length)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_segment_length as *const _ as usize },
-        22usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_segment_length)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_bpb_length as *const _ as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_bpb_length)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_bpb as *const _ as usize },
-        32usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_bpb)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_buffer as *const _ as usize },
-        40usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_buffer)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_max_segment as *const _ as usize },
-        48usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_max_segment)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_number_segments as *const _ as usize
-        },
-        52usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_number_segments)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_total_length as *const _ as usize },
-        56usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_total_length)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_status as *const _ as usize },
-        64usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_status)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<isc_blob_ctl>())).ctl_data as *const _ as usize },
-        72usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(isc_blob_ctl),
-            "::",
-            stringify!(ctl_data)
-        )
-    );
-}
 pub type ISC_BLOB_CTL = *mut isc_blob_ctl;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -2912,79 +2389,6 @@ pub struct bstream {
     pub bstr_length: ::std::os::raw::c_short,
     pub bstr_cnt: ::std::os::raw::c_short,
     pub bstr_mode: ::std::os::raw::c_char,
-}
-#[test]
-fn bindgen_test_layout_bstream() {
-    assert_eq!(
-        ::std::mem::size_of::<bstream>(),
-        32usize,
-        concat!("Size of: ", stringify!(bstream))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<bstream>(),
-        8usize,
-        concat!("Alignment of ", stringify!(bstream))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<bstream>())).bstr_blob as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(bstream),
-            "::",
-            stringify!(bstr_blob)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<bstream>())).bstr_buffer as *const _ as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(bstream),
-            "::",
-            stringify!(bstr_buffer)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<bstream>())).bstr_ptr as *const _ as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(bstream),
-            "::",
-            stringify!(bstr_ptr)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<bstream>())).bstr_length as *const _ as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(bstream),
-            "::",
-            stringify!(bstr_length)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<bstream>())).bstr_cnt as *const _ as usize },
-        26usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(bstream),
-            "::",
-            stringify!(bstr_cnt)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<bstream>())).bstr_mode as *const _ as usize },
-        28usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(bstream),
-            "::",
-            stringify!(bstr_mode)
-        )
-    );
 }
 pub type BSTREAM = bstream;
 pub type FB_BLOB_STREAM = *mut bstream;
@@ -3025,91 +2429,6 @@ pub struct blobcallback {
         ) -> ISC_LONG,
     >,
 }
-#[test]
-fn bindgen_test_layout_blobcallback() {
-    assert_eq!(
-        ::std::mem::size_of::<blobcallback>(),
-        48usize,
-        concat!("Size of: ", stringify!(blobcallback))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<blobcallback>(),
-        8usize,
-        concat!("Alignment of ", stringify!(blobcallback))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<blobcallback>())).blob_get_segment as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(blobcallback),
-            "::",
-            stringify!(blob_get_segment)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<blobcallback>())).blob_handle as *const _ as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(blobcallback),
-            "::",
-            stringify!(blob_handle)
-        )
-    );
-    assert_eq!(
-        unsafe {
-            &(*(::std::ptr::null::<blobcallback>())).blob_number_segments as *const _ as usize
-        },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(blobcallback),
-            "::",
-            stringify!(blob_number_segments)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<blobcallback>())).blob_max_segment as *const _ as usize },
-        20usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(blobcallback),
-            "::",
-            stringify!(blob_max_segment)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<blobcallback>())).blob_total_length as *const _ as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(blobcallback),
-            "::",
-            stringify!(blob_total_length)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<blobcallback>())).blob_put_segment as *const _ as usize },
-        32usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(blobcallback),
-            "::",
-            stringify!(blob_put_segment)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<blobcallback>())).blob_lseek as *const _ as usize },
-        40usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(blobcallback),
-            "::",
-            stringify!(blob_lseek)
-        )
-    );
-}
 pub type BLOBCALLBACK = *mut blobcallback;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -3121,118 +2440,12 @@ pub struct paramdsc {
     pub dsc_flags: ISC_USHORT,
     pub dsc_address: *mut ISC_UCHAR,
 }
-#[test]
-fn bindgen_test_layout_paramdsc() {
-    assert_eq!(
-        ::std::mem::size_of::<paramdsc>(),
-        16usize,
-        concat!("Size of: ", stringify!(paramdsc))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<paramdsc>(),
-        8usize,
-        concat!("Alignment of ", stringify!(paramdsc))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<paramdsc>())).dsc_dtype as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(paramdsc),
-            "::",
-            stringify!(dsc_dtype)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<paramdsc>())).dsc_scale as *const _ as usize },
-        1usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(paramdsc),
-            "::",
-            stringify!(dsc_scale)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<paramdsc>())).dsc_length as *const _ as usize },
-        2usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(paramdsc),
-            "::",
-            stringify!(dsc_length)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<paramdsc>())).dsc_sub_type as *const _ as usize },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(paramdsc),
-            "::",
-            stringify!(dsc_sub_type)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<paramdsc>())).dsc_flags as *const _ as usize },
-        6usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(paramdsc),
-            "::",
-            stringify!(dsc_flags)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<paramdsc>())).dsc_address as *const _ as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(paramdsc),
-            "::",
-            stringify!(dsc_address)
-        )
-    );
-}
 pub type PARAMDSC = paramdsc;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct paramvary {
     pub vary_length: ISC_USHORT,
     pub vary_string: [ISC_UCHAR; 1usize],
-}
-#[test]
-fn bindgen_test_layout_paramvary() {
-    assert_eq!(
-        ::std::mem::size_of::<paramvary>(),
-        4usize,
-        concat!("Size of: ", stringify!(paramvary))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<paramvary>(),
-        2usize,
-        concat!("Alignment of ", stringify!(paramvary))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<paramvary>())).vary_length as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(paramvary),
-            "::",
-            stringify!(vary_length)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<paramvary>())).vary_string as *const _ as usize },
-        2usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(paramvary),
-            "::",
-            stringify!(vary_string)
-        )
-    );
 }
 pub type PARAMVARY = paramvary;
 #[repr(C)]
@@ -3253,159 +2466,6 @@ pub struct XSQLVAR {
     pub aliasname_length: ISC_SHORT,
     pub aliasname: [ISC_SCHAR; 32usize],
 }
-#[test]
-fn bindgen_test_layout_XSQLVAR() {
-    assert_eq!(
-        ::std::mem::size_of::<XSQLVAR>(),
-        160usize,
-        concat!("Size of: ", stringify!(XSQLVAR))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<XSQLVAR>(),
-        8usize,
-        concat!("Alignment of ", stringify!(XSQLVAR))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).sqltype as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(sqltype)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).sqlscale as *const _ as usize },
-        2usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(sqlscale)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).sqlsubtype as *const _ as usize },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(sqlsubtype)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).sqllen as *const _ as usize },
-        6usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(sqllen)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).sqldata as *const _ as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(sqldata)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).sqlind as *const _ as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(sqlind)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).sqlname_length as *const _ as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(sqlname_length)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).sqlname as *const _ as usize },
-        26usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(sqlname)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).relname_length as *const _ as usize },
-        58usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(relname_length)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).relname as *const _ as usize },
-        60usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(relname)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).ownname_length as *const _ as usize },
-        92usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(ownname_length)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).ownname as *const _ as usize },
-        94usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(ownname)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).aliasname_length as *const _ as usize },
-        126usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(aliasname_length)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLVAR>())).aliasname as *const _ as usize },
-        128usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLVAR),
-            "::",
-            stringify!(aliasname)
-        )
-    );
-}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct XSQLDA {
@@ -3415,79 +2475,6 @@ pub struct XSQLDA {
     pub sqln: ISC_SHORT,
     pub sqld: ISC_SHORT,
     pub sqlvar: [XSQLVAR; 1usize],
-}
-#[test]
-fn bindgen_test_layout_XSQLDA() {
-    assert_eq!(
-        ::std::mem::size_of::<XSQLDA>(),
-        184usize,
-        concat!("Size of: ", stringify!(XSQLDA))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<XSQLDA>(),
-        8usize,
-        concat!("Alignment of ", stringify!(XSQLDA))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLDA>())).version as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLDA),
-            "::",
-            stringify!(version)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLDA>())).sqldaid as *const _ as usize },
-        2usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLDA),
-            "::",
-            stringify!(sqldaid)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLDA>())).sqldabc as *const _ as usize },
-        12usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLDA),
-            "::",
-            stringify!(sqldabc)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLDA>())).sqln as *const _ as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLDA),
-            "::",
-            stringify!(sqln)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLDA>())).sqld as *const _ as usize },
-        18usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLDA),
-            "::",
-            stringify!(sqld)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<XSQLDA>())).sqlvar as *const _ as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(XSQLDA),
-            "::",
-            stringify!(sqlvar)
-        )
-    );
 }
 extern "C" {
     pub fn isc_attach_database(
@@ -3624,7 +2611,7 @@ extern "C" {
     pub fn isc_close_blob(arg1: *mut ISC_STATUS, arg2: *mut isc_blob_handle) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_commit_retaining(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
+    pub fn isc_commit_retaining(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_tr_handle) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_commit_transaction(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_tr_handle) -> ISC_STATUS;
@@ -3697,7 +2684,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_alloc_statement2(
-        arg1: *mut ISC_STATUS,
+        arg1: *mut ISC_STATUS_ARRAY,
         arg2: *mut isc_db_handle,
         arg3: *mut isc_stmt_handle,
     ) -> ISC_STATUS;
@@ -3732,7 +2719,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_execute(
-        arg1: *mut ISC_STATUS,
+        arg1: *mut ISC_STATUS_ARRAY,
         arg2: *mut isc_tr_handle,
         arg3: *mut isc_stmt_handle,
         arg4: ::std::os::raw::c_ushort,
@@ -3773,7 +2760,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_free_statement(
-        arg1: *mut ISC_STATUS,
+        arg1: *mut ISC_STATUS_ARRAY,
         arg2: *mut isc_stmt_handle,
         arg3: ::std::os::raw::c_ushort,
     ) -> ISC_STATUS;
@@ -3788,7 +2775,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_prepare(
-        arg1: *mut ISC_STATUS,
+        arg1: *mut ISC_STATUS_ARRAY,
         arg2: *mut isc_tr_handle,
         arg3: *mut isc_stmt_handle,
         arg4: ::std::os::raw::c_ushort,
@@ -3931,7 +2918,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_prepare_transaction2(
-        arg1: *mut ISC_STATUS,
+        arg1: *mut ISC_STATUS_ARRAY,
         arg2: *mut isc_tr_handle,
         arg3: ISC_USHORT,
         arg4: *const ISC_UCHAR,
@@ -3977,10 +2964,10 @@ extern "C" {
     ) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_rollback_retaining(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
+    pub fn isc_rollback_retaining(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_tr_handle) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_rollback_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
+    pub fn isc_rollback_transaction(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_tr_handle) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_start_multiple(
@@ -4065,149 +3052,6 @@ pub struct USER_SEC_DATA {
     pub dba_user_name: *mut ISC_SCHAR,
     pub dba_password: *mut ISC_SCHAR,
 }
-#[test]
-fn bindgen_test_layout_USER_SEC_DATA() {
-    assert_eq!(
-        ::std::mem::size_of::<USER_SEC_DATA>(),
-        88usize,
-        concat!("Size of: ", stringify!(USER_SEC_DATA))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<USER_SEC_DATA>(),
-        8usize,
-        concat!("Alignment of ", stringify!(USER_SEC_DATA))
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<USER_SEC_DATA>())).sec_flags as *const _ as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(USER_SEC_DATA),
-            "::",
-            stringify!(sec_flags)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<USER_SEC_DATA>())).uid as *const _ as usize },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(USER_SEC_DATA),
-            "::",
-            stringify!(uid)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<USER_SEC_DATA>())).gid as *const _ as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(USER_SEC_DATA),
-            "::",
-            stringify!(gid)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<USER_SEC_DATA>())).protocol as *const _ as usize },
-        12usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(USER_SEC_DATA),
-            "::",
-            stringify!(protocol)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<USER_SEC_DATA>())).server as *const _ as usize },
-        16usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(USER_SEC_DATA),
-            "::",
-            stringify!(server)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<USER_SEC_DATA>())).user_name as *const _ as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(USER_SEC_DATA),
-            "::",
-            stringify!(user_name)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<USER_SEC_DATA>())).password as *const _ as usize },
-        32usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(USER_SEC_DATA),
-            "::",
-            stringify!(password)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<USER_SEC_DATA>())).group_name as *const _ as usize },
-        40usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(USER_SEC_DATA),
-            "::",
-            stringify!(group_name)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<USER_SEC_DATA>())).first_name as *const _ as usize },
-        48usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(USER_SEC_DATA),
-            "::",
-            stringify!(first_name)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<USER_SEC_DATA>())).middle_name as *const _ as usize },
-        56usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(USER_SEC_DATA),
-            "::",
-            stringify!(middle_name)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<USER_SEC_DATA>())).last_name as *const _ as usize },
-        64usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(USER_SEC_DATA),
-            "::",
-            stringify!(last_name)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<USER_SEC_DATA>())).dba_user_name as *const _ as usize },
-        72usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(USER_SEC_DATA),
-            "::",
-            stringify!(dba_user_name)
-        )
-    );
-    assert_eq!(
-        unsafe { &(*(::std::ptr::null::<USER_SEC_DATA>())).dba_password as *const _ as usize },
-        80usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(USER_SEC_DATA),
-            "::",
-            stringify!(dba_password)
-        )
-    );
-}
 extern "C" {
     pub fn isc_add_user(arg1: *mut ISC_STATUS, arg2: *const USER_SEC_DATA) -> ISC_STATUS;
 }
@@ -4245,7 +3089,7 @@ extern "C" {
     ) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_prepare_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
+    pub fn isc_prepare_transaction(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_tr_handle) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_receive(

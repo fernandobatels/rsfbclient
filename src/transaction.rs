@@ -7,9 +7,7 @@
 use std::result::Result;
 use std::os::raw::c_void;
 use std::mem;
-use std::ptr;
-use std::cell::RefCell;
-use std::ffi::CString;
+use std::cell::Cell;
 
 use super::ibase;
 use super::error::FbError;
@@ -17,22 +15,23 @@ use super::connection::Connection;
 use super::statement::Statement;
 
 pub struct Transaction<'a> {
-    pub handle: RefCell<ibase::isc_tr_handle>,
+    pub handle: Cell<ibase::isc_tr_handle>,
     pub conn: &'a Connection
 }
 
-impl Transaction<'_> {
+impl<'a> Transaction<'a> {
 
     /// Start a new transaction
     pub fn start_transaction(conn: &Connection) -> Result<Transaction, FbError> {
 
-        let handle = RefCell::new(0 as u32);
+        let handle = Cell::new(0 as u32);
 
         unsafe {
-            let status: *mut ibase::ISC_STATUS_ARRAY = libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>()) as *mut ibase::ISC_STATUS_ARRAY;
             
             let handle_ptr = handle.as_ptr(); 
             let conn_handle_ptr = conn.handle.as_ptr();
+
+            let status: *mut ibase::ISC_STATUS_ARRAY = libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>()) as *mut ibase::ISC_STATUS_ARRAY;
             if ibase::isc_start_transaction(status, handle_ptr, 1, conn_handle_ptr, 0) != 0 {
                 return Err(FbError::from_status(status)); 
             }
@@ -48,25 +47,21 @@ impl Transaction<'_> {
 
     /// Commit the current transaction changes
     pub fn commit(self) -> Result<(), FbError> {
+        Statement::execute_immediate(&self, "commit;".to_string())
+    }
 
-        unsafe {
-        
-            let status: *mut ibase::ISC_STATUS_ARRAY = libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>()) as *mut ibase::ISC_STATUS_ARRAY;
-            
-            let handle_ptr = self.handle.as_ptr(); 
-            if ibase::isc_commit_transaction(status, handle_ptr) != 0 {
-                return Err(FbError::from_status(status)); 
-            }
-            
-            libc::free(status as *mut c_void);
-        
-        }
-        
-        Ok(())
+    /// Rollback the current transaction changes
+    pub fn rollback(self) -> Result<(), FbError> {
+        Statement::execute_immediate(&self, "rollback;".to_string())
     }
 
     /// Execute the statement without returning any row
     pub fn execute_immediate(&self, sql: String) -> Result<(), FbError> {
         Statement::execute_immediate(self, sql)
+    }
+
+    /// Prepare a new statement for execute 
+    pub fn prepare(&self, sql: String) -> Result<Statement, FbError> {
+        Statement::prepare(self, sql)
     }
 }

@@ -6,36 +6,36 @@
 
 use rsfbclient::Connection;
 
-const SQL_TABLE: &'static str = "create table test (tcolumn int);";
 const SQL_INSERT: &'static str = "insert into test (tcolumn) values (10)";
 
 fn main() {
-    
-    if let Ok(conn) = Connection::open_local("test.fdb".to_string()) {
-        conn.drop()
-            .expect("Error on drop the existing database");
-    }
 
-    Connection::create_local("test.fdb".to_string())
-        .expect("Error on create the new database");
-
-    let conn = Connection::open_local("test.fdb".to_string())
+    // 
+    // You need create a database with this table:
+    // create table test (tcolumn int);
+    //
+    let conn = Connection::open("localhost".to_string(), 3050, "examples.fdb".to_string(), "SYSDBA".to_string(), "masterkey".to_string())
         .expect("Error on connect");
 
     let tr = conn.start_transaction()
         .expect("Error on start the transaction");
 
-    tr.execute_immediate(SQL_TABLE.to_string())
-        .expect("Error on create the table");
+    // First alternative
+    {
+        tr.execute_immediate(SQL_INSERT.to_string())
+            .expect("Error on insert");
+    }
 
-    tr.commit()
-        .expect("Error on commit the transaction");
+    // Second alternative
+    {
+        let stmt = tr.prepare(SQL_INSERT.to_string())
+            .expect("Error on prepare the insert");
 
-    let tr = conn.start_transaction()
-        .expect("Error on start the transaction");
-
-    tr.execute_immediate(SQL_INSERT.to_string())
-        .expect("Error on insert");
+        stmt.execute_simple()
+            .expect("Error on execute the prepared insert");
+        stmt.execute_simple()
+            .expect("Error on execute the prepared insert");
+    }
 
     tr.commit()
         .expect("Error on commit the transaction");
