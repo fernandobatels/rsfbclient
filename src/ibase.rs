@@ -2474,7 +2474,7 @@ pub struct XSQLDA {
     pub sqldabc: ISC_LONG,
     pub sqln: ISC_SHORT,
     pub sqld: ISC_SHORT,
-    pub sqlvar: [XSQLVAR; 1usize],
+    pub sqlvar: [XSQLVAR; 32usize],
 }
 extern "C" {
     pub fn isc_attach_database(
@@ -2677,7 +2677,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_allocate_statement(
-        arg1: *mut ISC_STATUS,
+        arg1: *mut ISC_STATUS_ARRAY,
         arg2: *mut isc_db_handle,
         arg3: *mut isc_stmt_handle,
     ) -> ISC_STATUS;
@@ -2691,7 +2691,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_describe(
-        arg1: *mut ISC_STATUS,
+        arg1: *mut ISC_STATUS_ARRAY,
         arg2: *mut isc_stmt_handle,
         arg3: ::std::os::raw::c_ushort,
         arg4: *mut XSQLDA,
@@ -2699,7 +2699,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_describe_bind(
-        arg1: *mut ISC_STATUS,
+        arg1: *mut ISC_STATUS_ARRAY,
         arg2: *mut isc_stmt_handle,
         arg3: ::std::os::raw::c_ushort,
         arg4: *mut XSQLDA,
@@ -2749,7 +2749,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_fetch(
-        arg1: *mut ISC_STATUS,
+        arg1: *mut ISC_STATUS_ARRAY,
         arg2: *mut isc_stmt_handle,
         arg3: ::std::os::raw::c_ushort,
         arg4: *const XSQLDA,

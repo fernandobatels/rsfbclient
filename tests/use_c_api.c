@@ -97,7 +97,6 @@ void query(isc_tr_handle *tr, isc_db_handle *conn) {
 	for (int i = 0; i < sqlda->sqld; i++) {
         XSQLVAR *col = &sqlda->sqlvar[i];
 
-        char *buffer;
 		col->sqldata = (char*) malloc(col->sqllen);
         flags[i] = 0;
 		col->sqlind = &flags[i];

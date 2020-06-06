@@ -6,6 +6,8 @@
 
 use std::result::Result;
 use std::os::raw::c_void;
+use std::os::raw::c_char;
+use std::os::raw::c_short;
 use std::mem;
 use std::ptr;
 use std::cell::Cell;
@@ -28,7 +30,7 @@ impl<'a> Statement<'a> {
         let handle = Cell::new(0 as u32);
         
         let xsqlda = Cell::new(unsafe {
-            libc::malloc(mem::size_of::<ibase::XSQLDA>() * mem::size_of::<ibase::XSQLDA>()) as *mut ibase::XSQLDA
+            libc::malloc(xsqlda_length(1)) as *mut ibase::XSQLDA
         });
 
         unsafe {
@@ -36,7 +38,7 @@ impl<'a> Statement<'a> {
             let handle_ptr = handle.as_ptr(); 
 
             let status: *mut ibase::ISC_STATUS_ARRAY = libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>()) as *mut ibase::ISC_STATUS_ARRAY;
-            if ibase::isc_dsql_alloc_statement2(status, conn_handle_ptr, handle_ptr) != 0 {
+            if ibase::isc_dsql_allocate_statement(status, conn_handle_ptr, handle_ptr) != 0 {
                 return Err(FbError::from_status(status)); 
             }
 
@@ -69,7 +71,7 @@ impl<'a> Statement<'a> {
     }
 
     /// Execute the current statement without parameters
-    pub fn execute_simple(&self) -> Result<(), FbError> {
+    pub fn execute_simple(self) -> Result<(), FbError> {
 
         unsafe {
             
@@ -90,8 +92,58 @@ impl<'a> Statement<'a> {
 
     /// Execute the current statement without parameters
     /// and returns the lines founds
-    pub fn query_simple(&self) -> Result<(), FbError> {
-        unimplemented!();
+    pub fn query_simple(self) -> Result<StatementFetch, FbError> {
+
+        unsafe {
+
+            let handle_ptr = self.handle.as_ptr(); 
+            let tr_handle_ptr = self.tr.handle.as_ptr();
+            let mut xsqlda_ptr = *self.xsqlda.as_ptr();
+
+            let status: *mut ibase::ISC_STATUS_ARRAY = libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>()) as *mut ibase::ISC_STATUS_ARRAY;
+            if ibase::isc_dsql_describe(status, handle_ptr, 1, xsqlda_ptr) != 0 {
+                return Err(FbError::from_status(status)); 
+            }
+            libc::free(status as *mut c_void);
+
+            let mut num_cols = (*xsqlda_ptr).sqld;
+
+            if num_cols > (*xsqlda_ptr).sqln {
+                self.xsqlda.replace(libc::malloc(xsqlda_length(num_cols)) as *mut ibase::XSQLDA);
+                xsqlda_ptr = *self.xsqlda.as_ptr();
+                (*xsqlda_ptr).version = 1;
+                (*xsqlda_ptr).sqln = num_cols;
+
+                let status: *mut ibase::ISC_STATUS_ARRAY = libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>()) as *mut ibase::ISC_STATUS_ARRAY;
+                if ibase::isc_dsql_describe(status, handle_ptr, 1, xsqlda_ptr) != 0 {
+                    return Err(FbError::from_status(status)); 
+                }
+                libc::free(status as *mut c_void);
+
+                num_cols = (*xsqlda_ptr).sqld;
+            }
+
+            for col in 0..num_cols {
+                let mut xcol = (*xsqlda_ptr).sqlvar[col as usize];
+                
+                xcol.sqldata = libc::malloc(xcol.sqllen as usize) as *mut c_char;
+                let mut ind = 0 as c_short;
+                xcol.sqlind = &mut ind as *mut c_short;
+
+                (*xsqlda_ptr).sqlvar[col as usize] = xcol;
+            }
+
+            let status: *mut ibase::ISC_STATUS_ARRAY = libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>()) as *mut ibase::ISC_STATUS_ARRAY;
+            if ibase::isc_dsql_execute(status, tr_handle_ptr, handle_ptr, 1, xsqlda_ptr) != 0 {
+                return Err(FbError::from_status(status)); 
+            }
+            libc::free(status as *mut c_void);
+        }
+
+        Ok(StatementFetch {
+            handle: self.handle,
+            xsqlda: self.xsqlda
+        })
     }
 
     /// Execute the statement without returning any row
@@ -119,9 +171,98 @@ impl<'a> Statement<'a> {
     }
 }
 
+pub struct StatementFetch {
+    handle: Cell<ibase::isc_stmt_handle>, 
+    xsqlda: Cell<*mut ibase::XSQLDA>,
+}
+
+impl StatementFetch {
+
+    /// Fetch for the next row 
+    fn fetch(&mut self) -> Result<Option<i32>, FbError> {
+
+        unsafe {
+            
+            let handle_ptr = self.handle.as_ptr(); 
+            let xsqlda_ptr = *self.xsqlda.as_ptr(); 
+
+            let status: *mut ibase::ISC_STATUS_ARRAY = libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>()) as *mut ibase::ISC_STATUS_ARRAY;
+            let result_fetch = ibase::isc_dsql_fetch(status, handle_ptr, 1, xsqlda_ptr);
+
+            // 100 indicates that no more rows: http://docwiki.embarcadero.com/InterBase/2020/en/Isc_dsql_fetch()
+            if result_fetch == 100 {
+                return Ok(None);
+            }
+
+            if result_fetch != 0 {
+                return Err(FbError::from_status(status)); 
+            }
+            
+            libc::free(status as *mut c_void);
+
+            let xcol = (*xsqlda_ptr).sqlvar[0 as usize];
+            
+            Ok(Some((*xcol.sqldata) as i32))
+        }
+    }
+}
+
+/// Implementation of XSQLDA_LENGTH macro
+fn xsqlda_length(size: i16) -> usize {
+    let n = (size - 1) as usize;
+    
+    (mem::size_of::<ibase::XSQLDA>() + n) * mem::size_of::<ibase::XSQLVAR>()
+}
+
 #[cfg(test)]
 mod test {
     use crate::connection::Connection;
+
+    #[test]
+    fn simple_select() {
+    
+        let conn = setup();
+
+        let tr = conn.start_transaction()
+            .expect("Error on start the transaction");
+        tr.execute_immediate("insert into product (id, name) values (2, 'coffee')".to_string())
+            .expect("Error on insert");
+        tr.execute_immediate("insert into product (id, name) values (3, 'milk')".to_string())
+            .expect("Error on insert");
+        tr.commit()
+            .expect("Error on commit the transaction");
+
+
+        let tr = conn.start_transaction()
+            .expect("Error on start the transaction");
+
+        let stmt = tr.prepare("select id, name from product".to_string())
+            .expect("Error on prepare the select");
+
+        let mut rows = stmt.query_simple()
+            .expect("Error on query");
+
+        let mut lines_count = 0;
+        loop {
+            let row_op = rows.fetch()
+                .expect("Error on fetch the next row");
+            
+            if let Some(row) = row_op {
+                lines_count = lines_count + 1;
+                println!("{}", row); 
+            } else {
+                break;
+            }
+        }
+
+        assert_eq!(2, lines_count);
+
+        tr.rollback()
+            .expect("Error on rollback the transaction");
+
+        conn.close()
+            .expect("error on close the connection");
+    }
 
     #[test]
     fn prepared_insert() {
@@ -135,6 +276,27 @@ mod test {
 
         stmt.execute_simple()
             .expect("Error on execute");
+
+        tr.commit()
+            .expect("Error on commit the transaction");
+
+        conn.close()
+            .expect("error on close the connection");
+    }
+
+    #[test]
+    fn normal_insert() {
+    
+        let conn = setup();
+
+        let tr = conn.start_transaction()
+            .expect("Error on start the transaction");
+
+        tr.execute_immediate("insert into product (id, name) values (1, 'apple')".to_string())
+            .expect("Error on 1° insert");
+
+        tr.execute_immediate("insert into product (id, name) values (2, 'coffee')".to_string())
+            .expect("Error on 2° insert");
 
         tr.commit()
             .expect("Error on commit the transaction");
