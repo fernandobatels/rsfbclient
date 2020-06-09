@@ -2445,7 +2445,7 @@ pub type PARAMDSC = paramdsc;
 #[derive(Debug, Copy, Clone)]
 pub struct paramvary {
     pub vary_length: ISC_USHORT,
-    pub vary_string: [ISC_UCHAR; 1usize],
+    pub vary_string: [ISC_UCHAR; 32usize],
 }
 pub type PARAMVARY = paramvary;
 #[repr(C)]

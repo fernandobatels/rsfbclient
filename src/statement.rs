@@ -16,6 +16,7 @@ use std::ffi::CString;
 use super::ibase;
 use super::error::FbError;
 use super::transaction::Transaction;
+use super::row::Row;
 
 pub struct Statement<'a> {
     handle: Cell<ibase::isc_stmt_handle>, 
@@ -71,7 +72,7 @@ impl<'a> Statement<'a> {
     }
 
     /// Execute the current statement without parameters
-    pub fn execute_simple(self) -> Result<(), FbError> {
+    pub fn execute_simple(&self) -> Result<(), FbError> {
 
         unsafe {
             
@@ -97,20 +98,17 @@ impl<'a> Statement<'a> {
         unsafe {
 
             let handle_ptr = self.handle.as_ptr(); 
-            let tr_handle_ptr = self.tr.handle.as_ptr();
             let mut xsqlda_ptr = *self.xsqlda.as_ptr();
 
-            let status: *mut ibase::ISC_STATUS_ARRAY = libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>()) as *mut ibase::ISC_STATUS_ARRAY;
-            if ibase::isc_dsql_describe(status, handle_ptr, 1, xsqlda_ptr) != 0 {
-                return Err(FbError::from_status(status)); 
-            }
-            libc::free(status as *mut c_void);
+            // Need more XSQLVARs
+            if (*xsqlda_ptr).sqld > (*xsqlda_ptr).sqln {
+                
+                let num_cols = (*xsqlda_ptr).sqld;
+                libc::free(xsqlda_ptr as *mut c_void);
 
-            let mut num_cols = (*xsqlda_ptr).sqld;
-
-            if num_cols > (*xsqlda_ptr).sqln {
                 self.xsqlda.replace(libc::malloc(xsqlda_length(num_cols)) as *mut ibase::XSQLDA);
                 xsqlda_ptr = *self.xsqlda.as_ptr();
+
                 (*xsqlda_ptr).version = 1;
                 (*xsqlda_ptr).sqln = num_cols;
 
@@ -119,16 +117,20 @@ impl<'a> Statement<'a> {
                     return Err(FbError::from_status(status)); 
                 }
                 libc::free(status as *mut c_void);
-
-                num_cols = (*xsqlda_ptr).sqld;
             }
 
-            for col in 0..num_cols {
+            let tr_handle_ptr = self.tr.handle.as_ptr();
+            let status: *mut ibase::ISC_STATUS_ARRAY = libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>()) as *mut ibase::ISC_STATUS_ARRAY;
+            if ibase::isc_dsql_describe(status, handle_ptr, 1, xsqlda_ptr) != 0 {
+                return Err(FbError::from_status(status)); 
+            }
+            libc::free(status as *mut c_void);
+
+            for col in 0..(*xsqlda_ptr).sqld {
                 let mut xcol = (*xsqlda_ptr).sqlvar[col as usize];
                 
                 xcol.sqldata = libc::malloc(xcol.sqllen as usize) as *mut c_char;
-                let mut ind = 0 as c_short;
-                xcol.sqlind = &mut ind as *mut c_short;
+                xcol.sqlind = libc::malloc(1) as *mut c_short;
 
                 (*xsqlda_ptr).sqlvar[col as usize] = xcol;
             }
@@ -142,7 +144,7 @@ impl<'a> Statement<'a> {
 
         Ok(StatementFetch {
             handle: self.handle,
-            xsqlda: self.xsqlda
+            xsqlda: self.xsqlda,
         })
     }
 
@@ -173,13 +175,13 @@ impl<'a> Statement<'a> {
 
 pub struct StatementFetch {
     handle: Cell<ibase::isc_stmt_handle>, 
-    xsqlda: Cell<*mut ibase::XSQLDA>,
+    pub xsqlda: Cell<*mut ibase::XSQLDA>
 }
 
 impl StatementFetch {
 
     /// Fetch for the next row 
-    fn fetch(&mut self) -> Result<Option<i32>, FbError> {
+    pub fn fetch(&mut self) -> Result<Option<Row>, FbError> {
 
         unsafe {
             
@@ -200,9 +202,11 @@ impl StatementFetch {
             
             libc::free(status as *mut c_void);
 
-            let xcol = (*xsqlda_ptr).sqlvar[0 as usize];
+            let row = Row {
+                stmt_ft: self
+            };
             
-            Ok(Some((*xcol.sqldata) as i32))
+            Ok(Some(row))
         }
     }
 }
@@ -229,6 +233,8 @@ mod test {
             .expect("Error on insert");
         tr.execute_immediate("insert into product (id, name) values (3, 'milk')".to_string())
             .expect("Error on insert");
+        tr.execute_immediate("insert into product (id, name) values (null, 'fail coffee')".to_string())
+            .expect("Error on insert");
         tr.commit()
             .expect("Error on commit the transaction");
 
@@ -242,20 +248,30 @@ mod test {
         let mut rows = stmt.query_simple()
             .expect("Error on query");
 
-        let mut lines_count = 0;
-        loop {
-            let row_op = rows.fetch()
-                .expect("Error on fetch the next row");
-            
-            if let Some(row) = row_op {
-                lines_count = lines_count + 1;
-                println!("{}", row); 
-            } else {
-                break;
-            }
-        }
+        let row = rows.fetch()
+            .expect("Error on fetch the next row")
+            .expect("No more rows");
 
-        assert_eq!(2, lines_count);
+        assert_eq!(2, row.get::<i32>(0).expect("Error on get the first column value"));
+        assert_eq!("coffe".to_string(), row.get::<String>(1).expect("Error on get the second column value"));
+
+        let row = rows.fetch()
+            .expect("Error on fetch the next row")
+            .expect("No more rows");
+
+        assert_eq!(3, row.get::<i32>(0).expect("Error on get the first column value"));
+
+        let row = rows.fetch()
+            .expect("Error on fetch the next row")
+            .expect("No more rows");
+
+        assert!(row.get::<i32>(0).is_err(), "The 3° row have a null value, then should return an error"); // null value
+        assert!(row.get::<Option<i32>>(0).expect("Error on get the first column value").is_none(), "The 3° row have a null value, then should return a None"); // null value
+
+        let row = rows.fetch()
+            .expect("Error on fetch the next row");
+
+        assert!(row.is_none(), "The 4° row dont exists, then should return a None"); // null value
 
         tr.rollback()
             .expect("Error on rollback the transaction");
@@ -315,7 +331,7 @@ mod test {
         let tr = conn.start_transaction()
             .expect("Error on start the transaction");
 
-        tr.execute_immediate("CREATE TABLE product (id int, name varchar(60))".to_string())
+        tr.execute_immediate("CREATE TABLE product (id int, name varchar(60), quantity int)".to_string())
             .expect("Error on create the table user");
 
         tr.commit()
