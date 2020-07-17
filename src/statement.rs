@@ -213,9 +213,9 @@ impl StatementFetch {
 
 /// Implementation of XSQLDA_LENGTH macro
 fn xsqlda_length(size: i16) -> usize {
-    let n = (size - 1) as usize;
-    
-    (mem::size_of::<ibase::XSQLDA>() + n) * mem::size_of::<ibase::XSQLVAR>()
+    let n = (size - 1).max(0) as usize;
+
+    std::mem::size_of::<ibase::XSQLDA>() + (std::mem::size_of::<ibase::XSQLVAR>() * n)
 }
 
 #[cfg(test)]
