@@ -195,7 +195,7 @@ mod test {
         let conn = Connection::open(
             "localhost".into(),
             3050,
-            "/var/lib/firebird/system/test.fdb".into(),
+            "test.fdb".into(),
             "SYSDBA".into(),
             "masterkey".into(),
         )
