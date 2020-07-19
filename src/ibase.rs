@@ -2611,10 +2611,16 @@ extern "C" {
     pub fn isc_close_blob(arg1: *mut ISC_STATUS, arg2: *mut isc_blob_handle) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_commit_retaining(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_tr_handle) -> ISC_STATUS;
+    pub fn isc_commit_retaining(
+        arg1: *mut ISC_STATUS_ARRAY,
+        arg2: *mut isc_tr_handle,
+    ) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_commit_transaction(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_tr_handle) -> ISC_STATUS;
+    pub fn isc_commit_transaction(
+        arg1: *mut ISC_STATUS_ARRAY,
+        arg2: *mut isc_tr_handle,
+    ) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_create_blob(
@@ -2670,7 +2676,8 @@ extern "C" {
     pub fn isc_decode_timestamp(arg1: *const ISC_TIMESTAMP, arg2: *mut ::std::os::raw::c_void);
 }
 extern "C" {
-    pub fn isc_detach_database(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_db_handle) -> ISC_STATUS;
+    pub fn isc_detach_database(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_db_handle)
+        -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_drop_database(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_db_handle) -> ISC_STATUS;
@@ -2964,10 +2971,16 @@ extern "C" {
     ) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_rollback_retaining(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_tr_handle) -> ISC_STATUS;
+    pub fn isc_rollback_retaining(
+        arg1: *mut ISC_STATUS_ARRAY,
+        arg2: *mut isc_tr_handle,
+    ) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_rollback_transaction(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_tr_handle) -> ISC_STATUS;
+    pub fn isc_rollback_transaction(
+        arg1: *mut ISC_STATUS_ARRAY,
+        arg2: *mut isc_tr_handle,
+    ) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_start_multiple(
@@ -3089,7 +3102,10 @@ extern "C" {
     ) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_prepare_transaction(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_tr_handle) -> ISC_STATUS;
+    pub fn isc_prepare_transaction(
+        arg1: *mut ISC_STATUS_ARRAY,
+        arg2: *mut isc_tr_handle,
+    ) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_receive(
