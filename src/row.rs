@@ -116,6 +116,7 @@ impl ColumnAccess for Option<String> {
                 return Ok(None);
             }
 
+            #[allow(clippy::cast_ptr_alignment)]
             let vary = &*(col.sqldata as *const ibase::PARAMVARY); 
             if vary.vary_length == 0 {
                 return Ok(Some("".to_string()));
