@@ -1,8 +1,8 @@
-//!
-//! Rust Firebird Client
-//!
-//! Connection functions
-//!
+//
+// Rust Firebird Client
+//
+// Connection functions
+//
 
 use std::cell::Cell;
 use std::ffi::CString;

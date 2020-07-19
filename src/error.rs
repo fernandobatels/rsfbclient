@@ -1,8 +1,8 @@
-//!
-//! Rust Firebird Client
-//!
-//! Error status
-//!
+//
+// Rust Firebird Client
+//
+// Error status
+//
 
 use std::ffi::CStr;
 use std::mem;

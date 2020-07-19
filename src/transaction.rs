@@ -1,8 +1,8 @@
-//!
-//! Rust Firebird Client
-//!
-//! Transaction functions
-//!
+//
+// Rust Firebird Client
+//
+// Transaction functions
+//
 
 use std::cell::Cell;
 use std::mem;
