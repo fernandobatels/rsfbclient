@@ -378,7 +378,7 @@ mod test {
         tr.execute_immediate(
             "CREATE TABLE product (id int, name varchar(60), quantity int)".to_string(),
         )
-        .expect("Error on create the table user");
+        .expect("Error on create the table product");
 
         tr.commit().expect("Error on commit the transaction");
 
