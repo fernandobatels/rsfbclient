@@ -1,6 +1,6 @@
-//
-// Rust Firebird Client
-//
+//!
+//! Rust Firebird Client
+//!
 
 extern crate libc;
 

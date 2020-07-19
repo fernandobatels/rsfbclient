@@ -1,8 +1,8 @@
-//
-// Rust Firebird Client
-//
-// Representation of a fetched row
-//
+//!
+//! Rust Firebird Client
+//!
+//! Representation of a fetched row
+//!
 
 use std::ffi::CStr;
 use std::result::Result;

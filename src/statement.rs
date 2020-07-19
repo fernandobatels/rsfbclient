@@ -1,8 +1,8 @@
-//
-// Rust Firebird Client
-//
-// Preparation and execution of statements
-//
+//!
+//! Rust Firebird Client
+//!
+//! Preparation and execution of statements
+//!
 
 use std::cell::Cell;
 use std::ffi::CString;
