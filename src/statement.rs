@@ -10,7 +10,7 @@ use std::os::raw::c_short;
 use std::ptr;
 use std::result::Result;
 
-use super::error::FbError;
+use super::status::FbError;
 use super::ibase;
 use super::row::Row;
 use super::transaction::Transaction;

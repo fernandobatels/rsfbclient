@@ -7,7 +7,7 @@
 use std::cell::Cell;
 
 use super::connection::Connection;
-use super::error::FbError;
+use super::status::FbError;
 use super::ibase;
 use super::statement::Statement;
 

@@ -33,7 +33,7 @@ fn main() {
 
     // Second alternative
     {
-        let stmt = tr
+        let mut stmt = tr
             .prepare(SQL_INSERT.to_string())
             .expect("Error on prepare the insert");
 

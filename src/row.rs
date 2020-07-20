@@ -6,7 +6,7 @@
 
 use std::result::Result;
 
-use super::error::FbError;
+use super::status::FbError;
 use super::ibase;
 use super::statement::StatementFetch;
 

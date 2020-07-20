@@ -26,7 +26,7 @@ fn main() {
         .start_transaction()
         .expect("Error on start the transaction");
 
-    let stmt = tr
+    let mut stmt = tr
         .prepare("select col_a, col_b, col_c from test".to_string())
         .expect("Error on prepare the insert");
 
@@ -49,6 +49,9 @@ fn main() {
             break;
         }
     }
+
+    drop(rows);
+    drop(stmt);
 
     tr.commit().expect("Error on commit the transaction");
 

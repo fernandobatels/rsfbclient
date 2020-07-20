@@ -1,16 +1,10 @@
 //!
 //! Rust Firebird Client
 //!
-//! Error status
+//! Status of connetions, transactions...
 //!
 
 use super::ibase;
-
-#[derive(Debug)]
-pub struct FbError {
-    pub msg: String,
-    pub code: i32,
-}
 
 pub struct Status(Box<ibase::ISC_STATUS_ARRAY>);
 
@@ -50,4 +44,10 @@ impl Status {
     pub fn as_mut_ptr(&mut self) -> *mut isize {
         self.0.as_mut_ptr()
     }
+}
+
+#[derive(Debug)]
+pub struct FbError {
+    pub msg: String,
+    pub code: i32,
 }

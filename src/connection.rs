@@ -7,7 +7,7 @@
 use std::cell::{Cell, RefCell};
 use std::ptr;
 
-use super::error::{FbError, Status};
+use super::status::{FbError, Status};
 use super::ibase;
 use super::transaction::Transaction;
 
