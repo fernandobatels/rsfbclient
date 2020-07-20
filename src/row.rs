@@ -4,7 +4,6 @@
 // Representation of a fetched row
 //
 
-use std::ffi::CStr;
 use std::result::Result;
 
 use super::error::FbError;
@@ -121,12 +120,18 @@ impl ColumnAccess for Option<String> {
                 if vary.vary_length == 0 {
                     return Ok(Some("".to_string()));
                 }
+                if vary.vary_length > col.sqllen as u16 {
+                    return Err(FbError {
+                        msg: "Invalid varying length".to_string(),
+                        code: -1,
+                    });
+                }
 
                 // TODO: change the vary_string to a *mut c_char!
-                let str_bytes = &vary.vary_string[0..vary.vary_length as usize];
-                let c_str = CStr::from_bytes_with_nul_unchecked(str_bytes);
+                let str_bytes = vary.vary_string.get_unchecked(0..vary.vary_length as usize);
+                let string = std::str::from_utf8(str_bytes);
 
-                match c_str.to_str() {
+                match string {
                     Ok(st) => Ok(Some(st.to_string())),
                     Err(e) => Err(FbError {
                         code: -1,

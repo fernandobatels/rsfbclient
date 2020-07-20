@@ -4,6 +4,7 @@
 // Preparation and execution of statements
 //
 
+use std::mem;
 use std::os::raw::c_char;
 use std::os::raw::c_short;
 use std::ptr;
@@ -102,9 +103,11 @@ impl<'c, 't> Statement<'c, 't> {
                 let mut xcol = self.xsqlda.get_xsqlvar_mut(col as usize).unwrap();
 
                 // + 2 because varchars need two more bytes to store the size
-                // TODO: Data never dealocated
+                // TODO: Data never deallocated
                 xcol.sqldata = libc::malloc(xcol.sqllen as usize + 2) as *mut c_char;
-                xcol.sqlind = libc::malloc(1) as *mut c_short;
+                xcol.sqldata.write_bytes(0, xcol.sqllen as usize + 2); // Initializes with 0
+                xcol.sqlind = libc::malloc(mem::size_of::<c_short>()) as *mut c_short;
+                xcol.sqldata.write_bytes(0, mem::size_of::<c_short>()); // Initializes with 0
             }
 
             if ibase::isc_dsql_execute(
@@ -252,7 +255,7 @@ mod test {
                 .expect("Error on get the first column value")
         );
         assert_eq!(
-            "coffe".to_string(),
+            "coffee".to_string(),
             row.get::<String>(1)
                 .expect("Error on get the second column value")
         );
@@ -266,6 +269,11 @@ mod test {
             3,
             row.get::<i32>(0)
                 .expect("Error on get the first column value")
+        );
+        assert_eq!(
+            "milk".to_string(),
+            row.get::<String>(1)
+                .expect("Error on get the second column value")
         );
 
         let row = rows
@@ -283,6 +291,11 @@ mod test {
                 .is_none(),
             "The 3° row have a null value, then should return a None"
         ); // null value
+        assert_eq!(
+            "fail coffee".to_string(),
+            row.get::<String>(1)
+                .expect("Error on get the second column value")
+        );
 
         let row = rows.fetch().expect("Error on fetch the next row");
 
