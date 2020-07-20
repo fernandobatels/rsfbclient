@@ -6,15 +6,15 @@
 
 use std::result::Result;
 
-use super::status::FbError;
 use super::ibase;
 use super::statement::StatementFetch;
+use super::status::FbError;
 
-pub struct Row<'c, 't, 's, 'sf> {
-    pub stmt_ft: &'sf StatementFetch<'c, 't, 's>,
+pub struct Row<'c, 't, 's> {
+    pub stmt_ft: &'s StatementFetch<'c, 't>,
 }
 
-impl<'c, 't, 's, 'sf> Row<'c, 't, 's, 'sf> {
+impl<'c, 't, 's> Row<'c, 't, 's> {
     /// Get the column value by the index
     pub fn get<T: ColumnAccess>(&self, idx: usize) -> Result<T, FbError> {
         if idx as i16 >= self.stmt_ft.stmt.xsqlda.sqld {

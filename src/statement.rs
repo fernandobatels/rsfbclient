@@ -10,9 +10,9 @@ use std::os::raw::c_short;
 use std::ptr;
 use std::result::Result;
 
-use super::status::FbError;
 use super::ibase;
 use super::row::Row;
+use super::status::FbError;
 use super::transaction::Transaction;
 use super::xsqlda::XSqlDa;
 
@@ -24,7 +24,7 @@ pub struct Statement<'c, 't> {
 
 impl<'c, 't> Statement<'c, 't> {
     /// Prepare the statement that will be executed
-    pub fn prepare(tr: &'t Transaction<'c>, sql: String) -> Result<Statement<'c, 't>, FbError> {
+    pub fn prepare(tr: &'t Transaction<'c>, sql: &str) -> Result<Statement<'c, 't>, FbError> {
         let mut handle = 0;
         let status = &tr.conn.status;
 
@@ -79,7 +79,7 @@ impl<'c, 't> Statement<'c, 't> {
 
     /// Execute the current statement without parameters
     /// and returns the lines founds
-    pub fn query_simple<'s>(&'s mut self) -> Result<StatementFetch<'c, 't, 's>, FbError> {
+    pub fn query_simple(mut self) -> Result<StatementFetch<'c, 't>, FbError> {
         let status = &self.tr.conn.status;
         let row_count = self.xsqlda.sqld;
 
@@ -126,7 +126,7 @@ impl<'c, 't> Statement<'c, 't> {
     }
 
     /// Execute the statement without returning any row
-    pub fn execute_immediate(tr: &Transaction, sql: String) -> Result<(), FbError> {
+    pub fn execute_immediate(tr: &Transaction, sql: &str) -> Result<(), FbError> {
         let status = &tr.conn.status;
 
         unsafe {
@@ -166,13 +166,13 @@ impl<'c, 't> Drop for Statement<'c, 't> {
     }
 }
 /// Cursor to fetch the results of a statement
-pub struct StatementFetch<'c, 't, 's> {
-    pub(crate) stmt: &'s mut Statement<'c, 't>,
+pub struct StatementFetch<'c, 't> {
+    pub(crate) stmt: Statement<'c, 't>,
 }
 
-impl<'c, 't, 's> StatementFetch<'c, 't, 's> {
+impl<'c, 't> StatementFetch<'c, 't> {
     /// Fetch for the next row
-    pub fn fetch<'sf>(&'sf mut self) -> Result<Option<Row<'c, 't, 's, 'sf>>, FbError> {
+    pub fn fetch<'s>(&'s mut self) -> Result<Option<Row<'c, 't, 's>>, FbError> {
         let status = &self.stmt.tr.conn.status;
 
         let result_fetch = unsafe {
@@ -198,7 +198,7 @@ impl<'c, 't, 's> StatementFetch<'c, 't, 's> {
     }
 }
 
-impl<'c, 't, 's> Drop for StatementFetch<'c, 't, 's> {
+impl<'c, 't> Drop for StatementFetch<'c, 't> {
     fn drop(&mut self) {
         let status = &self.stmt.tr.conn.status;
 
@@ -221,25 +221,20 @@ mod test {
     fn simple_select() {
         let conn = setup();
 
-        let tr = conn
-            .start_transaction()
-            .expect("Error on start the transaction");
-        tr.execute_immediate("insert into product (id, name) values (2, 'coffee')".to_string())
+        let tr = conn.transaction().expect("Error on start the transaction");
+
+        tr.execute_immediate("insert into product (id, name) values (2, 'coffee')")
             .expect("Error on insert");
-        tr.execute_immediate("insert into product (id, name) values (3, 'milk')".to_string())
+        tr.execute_immediate("insert into product (id, name) values (3, 'milk')")
             .expect("Error on insert");
-        tr.execute_immediate(
-            "insert into product (id, name) values (null, 'fail coffee')".to_string(),
-        )
-        .expect("Error on insert");
+        tr.execute_immediate("insert into product (id, name) values (null, 'fail coffee')")
+            .expect("Error on insert");
         tr.commit().expect("Error on commit the transaction");
 
-        let tr = conn
-            .start_transaction()
-            .expect("Error on start the transaction");
+        let tr = conn.transaction().expect("Error on start the transaction");
 
-        let mut stmt = tr
-            .prepare("select id, name from product".to_string())
+        let stmt = tr
+            .prepare("select id, name from product")
             .expect("Error on prepare the select");
 
         let mut rows = stmt.query_simple().expect("Error on query");
@@ -306,8 +301,6 @@ mod test {
 
         drop(rows);
 
-        drop(stmt);
-
         tr.rollback().expect("Error on rollback the transaction");
 
         conn.close().expect("error on close the connection");
@@ -317,12 +310,10 @@ mod test {
     fn prepared_insert() {
         let conn = setup();
 
-        let tr = conn
-            .start_transaction()
-            .expect("Error on start the transaction");
+        let tr = conn.transaction().expect("Error on start the transaction");
 
         let mut stmt = tr
-            .prepare("insert into product (id, name) values (1, 'apple')".to_string())
+            .prepare("insert into product (id, name) values (1, 'apple')")
             .expect("Error on prepare");
 
         stmt.execute_simple().expect("Error on execute");
@@ -338,14 +329,12 @@ mod test {
     fn normal_insert() {
         let conn = setup();
 
-        let tr = conn
-            .start_transaction()
-            .expect("Error on start the transaction");
+        let tr = conn.transaction().expect("Error on start the transaction");
 
-        tr.execute_immediate("insert into product (id, name) values (1, 'apple')".to_string())
+        tr.execute_immediate("insert into product (id, name) values (1, 'apple')")
             .expect("Error on 1° insert");
 
-        tr.execute_immediate("insert into product (id, name) values (2, 'coffee')".to_string())
+        tr.execute_immediate("insert into product (id, name) values (2, 'coffee')")
             .expect("Error on 2° insert");
 
         tr.commit().expect("Error on commit the transaction");
@@ -354,19 +343,13 @@ mod test {
     }
 
     fn setup() -> Connection {
-        Connection::recreate_local("test.fdb".to_string())
-            .expect("Error on recreate the test database");
-        let conn = Connection::open_local("test.fdb".to_string())
-            .expect("Error on connect the test database");
+        Connection::recreate_local("test.fdb").expect("Error on recreate the test database");
+        let conn = Connection::open_local("test.fdb").expect("Error on connect the test database");
 
-        let tr = conn
-            .start_transaction()
-            .expect("Error on start the transaction");
+        let tr = conn.transaction().expect("Error on start the transaction");
 
-        tr.execute_immediate(
-            "CREATE TABLE product (id int, name varchar(60), quantity int)".to_string(),
-        )
-        .expect("Error on create the table product");
+        tr.execute_immediate("CREATE TABLE product (id int, name varchar(60), quantity int)")
+            .expect("Error on create the table product");
 
         tr.commit().expect("Error on commit the transaction");
 

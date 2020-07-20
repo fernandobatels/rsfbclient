@@ -7,8 +7,8 @@
 use std::cell::{Cell, RefCell};
 use std::ptr;
 
-use super::status::{FbError, Status};
 use super::ibase;
+use super::status::{FbError, Status};
 use super::transaction::Transaction;
 
 pub struct Connection {
@@ -19,11 +19,11 @@ pub struct Connection {
 impl Connection {
     /// Open a new connection to the remote database
     pub fn open(
-        host: String,
+        host: &str,
         port: u16,
-        db_name: String,
-        user: String,
-        pass: String,
+        db_name: &str,
+        user: &str,
+        pass: &str,
     ) -> Result<Connection, FbError> {
         let handle = Cell::new(0);
         let status: RefCell<Status> = Default::default();
@@ -71,7 +71,7 @@ impl Connection {
     }
 
     /// Open a new connection to the local database
-    pub fn open_local(db_name: String) -> Result<Connection, FbError> {
+    pub fn open_local(db_name: &str) -> Result<Connection, FbError> {
         let handle = Cell::new(0);
         let status: RefCell<Status> = Default::default();
 
@@ -96,7 +96,7 @@ impl Connection {
     }
 
     /// Create a new local database
-    pub fn create_local(db_name: String) -> Result<(), FbError> {
+    pub fn create_local(db_name: &str) -> Result<(), FbError> {
         let local = Connection {
             handle: Cell::new(0),
             status: Default::default(),
@@ -109,7 +109,7 @@ impl Connection {
 
         let sql = format!("create database \"{}\"", db_name);
 
-        if let Err(e) = local_tr.execute_immediate(sql) {
+        if let Err(e) = local_tr.execute_immediate(&sql) {
             return Err(e);
         }
 
@@ -131,8 +131,8 @@ impl Connection {
     }
 
     // Drop the database, if exists, and create a new empty
-    pub fn recreate_local(db_name: String) -> Result<(), FbError> {
-        if let Ok(conn) = Self::open_local(db_name.clone()) {
+    pub fn recreate_local(db_name: &str) -> Result<(), FbError> {
+        if let Ok(conn) = Self::open_local(db_name) {
             if let Err(e) = conn.drop_database() {
                 return Err(e);
             }
@@ -159,7 +159,8 @@ impl Connection {
         Ok(())
     }
 
-    pub fn start_transaction(&self) -> Result<Transaction, FbError> {
+    /// Starts a new transaction
+    pub fn transaction(&self) -> Result<Transaction, FbError> {
         Transaction::start_transaction(self)
     }
 }
@@ -187,25 +188,17 @@ mod test {
 
     #[test]
     fn local_connection() {
-        Connection::recreate_local("test.fdb".to_string())
-            .expect("Error on recreate the test database");
+        Connection::recreate_local("test.fdb").expect("Error on recreate the test database");
 
-        let conn = Connection::open_local("test.fdb".to_string())
-            .expect("Error on connect the test database");
+        let conn = Connection::open_local("test.fdb").expect("Error on connect the test database");
 
         conn.close().expect("error on close the connection");
     }
 
     #[test]
     fn remote_connection() {
-        let conn = Connection::open(
-            "localhost".into(),
-            3050,
-            "test.fdb".into(),
-            "SYSDBA".into(),
-            "masterkey".into(),
-        )
-        .expect("Error connecting to the test database");
+        let conn = Connection::open("localhost", 3050, "test.fdb", "SYSDBA", "masterkey")
+            .expect("Error connecting to the test database");
 
         conn.close().expect("error closing the connection");
     }
