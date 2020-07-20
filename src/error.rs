@@ -4,11 +4,6 @@
 // Error status
 //
 
-use std::ffi::CStr;
-use std::mem;
-use std::os::raw::c_char;
-use std::os::raw::c_void;
-
 use super::ibase;
 
 #[derive(Debug)]
@@ -17,27 +12,42 @@ pub struct FbError {
     pub code: i32,
 }
 
-impl FbError {
-    pub unsafe fn from_status(mut status: *mut ibase::ISC_STATUS_ARRAY) -> FbError {
-        let code = ibase::isc_sqlcode(status);
-        let mut msg = String::new();
-        let c_msg: *mut c_char = libc::malloc(1024 * mem::size_of::<c_char>()) as *mut c_char;
+pub struct Status(Box<ibase::ISC_STATUS_ARRAY>);
 
-        while ibase::fb_interpret(c_msg, 1024, &mut status) != 0 {
-            let s_str = CStr::from_ptr(c_msg)
-                .to_str()
-                .expect("Error on decode the error message")
-                .to_string();
+impl Default for Status {
+    fn default() -> Self {
+        Status(Box::new([0; 20]))
+    }
+}
 
-            msg.push_str(&s_str);
-            msg.push('\n');
+impl Status {
+    pub fn sql_code(&self) -> i32 {
+        unsafe { ibase::isc_sqlcode(self.0.as_ptr()) }
+    }
+
+    pub fn message(&self) -> String {
+        let mut buffer: Vec<u8> = Vec::with_capacity(256);
+
+        unsafe {
+            let len = ibase::fb_interpret(
+                buffer.as_mut_ptr() as _,
+                buffer.capacity() as _,
+                &mut self.0.as_ptr(),
+            );
+            buffer.set_len(len as usize);
         }
 
-        libc::free(c_msg as *mut c_void);
+        String::from_utf8(buffer).unwrap_or_else(|_| "Invalid error message".into())
+    }
 
+    pub fn as_error(&self) -> FbError {
         FbError {
-            code: code,
-            msg: msg,
+            code: self.sql_code(),
+            msg: self.message(),
         }
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut isize {
+        self.0.as_mut_ptr()
     }
 }

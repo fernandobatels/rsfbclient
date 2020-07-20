@@ -5,43 +5,41 @@
 //
 
 use std::cell::Cell;
-use std::mem;
-use std::os::raw::c_void;
-use std::result::Result;
 
 use super::connection::Connection;
 use super::error::FbError;
 use super::ibase;
 use super::statement::Statement;
 
-pub struct Transaction<'a> {
-    pub handle: Cell<ibase::isc_tr_handle>,
-    pub conn: &'a Connection,
+pub struct Transaction<'c> {
+    pub(crate) handle: Cell<ibase::isc_tr_handle>,
+    pub(crate) conn: &'c Connection,
 }
 
-impl<'a> Transaction<'a> {
+impl<'c> Transaction<'c> {
     /// Start a new transaction
     pub fn start_transaction(conn: &Connection) -> Result<Transaction, FbError> {
-        let handle = Cell::new(0 as u32);
+        let handle = Cell::new(0);
+        let status = &conn.status;
 
         unsafe {
-            let handle_ptr = handle.as_ptr();
-            let conn_handle_ptr = conn.handle.as_ptr();
-
-            let status: *mut ibase::ISC_STATUS_ARRAY =
-                libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>())
-                    as *mut ibase::ISC_STATUS_ARRAY;
-            if ibase::isc_start_transaction(status, handle_ptr, 1, conn_handle_ptr, 0) != 0 {
-                return Err(FbError::from_status(status));
+            if ibase::isc_start_transaction(
+                status.borrow_mut().as_mut_ptr(),
+                handle.as_ptr(),
+                1,
+                conn.handle.as_ptr(),
+                0,
+                0,
+            ) != 0
+            {
+                return Err(status.borrow().as_error());
             }
-
-            libc::free(status as *mut c_void);
         }
 
-        Ok(Transaction {
-            handle: handle,
-            conn: conn,
-        })
+        // Assert that the handle is valid
+        debug_assert_ne!(handle.get(), 0);
+
+        Ok(Transaction { handle, conn })
     }
 
     /// Commit the current transaction changes
@@ -62,5 +60,22 @@ impl<'a> Transaction<'a> {
     /// Prepare a new statement for execute
     pub fn prepare(&self, sql: String) -> Result<Statement, FbError> {
         Statement::prepare(self, sql)
+    }
+}
+
+impl<'c> Drop for Transaction<'c> {
+    fn drop(&mut self) {
+        // Rollback the transaction, if the handle is valid
+        if self.handle.get() != 0 {
+            unsafe {
+                ibase::isc_rollback_transaction(
+                    self.conn.status.borrow_mut().as_mut_ptr(),
+                    self.handle.as_ptr(),
+                );
+            }
+        }
+
+        // Assert that the handle is invalid
+        debug_assert_eq!(self.handle.get(), 0);
     }
 }

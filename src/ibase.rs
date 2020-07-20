@@ -2445,7 +2445,7 @@ pub type PARAMDSC = paramdsc;
 #[derive(Debug, Copy, Clone)]
 pub struct paramvary {
     pub vary_length: ISC_USHORT,
-    pub vary_string: [ISC_UCHAR; 32usize],
+    pub vary_string: [ISC_UCHAR; 1usize],
 }
 pub type PARAMVARY = paramvary;
 #[repr(C)]
@@ -2474,11 +2474,11 @@ pub struct XSQLDA {
     pub sqldabc: ISC_LONG,
     pub sqln: ISC_SHORT,
     pub sqld: ISC_SHORT,
-    pub sqlvar: [XSQLVAR; 32usize],
+    pub sqlvar: [XSQLVAR; 1usize],
 }
 extern "C" {
     pub fn isc_attach_database(
-        arg1: *mut ISC_STATUS_ARRAY,
+        arg1: *mut ISC_STATUS,
         arg2: ::std::os::raw::c_short,
         arg3: *const ISC_SCHAR,
         arg4: *mut isc_db_handle,
@@ -2611,16 +2611,10 @@ extern "C" {
     pub fn isc_close_blob(arg1: *mut ISC_STATUS, arg2: *mut isc_blob_handle) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_commit_retaining(
-        arg1: *mut ISC_STATUS_ARRAY,
-        arg2: *mut isc_tr_handle,
-    ) -> ISC_STATUS;
+    pub fn isc_commit_retaining(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_commit_transaction(
-        arg1: *mut ISC_STATUS_ARRAY,
-        arg2: *mut isc_tr_handle,
-    ) -> ISC_STATUS;
+    pub fn isc_commit_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_create_blob(
@@ -2676,29 +2670,28 @@ extern "C" {
     pub fn isc_decode_timestamp(arg1: *const ISC_TIMESTAMP, arg2: *mut ::std::os::raw::c_void);
 }
 extern "C" {
-    pub fn isc_detach_database(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_db_handle)
-        -> ISC_STATUS;
+    pub fn isc_detach_database(arg1: *mut ISC_STATUS, arg2: *mut isc_db_handle) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_drop_database(arg1: *mut ISC_STATUS_ARRAY, arg2: *mut isc_db_handle) -> ISC_STATUS;
+    pub fn isc_drop_database(arg1: *mut ISC_STATUS, arg2: *mut isc_db_handle) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_dsql_allocate_statement(
-        arg1: *mut ISC_STATUS_ARRAY,
+        arg1: *mut ISC_STATUS,
         arg2: *mut isc_db_handle,
         arg3: *mut isc_stmt_handle,
     ) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_dsql_alloc_statement2(
-        arg1: *mut ISC_STATUS_ARRAY,
+        arg1: *mut ISC_STATUS,
         arg2: *mut isc_db_handle,
         arg3: *mut isc_stmt_handle,
     ) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_dsql_describe(
-        arg1: *mut ISC_STATUS_ARRAY,
+        arg1: *mut ISC_STATUS,
         arg2: *mut isc_stmt_handle,
         arg3: ::std::os::raw::c_ushort,
         arg4: *mut XSQLDA,
@@ -2706,7 +2699,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_describe_bind(
-        arg1: *mut ISC_STATUS_ARRAY,
+        arg1: *mut ISC_STATUS,
         arg2: *mut isc_stmt_handle,
         arg3: ::std::os::raw::c_ushort,
         arg4: *mut XSQLDA,
@@ -2726,7 +2719,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_execute(
-        arg1: *mut ISC_STATUS_ARRAY,
+        arg1: *mut ISC_STATUS,
         arg2: *mut isc_tr_handle,
         arg3: *mut isc_stmt_handle,
         arg4: ::std::os::raw::c_ushort,
@@ -2745,7 +2738,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_execute_immediate(
-        arg1: *mut ISC_STATUS_ARRAY,
+        arg1: *mut ISC_STATUS,
         arg2: *mut isc_db_handle,
         arg3: *mut isc_tr_handle,
         arg4: ::std::os::raw::c_ushort,
@@ -2756,7 +2749,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_fetch(
-        arg1: *mut ISC_STATUS_ARRAY,
+        arg1: *mut ISC_STATUS,
         arg2: *mut isc_stmt_handle,
         arg3: ::std::os::raw::c_ushort,
         arg4: *const XSQLDA,
@@ -2767,7 +2760,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_free_statement(
-        arg1: *mut ISC_STATUS_ARRAY,
+        arg1: *mut ISC_STATUS,
         arg2: *mut isc_stmt_handle,
         arg3: ::std::os::raw::c_ushort,
     ) -> ISC_STATUS;
@@ -2782,7 +2775,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_dsql_prepare(
-        arg1: *mut ISC_STATUS_ARRAY,
+        arg1: *mut ISC_STATUS,
         arg2: *mut isc_tr_handle,
         arg3: *mut isc_stmt_handle,
         arg4: ::std::os::raw::c_ushort,
@@ -2894,13 +2887,13 @@ extern "C" {
     ) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_interprete(arg1: *mut ISC_SCHAR, arg2: *mut *mut ISC_STATUS_ARRAY) -> ISC_LONG;
+    pub fn isc_interprete(arg1: *mut ISC_SCHAR, arg2: *mut *mut ISC_STATUS) -> ISC_LONG;
 }
 extern "C" {
     pub fn fb_interpret(
         arg1: *mut ISC_SCHAR,
         arg2: ::std::os::raw::c_uint,
-        arg3: *mut *mut ISC_STATUS_ARRAY,
+        arg3: *mut *const ISC_STATUS,
     ) -> ISC_LONG;
 }
 extern "C" {
@@ -2971,16 +2964,10 @@ extern "C" {
     ) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_rollback_retaining(
-        arg1: *mut ISC_STATUS_ARRAY,
-        arg2: *mut isc_tr_handle,
-    ) -> ISC_STATUS;
+    pub fn isc_rollback_retaining(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_rollback_transaction(
-        arg1: *mut ISC_STATUS_ARRAY,
-        arg2: *mut isc_tr_handle,
-    ) -> ISC_STATUS;
+    pub fn isc_rollback_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_start_multiple(
@@ -2992,7 +2979,7 @@ extern "C" {
 }
 extern "C" {
     pub fn isc_start_transaction(
-        arg1: *mut ISC_STATUS_ARRAY,
+        arg1: *mut ISC_STATUS,
         arg2: *mut isc_tr_handle,
         arg3: ::std::os::raw::c_short,
         ...
@@ -3003,7 +2990,7 @@ extern "C" {
         -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_sqlcode(arg1: *const ISC_STATUS_ARRAY) -> ISC_LONG;
+    pub fn isc_sqlcode(arg1: *const ISC_STATUS) -> ISC_LONG;
 }
 extern "C" {
     pub fn isc_sqlcode_s(arg1: *const ISC_STATUS, arg2: *mut ISC_ULONG);
@@ -3102,10 +3089,7 @@ extern "C" {
     ) -> ISC_STATUS;
 }
 extern "C" {
-    pub fn isc_prepare_transaction(
-        arg1: *mut ISC_STATUS_ARRAY,
-        arg2: *mut isc_tr_handle,
-    ) -> ISC_STATUS;
+    pub fn isc_prepare_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
 }
 extern "C" {
     pub fn isc_receive(

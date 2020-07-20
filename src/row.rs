@@ -11,25 +11,26 @@ use super::error::FbError;
 use super::ibase;
 use super::statement::StatementFetch;
 
-pub struct Row<'a> {
-    pub stmt_ft: &'a StatementFetch,
+pub struct Row<'c, 't, 's, 'sf> {
+    pub stmt_ft: &'sf StatementFetch<'c, 't, 's>,
 }
 
-impl<'a> Row<'a> {
+impl<'c, 't, 's, 'sf> Row<'c, 't, 's, 'sf> {
     /// Get the column value by the index
     pub fn get<T: ColumnAccess>(&self, idx: usize) -> Result<T, FbError> {
-        unsafe {
-            let xsqlda_ptr = *self.stmt_ft.xsqlda.as_ptr();
-            if idx as i16 >= (*xsqlda_ptr).sqld {
-                return Err(FbError {
-                    code: -1,
-                    msg: "This index doesn't exists".to_string(),
-                });
-            }
+        if idx as i16 >= self.stmt_ft.stmt.xsqlda.sqld {
+            return err_idx_not_exist();
         }
 
         T::get(self, idx)
     }
+}
+
+fn err_idx_not_exist<T>() -> Result<T, FbError> {
+    Err(FbError {
+        code: -1,
+        msg: "This index doesn't exists".to_string(),
+    })
 }
 
 /// Define the access to the row column
@@ -43,15 +44,18 @@ where
 
 impl ColumnAccess for Option<i32> {
     fn get(row: &Row, idx: usize) -> Result<Option<i32>, FbError> {
-        unsafe {
-            let xsqlda_ptr = *row.stmt_ft.xsqlda.as_ptr();
-            let col = (*xsqlda_ptr).sqlvar[idx];
+        let xsqlda = &row.stmt_ft.stmt.xsqlda;
 
-            if *col.sqlind < 0 {
-                return Ok(None);
+        if let Some(col) = xsqlda.get_xsqlvar(idx) {
+            unsafe {
+                if *col.sqlind < 0 {
+                    return Ok(None);
+                }
+
+                Ok(Some(*col.sqldata as i32))
             }
-
-            Ok(Some(*col.sqldata as i32))
+        } else {
+            err_idx_not_exist()
         }
     }
 }
@@ -72,15 +76,18 @@ impl ColumnAccess for i32 {
 
 impl ColumnAccess for Option<f32> {
     fn get(row: &Row, idx: usize) -> Result<Option<f32>, FbError> {
-        unsafe {
-            let xsqlda_ptr = *row.stmt_ft.xsqlda.as_ptr();
-            let col = (*xsqlda_ptr).sqlvar[idx];
+        let xsqlda = &row.stmt_ft.stmt.xsqlda;
 
-            if *col.sqlind < 0 {
-                return Ok(None);
+        if let Some(col) = xsqlda.get_xsqlvar(idx) {
+            unsafe {
+                if *col.sqlind < 0 {
+                    return Ok(None);
+                }
+
+                Ok(Some(*col.sqldata as f32))
             }
-
-            Ok(Some(*col.sqldata as f32))
+        } else {
+            err_idx_not_exist()
         }
     }
 }
@@ -101,31 +108,34 @@ impl ColumnAccess for f32 {
 
 impl ColumnAccess for Option<String> {
     fn get(row: &Row, idx: usize) -> Result<Option<String>, FbError> {
-        unsafe {
-            let xsqlda_ptr = *row.stmt_ft.xsqlda.as_ptr();
-            let col = (*xsqlda_ptr).sqlvar[idx];
+        let xsqlda = &row.stmt_ft.stmt.xsqlda;
 
-            if *col.sqlind < 0 {
-                return Ok(None);
+        if let Some(col) = xsqlda.get_xsqlvar(idx) {
+            unsafe {
+                if *col.sqlind < 0 {
+                    return Ok(None);
+                }
+
+                #[allow(clippy::cast_ptr_alignment)]
+                let vary = &*(col.sqldata as *const ibase::PARAMVARY);
+                if vary.vary_length == 0 {
+                    return Ok(Some("".to_string()));
+                }
+
+                // TODO: change the vary_string to a *mut c_char!
+                let str_bytes = &vary.vary_string[0..vary.vary_length as usize];
+                let c_str = CStr::from_bytes_with_nul_unchecked(str_bytes);
+
+                match c_str.to_str() {
+                    Ok(st) => Ok(Some(st.to_string())),
+                    Err(e) => Err(FbError {
+                        code: -1,
+                        msg: format!("{}", e),
+                    }),
+                }
             }
-
-            #[allow(clippy::cast_ptr_alignment)]
-            let vary = &*(col.sqldata as *const ibase::PARAMVARY);
-            if vary.vary_length == 0 {
-                return Ok(Some("".to_string()));
-            }
-
-            // TODO: change the vary_string to a *mut c_char!
-            let str_bytes = &vary.vary_string[0..vary.vary_length as usize];
-            let c_str = CStr::from_bytes_with_nul_unchecked(str_bytes);
-
-            match c_str.to_str() {
-                Ok(st) => Ok(Some(st.to_string())),
-                Err(e) => Err(FbError {
-                    code: -1,
-                    msg: format!("{}", e),
-                }),
-            }
+        } else {
+            err_idx_not_exist()
         }
     }
 }
