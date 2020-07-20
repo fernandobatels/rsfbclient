@@ -79,7 +79,7 @@ impl<'c, 't> Statement<'c, 't> {
 
     /// Execute the current statement without parameters
     /// and returns the lines founds
-    pub fn query_simple<'s>(&'s mut self) -> Result<StatementFetch<'c, 't, 's>, FbError> {
+    pub fn query_simple(mut self) -> Result<StatementFetch<'c, 't>, FbError> {
         let status = &self.tr.conn.status;
         let row_count = self.xsqlda.sqld;
 
@@ -166,13 +166,13 @@ impl<'c, 't> Drop for Statement<'c, 't> {
     }
 }
 /// Cursor to fetch the results of a statement
-pub struct StatementFetch<'c, 't, 's> {
-    pub(crate) stmt: &'s mut Statement<'c, 't>,
+pub struct StatementFetch<'c, 't> {
+    pub(crate) stmt: Statement<'c, 't>,
 }
 
-impl<'c, 't, 's> StatementFetch<'c, 't, 's> {
+impl<'c, 't> StatementFetch<'c, 't> {
     /// Fetch for the next row
-    pub fn fetch<'sf>(&'sf mut self) -> Result<Option<Row<'c, 't, 's, 'sf>>, FbError> {
+    pub fn fetch<'s>(&'s mut self) -> Result<Option<Row<'c, 't, 's>>, FbError> {
         let status = &self.stmt.tr.conn.status;
 
         let result_fetch = unsafe {
@@ -198,7 +198,7 @@ impl<'c, 't, 's> StatementFetch<'c, 't, 's> {
     }
 }
 
-impl<'c, 't, 's> Drop for StatementFetch<'c, 't, 's> {
+impl<'c, 't> Drop for StatementFetch<'c, 't> {
     fn drop(&mut self) {
         let status = &self.stmt.tr.conn.status;
 
@@ -233,7 +233,7 @@ mod test {
 
         let tr = conn.transaction().expect("Error on start the transaction");
 
-        let mut stmt = tr
+        let stmt = tr
             .prepare("select id, name from product")
             .expect("Error on prepare the select");
 
@@ -300,8 +300,6 @@ mod test {
         ); // null value
 
         drop(rows);
-
-        drop(stmt);
 
         tr.rollback().expect("Error on rollback the transaction");
 

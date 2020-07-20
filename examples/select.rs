@@ -15,23 +15,21 @@ use rsfbclient::{Connection, FbError};
 fn main() -> Result<(), FbError> {
     let conn = Connection::open("localhost", 3050, "examples.fdb", "SYSDBA", "masterkey")?;
 
+    let tr = conn.transaction()?;
+
+    let mut rows = tr
+        .prepare("select col_a, col_b, col_c from test")?
+        .query_simple()?;
+
     println!("| col_a | col_b | col_c   |");
     println!("| ----- | ----- | ------- |");
-    while let Some(row) = conn
-        .transaction()?
-        .prepare("select col_a, col_b, col_c from test")?
-        .query_simple()?
-        .fetch()?
-    {
+    while let Some(row) = rows.fetch()? {
         let col_a: i32 = row.get(0).expect("Error on get the value from 1° column");
         let col_b: f32 = row.get(1).expect("Error on get the value from 2° column");
         let col_c: String = row.get(2).expect("Error on get the value from 3° column");
 
         println!("| {:^5} | {:^5} | {:7} |", col_a, col_b, col_c);
     }
-
-    // Explicit close is optional
-    conn.close()?;
 
     Ok(())
 }
