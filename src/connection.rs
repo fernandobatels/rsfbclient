@@ -4,19 +4,16 @@
 //! Connection functions
 //!
 
-use std::cell::Cell;
-use std::ffi::CString;
-use std::mem;
-use std::os::raw::c_void;
+use std::cell::{Cell, RefCell};
 use std::ptr;
-use std::result::Result;
 
-use super::error::FbError;
+use super::error::{FbError, Status};
 use super::ibase;
 use super::transaction::Transaction;
 
 pub struct Connection {
-    pub handle: Cell<ibase::isc_db_handle>,
+    pub(crate) handle: Cell<ibase::isc_db_handle>,
+    pub(crate) status: RefCell<Status>,
 }
 
 impl Connection {
@@ -28,7 +25,8 @@ impl Connection {
         user: String,
         pass: String,
     ) -> Result<Connection, FbError> {
-        let handle = Cell::new(0 as u32);
+        let handle = Cell::new(0);
+        let status: RefCell<Status> = Default::default();
 
         let dpb = {
             let mut dpb: Vec<u8> = Vec::with_capacity(64);
@@ -52,11 +50,9 @@ impl Connection {
 
         let conn_string = format!("{}/{}:{}", host, port, db_name);
 
-        let mut status: ibase::ISC_STATUS_ARRAY = [0; 20];
-
         unsafe {
             if ibase::isc_attach_database(
-                &mut status,
+                status.borrow_mut().as_mut_ptr(),
                 conn_string.len() as i16,
                 conn_string.as_ptr() as *const i8,
                 handle.as_ptr(),
@@ -64,53 +60,50 @@ impl Connection {
                 dpb.as_ptr() as *const i8,
             ) != 0
             {
-                return Err(FbError::from_status(status.as_mut_ptr() as _));
+                return Err(status.borrow().as_error());
             }
         }
 
         // Assert that the handle is valid
         debug_assert_ne!(handle.get(), 0);
 
-        Ok(Connection { handle })
+        Ok(Connection { handle, status })
     }
 
     /// Open a new connection to the local database
     pub fn open_local(db_name: String) -> Result<Connection, FbError> {
-        let handle = Cell::new(0 as u32);
+        let handle = Cell::new(0);
+        let status: RefCell<Status> = Default::default();
 
         unsafe {
-            let c_db_name = match CString::new(db_name) {
-                Ok(c) => c.into_raw(),
-                Err(e) => {
-                    return Err(FbError {
-                        code: -1,
-                        msg: e.to_string(),
-                    })
-                }
-            };
-
-            let status: *mut ibase::ISC_STATUS_ARRAY =
-                libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>())
-                    as *mut ibase::ISC_STATUS_ARRAY;
-            let handle_ptr = handle.as_ptr();
-            if ibase::isc_attach_database(status, 0, c_db_name, handle_ptr, 0, ptr::null()) != 0 {
-                return Err(FbError::from_status(status));
+            if ibase::isc_attach_database(
+                status.borrow_mut().as_mut_ptr(),
+                db_name.len() as i16,
+                db_name.as_ptr() as *const i8,
+                handle.as_ptr(),
+                0,
+                ptr::null(),
+            ) != 0
+            {
+                return Err(status.borrow().as_error());
             }
-
-            libc::free(status as *mut c_void);
         }
 
-        Ok(Connection { handle })
+        // Assert that the handle is valid
+        debug_assert_ne!(handle.get(), 0);
+
+        Ok(Connection { handle, status })
     }
 
     /// Create a new local database
     pub fn create_local(db_name: String) -> Result<(), FbError> {
         let local = Connection {
-            handle: Cell::new(0 as u32),
+            handle: Cell::new(0),
+            status: Default::default(),
         };
 
         let local_tr = Transaction {
-            handle: Cell::new(0 as u32),
+            handle: Cell::new(0),
             conn: &local,
         };
 
@@ -120,22 +113,18 @@ impl Connection {
             return Err(e);
         }
 
+        drop(local_tr);
         local.close()
     }
 
     /// Drop the current database
     pub fn drop_database(self) -> Result<(), FbError> {
         unsafe {
-            let status: *mut ibase::ISC_STATUS_ARRAY =
-                libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>())
-                    as *mut ibase::ISC_STATUS_ARRAY;
-
-            let handle_ptr = self.handle.as_ptr();
-            if ibase::isc_drop_database(status, handle_ptr) != 0 {
-                return Err(FbError::from_status(status));
+            if ibase::isc_drop_database(self.status.borrow_mut().as_mut_ptr(), self.handle.as_ptr())
+                != 0
+            {
+                return Err(self.status.borrow().as_error());
             }
-
-            libc::free(status as *mut c_void);
         }
 
         Ok(())
@@ -155,23 +144,40 @@ impl Connection {
     /// Close the current connection
     pub fn close(self) -> Result<(), FbError> {
         unsafe {
-            let status: *mut ibase::ISC_STATUS_ARRAY =
-                libc::malloc(mem::size_of::<ibase::ISC_STATUS_ARRAY>())
-                    as *mut ibase::ISC_STATUS_ARRAY;
-
-            let handle_ptr = self.handle.as_ptr();
-            if ibase::isc_detach_database(status, handle_ptr) != 0 {
-                return Err(FbError::from_status(status));
+            if ibase::isc_detach_database(
+                self.status.borrow_mut().as_mut_ptr(),
+                self.handle.as_ptr(),
+            ) != 0
+            {
+                return Err(self.status.borrow().as_error());
             }
-
-            libc::free(status as *mut c_void);
         }
+
+        // Assert that the handle is invalid
+        debug_assert_eq!(self.handle.get(), 0);
 
         Ok(())
     }
 
     pub fn start_transaction(&self) -> Result<Transaction, FbError> {
         Transaction::start_transaction(self)
+    }
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        // Close the connection, if the handle is valid
+        if self.handle.get() != 0 {
+            unsafe {
+                ibase::isc_detach_database(
+                    self.status.borrow_mut().as_mut_ptr(),
+                    self.handle.as_ptr(),
+                );
+            }
+        }
+
+        // Assert that the handle is invalid
+        debug_assert_eq!(self.handle.get(), 0);
     }
 }
 
