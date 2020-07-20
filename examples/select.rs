@@ -13,21 +13,13 @@
 use rsfbclient::Connection;
 
 fn main() {
-    let conn = Connection::open(
-        "localhost".to_string(),
-        3050,
-        "examples.fdb".to_string(),
-        "SYSDBA".to_string(),
-        "masterkey".to_string(),
-    )
-    .expect("Error on connect");
+    let conn = Connection::open("localhost", 3050, "examples.fdb", "SYSDBA", "masterkey")
+        .expect("Error on connect");
 
-    let tr = conn
-        .start_transaction()
-        .expect("Error on start the transaction");
+    let tr = conn.transaction().expect("Error on start the transaction");
 
     let mut stmt = tr
-        .prepare("select col_a, col_b, col_c from test".to_string())
+        .prepare("select col_a, col_b, col_c from test")
         .expect("Error on prepare the insert");
 
     let mut rows = stmt

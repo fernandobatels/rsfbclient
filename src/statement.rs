@@ -24,7 +24,7 @@ pub struct Statement<'c, 't> {
 
 impl<'c, 't> Statement<'c, 't> {
     /// Prepare the statement that will be executed
-    pub fn prepare(tr: &'t Transaction<'c>, sql: String) -> Result<Statement<'c, 't>, FbError> {
+    pub fn prepare(tr: &'t Transaction<'c>, sql: &str) -> Result<Statement<'c, 't>, FbError> {
         let mut handle = 0;
         let status = &tr.conn.status;
 
@@ -126,7 +126,7 @@ impl<'c, 't> Statement<'c, 't> {
     }
 
     /// Execute the statement without returning any row
-    pub fn execute_immediate(tr: &Transaction, sql: String) -> Result<(), FbError> {
+    pub fn execute_immediate(tr: &Transaction, sql: &str) -> Result<(), FbError> {
         let status = &tr.conn.status;
 
         unsafe {
@@ -221,25 +221,20 @@ mod test {
     fn simple_select() {
         let conn = setup();
 
-        let tr = conn
-            .start_transaction()
-            .expect("Error on start the transaction");
-        tr.execute_immediate("insert into product (id, name) values (2, 'coffee')".to_string())
+        let tr = conn.transaction().expect("Error on start the transaction");
+
+        tr.execute_immediate("insert into product (id, name) values (2, 'coffee')")
             .expect("Error on insert");
-        tr.execute_immediate("insert into product (id, name) values (3, 'milk')".to_string())
+        tr.execute_immediate("insert into product (id, name) values (3, 'milk')")
             .expect("Error on insert");
-        tr.execute_immediate(
-            "insert into product (id, name) values (null, 'fail coffee')".to_string(),
-        )
-        .expect("Error on insert");
+        tr.execute_immediate("insert into product (id, name) values (null, 'fail coffee')")
+            .expect("Error on insert");
         tr.commit().expect("Error on commit the transaction");
 
-        let tr = conn
-            .start_transaction()
-            .expect("Error on start the transaction");
+        let tr = conn.transaction().expect("Error on start the transaction");
 
         let mut stmt = tr
-            .prepare("select id, name from product".to_string())
+            .prepare("select id, name from product")
             .expect("Error on prepare the select");
 
         let mut rows = stmt.query_simple().expect("Error on query");
@@ -317,12 +312,10 @@ mod test {
     fn prepared_insert() {
         let conn = setup();
 
-        let tr = conn
-            .start_transaction()
-            .expect("Error on start the transaction");
+        let tr = conn.transaction().expect("Error on start the transaction");
 
         let mut stmt = tr
-            .prepare("insert into product (id, name) values (1, 'apple')".to_string())
+            .prepare("insert into product (id, name) values (1, 'apple')")
             .expect("Error on prepare");
 
         stmt.execute_simple().expect("Error on execute");
@@ -338,14 +331,12 @@ mod test {
     fn normal_insert() {
         let conn = setup();
 
-        let tr = conn
-            .start_transaction()
-            .expect("Error on start the transaction");
+        let tr = conn.transaction().expect("Error on start the transaction");
 
-        tr.execute_immediate("insert into product (id, name) values (1, 'apple')".to_string())
+        tr.execute_immediate("insert into product (id, name) values (1, 'apple')")
             .expect("Error on 1° insert");
 
-        tr.execute_immediate("insert into product (id, name) values (2, 'coffee')".to_string())
+        tr.execute_immediate("insert into product (id, name) values (2, 'coffee')")
             .expect("Error on 2° insert");
 
         tr.commit().expect("Error on commit the transaction");
@@ -354,19 +345,13 @@ mod test {
     }
 
     fn setup() -> Connection {
-        Connection::recreate_local("test.fdb".to_string())
-            .expect("Error on recreate the test database");
-        let conn = Connection::open_local("test.fdb".to_string())
-            .expect("Error on connect the test database");
+        Connection::recreate_local("test.fdb").expect("Error on recreate the test database");
+        let conn = Connection::open_local("test.fdb").expect("Error on connect the test database");
 
-        let tr = conn
-            .start_transaction()
-            .expect("Error on start the transaction");
+        let tr = conn.transaction().expect("Error on start the transaction");
 
-        tr.execute_immediate(
-            "CREATE TABLE product (id int, name varchar(60), quantity int)".to_string(),
-        )
-        .expect("Error on create the table product");
+        tr.execute_immediate("CREATE TABLE product (id int, name varchar(60), quantity int)")
+            .expect("Error on create the table product");
 
         tr.commit().expect("Error on commit the transaction");
 

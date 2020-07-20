@@ -44,21 +44,21 @@ impl<'c> Transaction<'c> {
 
     /// Commit the current transaction changes
     pub fn commit(self) -> Result<(), FbError> {
-        Statement::execute_immediate(&self, "commit;".to_string())
+        Statement::execute_immediate(&self, "commit;")
     }
 
     /// Rollback the current transaction changes
     pub fn rollback(self) -> Result<(), FbError> {
-        Statement::execute_immediate(&self, "rollback;".to_string())
+        Statement::execute_immediate(&self, "rollback;")
     }
 
     /// Execute the statement without returning any row
-    pub fn execute_immediate(&self, sql: String) -> Result<(), FbError> {
+    pub fn execute_immediate(&self, sql: &str) -> Result<(), FbError> {
         Statement::execute_immediate(self, sql)
     }
 
     /// Prepare a new statement for execute
-    pub fn prepare(&self, sql: String) -> Result<Statement, FbError> {
+    pub fn prepare(&self, sql: &str) -> Result<Statement, FbError> {
         Statement::prepare(self, sql)
     }
 }

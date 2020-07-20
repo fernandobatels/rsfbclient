@@ -9,33 +9,22 @@
 
 use rsfbclient::Connection;
 
-const SQL_INSERT: &'static str = "insert into test (col_b, col_c) values (rand(), 'test')";
+const SQL_INSERT: &str = "insert into test (col_b, col_c) values (rand(), 'test')";
 
 fn main() {
-    let conn = Connection::open(
-        "localhost".to_string(),
-        3050,
-        "examples.fdb".to_string(),
-        "SYSDBA".to_string(),
-        "masterkey".to_string(),
-    )
-    .expect("Error on connect");
+    let conn = Connection::open("localhost", 3050, "examples.fdb", "SYSDBA", "masterkey")
+        .expect("Error on connect");
 
-    let tr = conn
-        .start_transaction()
-        .expect("Error on start the transaction");
+    let tr = conn.transaction().expect("Error on start the transaction");
 
     // First alternative
     {
-        tr.execute_immediate(SQL_INSERT.to_string())
-            .expect("Error on insert");
+        tr.execute_immediate(SQL_INSERT).expect("Error on insert");
     }
 
     // Second alternative
     {
-        let mut stmt = tr
-            .prepare(SQL_INSERT.to_string())
-            .expect("Error on prepare the insert");
+        let mut stmt = tr.prepare(SQL_INSERT).expect("Error on prepare the insert");
 
         stmt.execute_simple()
             .expect("Error on execute the prepared insert");
