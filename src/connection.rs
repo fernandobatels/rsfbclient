@@ -7,8 +7,8 @@
 use std::cell::{Cell, RefCell};
 use std::ptr;
 
-use super::status::{FbError, Status};
 use super::ibase;
+use super::status::{FbError, Status};
 use super::transaction::Transaction;
 
 pub struct Connection {

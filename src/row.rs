@@ -6,9 +6,9 @@
 
 use std::result::Result;
 
-use super::status::FbError;
 use super::ibase;
 use super::statement::StatementFetch;
+use super::status::FbError;
 
 pub struct Row<'c, 't, 's, 'sf> {
     pub stmt_ft: &'sf StatementFetch<'c, 't, 's>,

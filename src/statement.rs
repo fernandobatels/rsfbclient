@@ -10,9 +10,9 @@ use std::os::raw::c_short;
 use std::ptr;
 use std::result::Result;
 
-use super::status::FbError;
 use super::ibase;
 use super::row::Row;
+use super::status::FbError;
 use super::transaction::Transaction;
 use super::xsqlda::XSqlDa;
 

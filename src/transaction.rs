@@ -7,9 +7,9 @@
 use std::cell::Cell;
 
 use super::connection::Connection;
-use super::status::FbError;
 use super::ibase;
 use super::statement::Statement;
+use super::status::FbError;
 
 pub struct Transaction<'c> {
     pub(crate) handle: Cell<ibase::isc_tr_handle>,
