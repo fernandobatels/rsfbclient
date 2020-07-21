@@ -4,11 +4,14 @@
 //! Representation of a fetched row
 //!
 
+use std::mem;
+use std::ptr;
 use std::result::Result;
 
 use super::ibase;
 use super::statement::StatementFetch;
-use super::status::FbError;
+use super::status::{err_buffer_len, err_column_null, err_idx_not_exist, err_type_conv, FbError};
+use SqlType::*;
 
 pub struct Row<'c, 't, 's> {
     pub stmt_ft: &'s StatementFetch<'c, 't>,
@@ -16,145 +19,346 @@ pub struct Row<'c, 't, 's> {
 
 impl<'c, 't, 's> Row<'c, 't, 's> {
     /// Get the column value by the index
-    pub fn get<T: ColumnAccess>(&self, idx: usize) -> Result<T, FbError> {
-        if idx as i16 >= self.stmt_ft.stmt.xsqlda.sqld {
-            return err_idx_not_exist();
+    pub fn get<T>(&self, idx: usize) -> Result<T, FbError>
+    where
+        ColumnBuffer: ColumnToVal<T>,
+    {
+        if let Some(col) = self.stmt_ft.buffers.get(idx) {
+            col.to_val()
+        } else {
+            err_idx_not_exist()
         }
+    }
 
-        T::get(self, idx)
+    /// Get the values for all columns
+    pub fn get_all<T>(&self) -> Result<T, FbError>
+    where
+        T: FromRow,
+    {
+        T::try_from(&self.stmt_ft.buffers)
     }
 }
 
-fn err_idx_not_exist<T>() -> Result<T, FbError> {
-    Err(FbError {
-        code: -1,
-        msg: "This index doesn't exists".to_string(),
-    })
+#[derive(Debug, Clone, Copy)]
+pub enum SqlType {
+    Text,
+    Integer,
+    Float,
+    Timestamp,
 }
 
-/// Define the access to the row column
-pub trait ColumnAccess
+#[derive(Debug)]
+/// Allocates memory for a column
+pub struct ColumnBuffer {
+    /// Type of the data for conversion
+    kind: SqlType,
+
+    /// Buffer for the column data
+    buffer: Vec<u8>,
+
+    /// Null indicator
+    nullind: ptr::NonNull<i16>,
+}
+
+impl ColumnBuffer {
+    /// Allocate a buffer from an output (column) XSQLVAR, coercing the data types as necessary
+    pub fn from_xsqlvar(var: &mut ibase::XSQLVAR) -> Result<Self, FbError> {
+        // Remove nullable type indicator
+        let sqltype = var.sqltype & (!1);
+
+        let nullind = ptr::NonNull::new(Box::into_raw(Box::new(0))).unwrap();
+        var.sqlind = nullind.as_ptr();
+
+        let (kind, mut buffer) = match sqltype as u32 {
+            ibase::SQL_TEXT | ibase::SQL_VARYING => {
+                // sqllen + 2 because the two bytes from the varchar length
+                let buffer = vec![0; var.sqllen as usize + 2];
+
+                var.sqltype = ibase::SQL_VARYING as i16 + 1;
+
+                (Text, buffer)
+            }
+
+            ibase::SQL_SHORT | ibase::SQL_LONG | ibase::SQL_INT64 => {
+                var.sqllen = mem::size_of::<i64>() as i16;
+
+                let buffer = vec![0; var.sqllen as usize];
+
+                if var.sqlscale == 0 {
+                    var.sqltype = ibase::SQL_INT64 as i16 + 1;
+
+                    (Integer, buffer)
+                } else {
+                    var.sqlscale = 0;
+                    var.sqltype = ibase::SQL_DOUBLE as i16 + 1;
+
+                    (Float, buffer)
+                }
+            }
+
+            ibase::SQL_FLOAT | ibase::SQL_DOUBLE => {
+                var.sqllen = mem::size_of::<i64>() as i16;
+
+                let buffer = vec![0; var.sqllen as usize];
+
+                var.sqltype = ibase::SQL_DOUBLE as i16 + 1;
+
+                (Float, buffer)
+            }
+
+            ibase::SQL_TIMESTAMP | ibase::SQL_TYPE_DATE | ibase::SQL_TYPE_TIME => {
+                var.sqllen = mem::size_of::<ibase::ISC_TIMESTAMP>() as i16;
+
+                let buffer = vec![0; var.sqllen as usize];
+
+                var.sqltype = ibase::SQL_TIMESTAMP as i16 + 1;
+
+                (Timestamp, buffer)
+            }
+
+            sqltype => {
+                return Err(FbError {
+                    code: -1,
+                    msg: format!("Unsupported column type ({})", sqltype),
+                })
+            }
+        };
+
+        var.sqldata = buffer.as_mut_ptr() as _;
+
+        Ok(ColumnBuffer {
+            kind,
+            buffer,
+            nullind,
+        })
+    }
+}
+
+impl Drop for ColumnBuffer {
+    fn drop(&mut self) {
+        // Drop nullind pointer
+        unsafe { Box::from_raw(self.nullind.as_ptr()) };
+    }
+}
+
+/// Define the conversion from the buffer to a value
+pub trait ColumnToVal<T> {
+    fn to_val(&self) -> Result<T, FbError>
+    where
+        Self: std::marker::Sized;
+}
+
+impl ColumnToVal<String> for ColumnBuffer {
+    fn to_val(&self) -> Result<String, FbError> {
+        if unsafe { *self.nullind.as_ref() } < 0 {
+            return err_column_null("String");
+        }
+
+        match self.kind {
+            Text => varchar_to_string(&self.buffer),
+
+            Integer => integer_from_buffer(&self.buffer).map(|i| i.to_string()),
+
+            Float => float_from_buffer(&self.buffer).map(|f| f.to_string()),
+
+            #[cfg(feature = "date_time")]
+            Timestamp => {
+                crate::date_time::timestamp_from_buffer(&self.buffer).map(|d| d.to_string())
+            }
+
+            #[cfg(not(feature = "date_time"))]
+            Timestamp => Err(FbError {
+                code: -1,
+                msg: "Enable the `date_time` feature to use Timestamp, Date and Time types"
+                    .to_string(),
+            }),
+        }
+    }
+}
+
+impl ColumnToVal<i64> for ColumnBuffer {
+    fn to_val(&self) -> Result<i64, FbError> {
+        if unsafe { *self.nullind.as_ref() } < 0 {
+            return err_column_null("i64");
+        }
+
+        match self.kind {
+            Integer => integer_from_buffer(&self.buffer),
+
+            _ => err_type_conv(self.kind, "i64"),
+        }
+    }
+}
+
+impl ColumnToVal<i32> for ColumnBuffer {
+    fn to_val(&self) -> Result<i32, FbError> {
+        ColumnToVal::<i64>::to_val(self).map(|i| i as i32)
+    }
+}
+
+impl ColumnToVal<f64> for ColumnBuffer {
+    fn to_val(&self) -> Result<f64, FbError> {
+        if unsafe { *self.nullind.as_ref() } < 0 {
+            return err_column_null("f64");
+        }
+
+        match self.kind {
+            Float => float_from_buffer(&self.buffer),
+
+            _ => err_type_conv(self.kind, "f64"),
+        }
+    }
+}
+
+impl ColumnToVal<f32> for ColumnBuffer {
+    fn to_val(&self) -> Result<f32, FbError> {
+        ColumnToVal::<f64>::to_val(self).map(|i| i as f32)
+    }
+}
+
+#[cfg(feature = "date_time")]
+impl ColumnToVal<chrono::NaiveDate> for ColumnBuffer {
+    fn to_val(&self) -> Result<chrono::NaiveDate, FbError> {
+        if unsafe { *self.nullind.as_ref() } < 0 {
+            return err_column_null("NaiveDate");
+        }
+
+        match self.kind {
+            Timestamp => crate::date_time::timestamp_from_buffer(&self.buffer).map(|ts| ts.date()),
+
+            _ => err_type_conv(self.kind, "NaiveDate"),
+        }
+    }
+}
+
+#[cfg(feature = "date_time")]
+impl ColumnToVal<chrono::NaiveTime> for ColumnBuffer {
+    fn to_val(&self) -> Result<chrono::NaiveTime, FbError> {
+        if unsafe { *self.nullind.as_ref() } < 0 {
+            return err_column_null("NaiveTime");
+        }
+
+        match self.kind {
+            Timestamp => crate::date_time::timestamp_from_buffer(&self.buffer).map(|ts| ts.time()),
+
+            _ => err_type_conv(self.kind, "NaiveTime"),
+        }
+    }
+}
+
+#[cfg(feature = "date_time")]
+impl ColumnToVal<chrono::NaiveDateTime> for ColumnBuffer {
+    fn to_val(&self) -> Result<chrono::NaiveDateTime, FbError> {
+        if unsafe { *self.nullind.as_ref() } < 0 {
+            return err_column_null("NaiveDateTime");
+        }
+
+        match self.kind {
+            Timestamp => crate::date_time::timestamp_from_buffer(&self.buffer),
+
+            _ => err_type_conv(self.kind, "NaiveDateTime"),
+        }
+    }
+}
+
+/// Implements for all nullable variants
+impl<T> ColumnToVal<Option<T>> for ColumnBuffer
 where
-    Self: Sized,
+    ColumnBuffer: ColumnToVal<T>,
 {
-    /// Get the value of the row
-    fn get(row: &Row, idx: usize) -> Result<Self, FbError>;
+    fn to_val(&self) -> Result<Option<T>, FbError> {
+        if unsafe { *self.nullind.as_ref() } < 0 {
+            return Ok(None);
+        }
+
+        Ok(Some(self.to_val()?))
+    }
 }
 
-impl ColumnAccess for Option<i32> {
-    fn get(row: &Row, idx: usize) -> Result<Option<i32>, FbError> {
-        let xsqlda = &row.stmt_ft.stmt.xsqlda;
+/// Converts a varchar in a buffer to a String
+fn varchar_to_string(buffer: &[u8]) -> Result<String, FbError> {
+    let len = i16::from_le_bytes([buffer[0], buffer[1]]) as usize;
+    if len > buffer.len() - 2 {
+        return err_buffer_len(len + 2, buffer.len(), "String");
+    }
 
-        if let Some(col) = xsqlda.get_xsqlvar(idx) {
-            unsafe {
-                if *col.sqlind < 0 {
-                    return Ok(None);
-                }
+    std::str::from_utf8(&buffer[2..(len + 2)])
+        .map(|str| str.to_string())
+        .map_err(|_| FbError {
+            code: -1,
+            msg: "Found column with an invalid utf-8 string".to_owned(),
+        })
+}
 
-                Ok(Some(*col.sqldata as i32))
+/// Interprets an integer value from a buffer
+fn integer_from_buffer(buffer: &[u8]) -> Result<i64, FbError> {
+    let len = mem::size_of::<i64>();
+    if buffer.len() < len {
+        return err_buffer_len(len, buffer.len(), "i64");
+    }
+
+    Ok(i64::from_le_bytes([
+        buffer[0], buffer[1], buffer[2], buffer[3], buffer[0], buffer[1], buffer[2], buffer[3],
+    ]))
+}
+
+/// Interprets a float value from a buffer
+fn float_from_buffer(buffer: &[u8]) -> Result<f64, FbError> {
+    let len = mem::size_of::<f64>();
+    if buffer.len() < len {
+        return err_buffer_len(len, buffer.len(), "f64");
+    }
+
+    Ok(f64::from_le_bytes([
+        buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5], buffer[6], buffer[7],
+    ]))
+}
+
+/// Used to convert the column buffers to tuples
+pub trait FromRow {
+    fn try_from(row: &[ColumnBuffer]) -> Result<Self, FbError>
+    where
+        Self: std::marker::Sized;
+}
+
+/// Generates FromRow implementations for a tuple
+macro_rules! impl_from_row {
+    ($($t: ident),+) => {
+        impl<'a, $($t),+> FromRow for ($($t,)+)
+        where
+            $( ColumnBuffer: ColumnToVal<$t>, )+
+        {
+            fn try_from(row: &[ColumnBuffer]) -> Result<Self, FbError> {
+                let mut iter = row.iter();
+
+                Ok(( $(
+                    ColumnToVal::<$t>::to_val(
+                        iter
+                            .next()
+                            .ok_or_else(|| {
+                                FbError {
+                                    code: -1,
+                                    msg: format!("The sql returned less columns than the {} expected", row.len())
+                                }
+                            })?
+                    )?,
+                )+ ))
             }
-        } else {
-            err_idx_not_exist()
         }
-    }
+    };
 }
 
-impl ColumnAccess for i32 {
-    fn get(row: &Row, idx: usize) -> Result<i32, FbError> {
-        match ColumnAccess::get(row, idx) {
-            Ok(val_op) => {
-                match val_op {
-                    Some(val) => Ok(val),
-                    None => Err(FbError { code: -1, msg: "This is a null value. Use the Option<i32> to safe access this column and avoid errors".to_string() })
-                }
-            },
-            Err(e) => Err(e)
-        }
-    }
+/// Generates FromRow implementations for various tuples
+macro_rules! impls_from_row {
+    ($t: ident) => {
+        impl_from_row!($t);
+    };
+
+    ($t: ident, $($ts: ident),+ ) => {
+        impls_from_row!($($ts),+);
+
+        impl_from_row!($t, $($ts),+);
+    };
 }
 
-impl ColumnAccess for Option<f32> {
-    fn get(row: &Row, idx: usize) -> Result<Option<f32>, FbError> {
-        let xsqlda = &row.stmt_ft.stmt.xsqlda;
-
-        if let Some(col) = xsqlda.get_xsqlvar(idx) {
-            unsafe {
-                if *col.sqlind < 0 {
-                    return Ok(None);
-                }
-
-                Ok(Some(*col.sqldata as f32))
-            }
-        } else {
-            err_idx_not_exist()
-        }
-    }
-}
-
-impl ColumnAccess for f32 {
-    fn get(row: &Row, idx: usize) -> Result<f32, FbError> {
-        match ColumnAccess::get(row, idx) {
-            Ok(val_op) => {
-                match val_op {
-                    Some(val) => Ok(val),
-                    None => Err(FbError { code: -1, msg: "This is a null value. Use the Option<f32> to safe access this column and avoid errors".to_string() })
-                }
-            },
-            Err(e) => Err(e)
-        }
-    }
-}
-
-impl ColumnAccess for Option<String> {
-    fn get(row: &Row, idx: usize) -> Result<Option<String>, FbError> {
-        let xsqlda = &row.stmt_ft.stmt.xsqlda;
-
-        if let Some(col) = xsqlda.get_xsqlvar(idx) {
-            unsafe {
-                if *col.sqlind < 0 {
-                    return Ok(None);
-                }
-
-                #[allow(clippy::cast_ptr_alignment)]
-                let vary = &*(col.sqldata as *const ibase::PARAMVARY);
-                if vary.vary_length == 0 {
-                    return Ok(Some("".to_string()));
-                }
-                if vary.vary_length > col.sqllen as u16 {
-                    return Err(FbError {
-                        msg: "Invalid varying length".to_string(),
-                        code: -1,
-                    });
-                }
-
-                // TODO: change the vary_string to a *mut c_char!
-                let str_bytes = vary.vary_string.get_unchecked(0..vary.vary_length as usize);
-                let string = std::str::from_utf8(str_bytes);
-
-                match string {
-                    Ok(st) => Ok(Some(st.to_string())),
-                    Err(e) => Err(FbError {
-                        code: -1,
-                        msg: format!("{}", e),
-                    }),
-                }
-            }
-        } else {
-            err_idx_not_exist()
-        }
-    }
-}
-
-impl ColumnAccess for String {
-    fn get(row: &Row, idx: usize) -> Result<String, FbError> {
-        match ColumnAccess::get(row, idx) {
-            Ok(val_op) => {
-                match val_op {
-                    Some(val) => Ok(val),
-                    None => Err(FbError { code: -1, msg: "This is a null value. Use the Option<String> to safe access this column and avoid errors".to_string() })
-                }
-            },
-            Err(e) => Err(e)
-        }
-    }
-}
+impls_from_row!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z);

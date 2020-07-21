@@ -4,9 +4,9 @@
 //! Status of connetions, transactions...
 //!
 
-use std::fmt::Display;
+use std::fmt::{Display, Write};
 
-use super::ibase;
+use crate::{ibase, row::SqlType};
 
 pub struct Status(Box<ibase::ISC_STATUS_ARRAY>);
 
@@ -23,17 +23,35 @@ impl Status {
 
     pub fn message(&self) -> String {
         let mut buffer: Vec<u8> = Vec::with_capacity(256);
+        let mut msg = String::new();
 
-        unsafe {
-            let len = ibase::fb_interpret(
-                buffer.as_mut_ptr() as _,
-                buffer.capacity() as _,
-                &mut self.0.as_ptr(),
-            );
-            buffer.set_len(len as usize);
+        let mut ptr = self.0.as_ptr();
+
+        loop {
+            unsafe {
+                let len = ibase::fb_interpret(
+                    buffer.as_mut_ptr() as *mut i8,
+                    buffer.capacity() as u32,
+                    &mut ptr,
+                );
+                buffer.set_len(len as usize);
+            }
+
+            if buffer.is_empty() {
+                break;
+            }
+
+            writeln!(
+                &mut msg,
+                "{}",
+                std::str::from_utf8(&buffer).unwrap_or("Invalid error message")
+            )
+            .unwrap();
         }
+        // Remove the last \n
+        msg.pop();
 
-        String::from_utf8(buffer).unwrap_or_else(|_| "Invalid error message".into())
+        msg
     }
 
     pub fn as_error(&self) -> FbError {
@@ -61,3 +79,37 @@ impl Display for FbError {
 }
 
 impl std::error::Error for FbError {}
+
+pub fn err_idx_not_exist<T>() -> Result<T, FbError> {
+    Err(FbError {
+        code: -1,
+        msg: "This index doesn't exists".to_string(),
+    })
+}
+
+pub fn err_column_null<T>(type_name: &str) -> Result<T, FbError> {
+    Err(FbError {
+        code: -1,
+        msg: format!(
+            "This is a null value. Use the Option<{}> to safe access this column and avoid errors",
+            type_name
+        ),
+    })
+}
+
+pub fn err_type_conv<T>(from: SqlType, to: &str) -> Result<T, FbError> {
+    Err(FbError {
+        code: -1,
+        msg: format!("Can't convert {:?} column to {}", from, to),
+    })
+}
+
+pub fn err_buffer_len<T>(expected: usize, found: usize, type_name: &str) -> Result<T, FbError> {
+    Err(FbError {
+        code: -1,
+        msg: format!(
+            "Invalid buffer size for type {:?} (expected: {}, found: {})",
+            type_name, expected, found
+        ),
+    })
+}

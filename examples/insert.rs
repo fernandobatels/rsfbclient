@@ -9,7 +9,7 @@
 
 use rsfbclient::{Connection, FbError};
 
-const SQL_INSERT: &str = "insert into test (col_b, col_c) values (rand(), 'test')";
+const SQL_INSERT: &str = "insert into test (col_b, col_c) values (?, ?)";
 
 fn main() -> Result<(), FbError> {
     let conn = Connection::open("localhost", 3050, "examples.fdb", "SYSDBA", "masterkey")?;
@@ -18,15 +18,15 @@ fn main() -> Result<(), FbError> {
 
     // First alternative
     {
-        tr.execute_immediate(SQL_INSERT)?;
+        tr.execute_immediate(SQL_INSERT, (-39, "test"))?;
     }
 
     // Second alternative
     {
         let mut stmt = tr.prepare(SQL_INSERT)?;
 
-        stmt.execute_simple()?;
-        stmt.execute_simple()?;
+        stmt.execute((-39, "test"))?;
+        stmt.execute((12, "test 2"))?;
     }
 
     tr.commit()?;

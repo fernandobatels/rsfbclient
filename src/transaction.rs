@@ -8,6 +8,7 @@ use std::cell::Cell;
 
 use super::connection::Connection;
 use super::ibase;
+use super::params::IntoParams;
 use super::statement::Statement;
 use super::status::FbError;
 
@@ -44,17 +45,20 @@ impl<'c> Transaction<'c> {
 
     /// Commit the current transaction changes
     pub fn commit(self) -> Result<(), FbError> {
-        Statement::execute_immediate(&self, "commit;")
+        Statement::execute_immediate(&self, "commit;", ())
     }
 
     /// Rollback the current transaction changes
     pub fn rollback(self) -> Result<(), FbError> {
-        Statement::execute_immediate(&self, "rollback;")
+        Statement::execute_immediate(&self, "rollback;", ())
     }
 
     /// Execute the statement without returning any row
-    pub fn execute_immediate(&self, sql: &str) -> Result<(), FbError> {
-        Statement::execute_immediate(self, sql)
+    pub fn execute_immediate<T>(&self, sql: &str, params: T) -> Result<(), FbError>
+    where
+        T: IntoParams,
+    {
+        Statement::execute_immediate(self, sql, params)
     }
 
     /// Prepare a new statement for execute

@@ -4,13 +4,11 @@
 //! Preparation and execution of statements
 //!
 
-use std::mem;
-use std::os::raw::c_char;
-use std::os::raw::c_short;
-use std::ptr;
-use std::result::Result;
-
 use super::ibase;
+use super::params::IntoParams;
+use super::params::Params;
+use super::row::ColumnBuffer;
+use super::row::FromRow;
 use super::row::Row;
 use super::status::FbError;
 use super::transaction::Transaction;
@@ -46,7 +44,7 @@ impl<'c, 't> Statement<'c, 't> {
                 &mut handle,
                 sql.len() as u16,
                 sql.as_ptr() as *const i8,
-                1, // TODO: Add a way to select the dialect (1, 2 or 3)
+                3, // TODO: Add a way to select the dialect (1, 2 or 3)
                 &mut *xsqlda,
             ) != 0
             {
@@ -59,15 +57,25 @@ impl<'c, 't> Statement<'c, 't> {
 
     /// Execute the current statement without parameters
     pub fn execute_simple(&mut self) -> Result<(), FbError> {
+        self.execute(())
+    }
+
+    /// Execute the current statement with parameters
+    pub fn execute<T>(&mut self, params: T) -> Result<(), FbError>
+    where
+        T: IntoParams,
+    {
         let status = &self.tr.conn.status;
+
+        let params = Params::new(self, params.to_params())?;
 
         unsafe {
             if ibase::isc_dsql_execute(
                 status.borrow_mut().as_mut_ptr(),
                 self.tr.handle.as_ptr(),
                 &mut self.handle,
-                1,
-                &*self.xsqlda,
+                3, // Dialect
+                &*params.xsqlda,
             ) != 0
             {
                 return Err(status.borrow().as_error());
@@ -79,7 +87,16 @@ impl<'c, 't> Statement<'c, 't> {
 
     /// Execute the current statement without parameters
     /// and returns the lines founds
-    pub fn query_simple(mut self) -> Result<StatementFetch<'c, 't>, FbError> {
+    pub fn query_simple(self) -> Result<StatementFetch<'c, 't>, FbError> {
+        self.query(())
+    }
+
+    // Execute the current statement with parameters
+    /// and returns the lines founds
+    pub fn query<T>(mut self, params: T) -> Result<StatementFetch<'c, 't>, FbError>
+    where
+        T: IntoParams,
+    {
         let status = &self.tr.conn.status;
         let row_count = self.xsqlda.sqld;
 
@@ -98,36 +115,49 @@ impl<'c, 't> Statement<'c, 't> {
             {
                 return Err(status.borrow().as_error());
             }
+        }
 
-            for col in 0..self.xsqlda.sqln {
-                let mut xcol = self.xsqlda.get_xsqlvar_mut(col as usize).unwrap();
+        let params = Params::new(&mut self, params.to_params())?;
 
-                // + 2 because varchars need two more bytes to store the size
-                // TODO: Data never deallocated
-                xcol.sqldata = libc::malloc(xcol.sqllen as usize + 2) as *mut c_char;
-                xcol.sqldata.write_bytes(0, xcol.sqllen as usize + 2); // Initializes with 0
-                xcol.sqlind = libc::malloc(mem::size_of::<c_short>()) as *mut c_short;
-                xcol.sqldata.write_bytes(0, mem::size_of::<c_short>()); // Initializes with 0
-            }
-
+        unsafe {
             if ibase::isc_dsql_execute(
                 status.borrow_mut().as_mut_ptr(),
                 self.tr.handle.as_ptr(),
                 &mut self.handle,
                 1,
-                &*self.xsqlda,
+                &*params.xsqlda,
             ) != 0
             {
                 return Err(status.borrow().as_error());
             }
         }
 
-        Ok(StatementFetch { stmt: self })
+        let col_buffers = (0..self.xsqlda.sqln)
+            .map(|col| {
+                let xcol = self.xsqlda.get_xsqlvar_mut(col as usize).unwrap();
+
+                ColumnBuffer::from_xsqlvar(xcol)
+            })
+            .collect::<Result<_, _>>()?;
+
+        Ok(StatementFetch {
+            stmt: self,
+            buffers: col_buffers,
+        })
     }
 
     /// Execute the statement without returning any row
-    pub fn execute_immediate(tr: &Transaction, sql: &str) -> Result<(), FbError> {
+    pub fn execute_immediate<T>(
+        tr: &'t Transaction<'c>,
+        sql: &str,
+        params: T,
+    ) -> Result<(), FbError>
+    where
+        T: IntoParams,
+    {
         let status = &tr.conn.status;
+
+        let params = Params::new_immediate(params.to_params());
 
         unsafe {
             if ibase::isc_dsql_execute_immediate(
@@ -136,8 +166,8 @@ impl<'c, 't> Statement<'c, 't> {
                 tr.handle.as_ptr(),
                 sql.len() as u16,
                 sql.as_ptr() as *const i8,
-                1,
-                ptr::null(),
+                3, // Dialect
+                &*params.xsqlda,
             ) != 0
             {
                 return Err(status.borrow().as_error());
@@ -168,6 +198,7 @@ impl<'c, 't> Drop for Statement<'c, 't> {
 /// Cursor to fetch the results of a statement
 pub struct StatementFetch<'c, 't> {
     pub(crate) stmt: Statement<'c, 't>,
+    pub(crate) buffers: Vec<ColumnBuffer>,
 }
 
 impl<'c, 't> StatementFetch<'c, 't> {
@@ -196,6 +227,36 @@ impl<'c, 't> StatementFetch<'c, 't> {
 
         Ok(Some(row))
     }
+
+    pub fn into_iter<T>(self) -> StatementIter<'c, 't, T>
+    where
+        T: FromRow,
+    {
+        StatementIter {
+            stmt_ft: self,
+            _marker: Default::default(),
+        }
+    }
+}
+
+/// Iterator for the statement results
+pub struct StatementIter<'c, 't, T> {
+    stmt_ft: StatementFetch<'c, 't>,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<'c, 't, 's, T> Iterator for StatementIter<'c, 't, T>
+where
+    T: FromRow,
+{
+    type Item = Result<T, FbError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.stmt_ft
+            .fetch()
+            .and_then(|row| row.map(|row| row.get_all()).transpose())
+            .transpose()
+    }
 }
 
 impl<'c, 't> Drop for StatementFetch<'c, 't> {
@@ -221,17 +282,40 @@ mod test {
     fn simple_select() {
         let conn = setup();
 
-        let tr = conn.transaction().expect("Error on start the transaction");
+        let vals = vec![
+            (Some(2), "coffee".to_string()),
+            (Some(3), "milk".to_string()),
+            (None, "fail coffee".to_string()),
+        ];
 
-        tr.execute_immediate("insert into product (id, name) values (2, 'coffee')")
-            .expect("Error on insert");
-        tr.execute_immediate("insert into product (id, name) values (3, 'milk')")
-            .expect("Error on insert");
-        tr.execute_immediate("insert into product (id, name) values (null, 'fail coffee')")
-            .expect("Error on insert");
+        let tr = conn.transaction().expect("Error on start the transaction");
+        let mut stmt = tr
+            .prepare("insert into product (id, name) values (?, ?)")
+            .expect("Error preparing the insert statement");
+
+        for val in &vals {
+            stmt.execute(val.clone()).expect("Error on insert");
+        }
+
+        drop(stmt);
+
         tr.commit().expect("Error on commit the transaction");
 
         let tr = conn.transaction().expect("Error on start the transaction");
+
+        let stmt = tr
+            .prepare("select id, name from product")
+            .expect("Error on prepare the select");
+
+        let rows: Vec<(Option<i32>, String)> = stmt
+            .query_simple()
+            .expect("Error on query")
+            .into_iter()
+            .collect::<Result<_, _>>()
+            .expect("Error on fetch");
+
+        // Asserts that all values are equal
+        assert_eq!(vals, rows);
 
         let stmt = tr
             .prepare("select id, name from product")
@@ -310,13 +394,17 @@ mod test {
     fn prepared_insert() {
         let conn = setup();
 
+        let vals = vec![(Some(9), "apple"), (Some(12), "jack"), (None, "coffee")];
+
         let tr = conn.transaction().expect("Error on start the transaction");
 
         let mut stmt = tr
-            .prepare("insert into product (id, name) values (1, 'apple')")
-            .expect("Error on prepare");
+            .prepare("insert into product (id, name) values (?, ?)")
+            .expect("Error preparing the insert statement");
 
-        stmt.execute_simple().expect("Error on execute");
+        for val in vals.into_iter() {
+            stmt.execute(val).expect("Error on insert");
+        }
 
         drop(stmt);
 
@@ -331,10 +419,10 @@ mod test {
 
         let tr = conn.transaction().expect("Error on start the transaction");
 
-        tr.execute_immediate("insert into product (id, name) values (1, 'apple')")
+        tr.execute_immediate("insert into product (id, name) values (?, ?)", (1, "apple"))
             .expect("Error on 1° insert");
 
-        tr.execute_immediate("insert into product (id, name) values (2, 'coffee')")
+        tr.execute_immediate("insert into product (id, name) values (?, ?)", (2, "coffe"))
             .expect("Error on 2° insert");
 
         tr.commit().expect("Error on commit the transaction");
@@ -348,8 +436,11 @@ mod test {
 
         let tr = conn.transaction().expect("Error on start the transaction");
 
-        tr.execute_immediate("CREATE TABLE product (id int, name varchar(60), quantity int)")
-            .expect("Error on create the table product");
+        tr.execute_immediate(
+            "CREATE TABLE product (id int, name varchar(60), quantity int)",
+            (),
+        )
+        .expect("Error on create the table product");
 
         tr.commit().expect("Error on commit the transaction");
 
