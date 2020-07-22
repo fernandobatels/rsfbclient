@@ -107,9 +107,10 @@ impl Connection {
             conn: &local,
         };
 
+        // CREATE DATABASE does not work with parameters
         let sql = format!("create database \"{}\"", db_name);
 
-        if let Err(e) = local_tr.execute_immediate(&sql) {
+        if let Err(e) = local_tr.execute_immediate(&sql, ()) {
             return Err(e);
         }
 
