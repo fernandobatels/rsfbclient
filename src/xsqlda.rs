@@ -33,7 +33,7 @@ impl XSqlDa {
 
     /// Returns a mutable reference to a XSQLVAR
     pub fn get_xsqlvar_mut(&mut self, col: usize) -> Option<&mut ibase::XSQLVAR> {
-        if col < self.sqld as usize {
+        if col < self.len as usize {
             let xsqlvar = unsafe { self.ptr.as_mut().sqlvar.get_unchecked_mut(col as usize) };
 
             Some(xsqlvar)
