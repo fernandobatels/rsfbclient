@@ -1,5 +1,8 @@
 # Rust Firebird Client 
 
+[![Crate](https://img.shields.io/crates/v/rsfbclient.svg)](https://crates.io/crates/rsfbclient)
+[![API](https://docs.rs/rsfbclient/badge.svg)](https://docs.rs/rsfbclient)
+
 Binds to official firebird client lib
 
 ## Goals 
