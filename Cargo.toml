@@ -1,8 +1,8 @@
 [package]
 name = "rsfbclient"
 description = "Binds to official firebird client lib"
-version = "0.0.3"
-authors = ["Luis Fernando Batels <luisfbatels@gmail.com>"]
+version = "0.1.0"
+authors = ["Luis Fernando Batels <luisfbatels@gmail.com>", "Jairo H Wiethan <jairinhowiethan@gmail.com>"]
 edition = "2018"
 repository = "https://github.com/fernandobatels/rsfbclient"
 keywords = ["firebird", "fbclient", "database", "ffi"]
