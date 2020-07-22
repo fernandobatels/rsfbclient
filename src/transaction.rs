@@ -54,6 +54,8 @@ impl<'c> Transaction<'c> {
     }
 
     /// Execute the statement without returning any row
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
     pub fn execute_immediate<T>(&self, sql: &str, params: T) -> Result<(), FbError>
     where
         T: IntoParams,

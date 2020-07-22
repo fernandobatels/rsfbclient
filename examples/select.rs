@@ -19,7 +19,7 @@ fn main() -> Result<(), FbError> {
 
     let rows = tr
         .prepare("select col_a, col_b, col_c from test")?
-        .query_simple()?
+        .query(())?
         .into_iter();
 
     println!("| col_a | col_b | col_c   |");

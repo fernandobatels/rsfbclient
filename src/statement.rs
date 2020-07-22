@@ -55,12 +55,9 @@ impl<'c, 't> Statement<'c, 't> {
         Ok(Statement { handle, xsqlda, tr })
     }
 
-    /// Execute the current statement without parameters
-    pub fn execute_simple(&mut self) -> Result<(), FbError> {
-        self.execute(())
-    }
-
-    /// Execute the current statement with parameters
+    /// Execute the current statement without returnig any row
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
     pub fn execute<T>(&mut self, params: T) -> Result<(), FbError>
     where
         T: IntoParams,
@@ -85,14 +82,10 @@ impl<'c, 't> Statement<'c, 't> {
         Ok(())
     }
 
-    /// Execute the current statement without parameters
+    /// Execute the current statement
     /// and returns the lines founds
-    pub fn query_simple(self) -> Result<StatementFetch<'c, 't>, FbError> {
-        self.query(())
-    }
-
-    // Execute the current statement with parameters
-    /// and returns the lines founds
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
     pub fn query<T>(mut self, params: T) -> Result<StatementFetch<'c, 't>, FbError>
     where
         T: IntoParams,
@@ -147,6 +140,8 @@ impl<'c, 't> Statement<'c, 't> {
     }
 
     /// Execute the statement without returning any row
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
     pub fn execute_immediate<T>(
         tr: &'t Transaction<'c>,
         sql: &str,
@@ -308,7 +303,7 @@ mod test {
             .expect("Error on prepare the select");
 
         let rows: Vec<(Option<i32>, String)> = stmt
-            .query_simple()
+            .query(())
             .expect("Error on query")
             .into_iter()
             .collect::<Result<_, _>>()
@@ -321,7 +316,7 @@ mod test {
             .prepare("select id, name from product")
             .expect("Error on prepare the select");
 
-        let mut rows = stmt.query_simple().expect("Error on query");
+        let mut rows = stmt.query(()).expect("Error on query");
 
         let row = rows
             .fetch()
