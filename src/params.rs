@@ -74,6 +74,7 @@ impl Params {
     }
 }
 
+/// Data for the input XSQLVAR
 pub struct ParamBuffer {
     /// Buffer for the parameter data
     _buffer: Vec<u8>,
@@ -110,12 +111,14 @@ impl Drop for ParamBuffer {
     }
 }
 
+/// Data used to build the input XSQLVAR
 pub struct ParamInfo {
     pub(crate) sqltype: i16,
     pub(crate) buffer: Vec<u8>,
     pub(crate) null: bool,
 }
 
+/// Implemented for types that can be sent as parameters
 pub trait ToParam {
     fn to_info(self) -> ParamInfo;
 }
@@ -206,10 +209,12 @@ where
     }
 }
 
+/// Implemented for types that represents a list of parameters
 pub trait IntoParams {
     fn to_params(self) -> Vec<ParamInfo>;
 }
 
+/// Represents no parameters
 impl IntoParams for () {
     fn to_params(self) -> Vec<ParamInfo> {
         vec![]

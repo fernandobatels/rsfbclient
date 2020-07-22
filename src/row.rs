@@ -13,6 +13,7 @@ use super::statement::StatementFetch;
 use super::status::{err_buffer_len, err_column_null, err_idx_not_exist, err_type_conv, FbError};
 use SqlType::*;
 
+/// A database row
 pub struct Row<'c, 't, 's> {
     pub stmt_ft: &'s StatementFetch<'c, 't>,
 }
@@ -40,10 +41,15 @@ impl<'c, 't, 's> Row<'c, 't, 's> {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Types supported by the crate
 pub enum SqlType {
+    /// Coerces to Varchar
     Text,
+    /// Coerces to Int64
     Integer,
+    /// Coerces to Double
     Float,
+    /// Coerces to Timestamp
     Timestamp,
 }
 
@@ -314,11 +320,21 @@ fn float_from_buffer(buffer: &[u8]) -> Result<f64, FbError> {
     ]))
 }
 
-/// Used to convert the column buffers to tuples
+/// Implemented for types that represents a list of values of columns
 pub trait FromRow {
     fn try_from(row: &[ColumnBuffer]) -> Result<Self, FbError>
     where
         Self: std::marker::Sized;
+}
+
+/// For no columns
+impl FromRow for () {
+    fn try_from(_row: &[ColumnBuffer]) -> Result<Self, FbError>
+    where
+        Self: Sized,
+    {
+        Ok(())
+    }
 }
 
 /// Generates FromRow implementations for a tuple
