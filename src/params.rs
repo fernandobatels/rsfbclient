@@ -1,5 +1,4 @@
 use crate::{ibase, statement::Statement, xsqlda::XSqlDa, FbError};
-use std::ptr;
 
 /// Stores the data needed to send the parameters
 pub struct Params {
@@ -80,7 +79,7 @@ pub struct ParamBuffer {
     _buffer: Vec<u8>,
 
     /// Null indicator
-    nullind: ptr::NonNull<i16>,
+    _nullind: Box<i16>,
 }
 
 impl ParamBuffer {
@@ -88,8 +87,8 @@ impl ParamBuffer {
     pub fn from_parameter(mut info: ParamInfo, var: &mut ibase::XSQLVAR) -> Self {
         let null = if info.null { -1 } else { 0 };
 
-        let nullind = ptr::NonNull::new(Box::into_raw(Box::new(null))).unwrap();
-        var.sqlind = nullind.as_ptr();
+        let mut nullind = Box::new(null);
+        var.sqlind = &mut *nullind;
 
         var.sqltype = info.sqltype;
         var.sqlscale = 0;
@@ -99,15 +98,8 @@ impl ParamBuffer {
 
         ParamBuffer {
             _buffer: info.buffer,
-            nullind,
+            _nullind: nullind,
         }
-    }
-}
-
-impl Drop for ParamBuffer {
-    fn drop(&mut self) {
-        // Drop nullind pointer
-        unsafe { Box::from_raw(self.nullind.as_ptr()) };
     }
 }
 

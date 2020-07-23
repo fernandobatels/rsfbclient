@@ -5,7 +5,6 @@
 //!
 
 use std::mem;
-use std::ptr;
 use std::result::Result;
 
 use super::ibase;
@@ -63,7 +62,7 @@ pub struct ColumnBuffer {
     buffer: Vec<u8>,
 
     /// Null indicator
-    nullind: ptr::NonNull<i16>,
+    nullind: Box<i16>,
 }
 
 impl ColumnBuffer {
@@ -72,8 +71,8 @@ impl ColumnBuffer {
         // Remove nullable type indicator
         let sqltype = var.sqltype & (!1);
 
-        let nullind = ptr::NonNull::new(Box::into_raw(Box::new(0))).unwrap();
-        var.sqlind = nullind.as_ptr();
+        let mut nullind = Box::new(0);
+        var.sqlind = &mut *nullind;
 
         let (kind, mut buffer) = match sqltype as u32 {
             ibase::SQL_TEXT | ibase::SQL_VARYING => {
@@ -140,13 +139,6 @@ impl ColumnBuffer {
     }
 }
 
-impl Drop for ColumnBuffer {
-    fn drop(&mut self) {
-        // Drop nullind pointer
-        unsafe { Box::from_raw(self.nullind.as_ptr()) };
-    }
-}
-
 /// Define the conversion from the buffer to a value
 pub trait ColumnToVal<T> {
     fn to_val(&self) -> Result<T, FbError>
@@ -156,7 +148,7 @@ pub trait ColumnToVal<T> {
 
 impl ColumnToVal<String> for ColumnBuffer {
     fn to_val(&self) -> Result<String, FbError> {
-        if unsafe { *self.nullind.as_ref() } < 0 {
+        if *self.nullind < 0 {
             return err_column_null("String");
         }
 
@@ -184,7 +176,7 @@ impl ColumnToVal<String> for ColumnBuffer {
 
 impl ColumnToVal<i64> for ColumnBuffer {
     fn to_val(&self) -> Result<i64, FbError> {
-        if unsafe { *self.nullind.as_ref() } < 0 {
+        if *self.nullind < 0 {
             return err_column_null("i64");
         }
 
@@ -204,7 +196,7 @@ impl ColumnToVal<i32> for ColumnBuffer {
 
 impl ColumnToVal<f64> for ColumnBuffer {
     fn to_val(&self) -> Result<f64, FbError> {
-        if unsafe { *self.nullind.as_ref() } < 0 {
+        if *self.nullind < 0 {
             return err_column_null("f64");
         }
 
@@ -225,7 +217,7 @@ impl ColumnToVal<f32> for ColumnBuffer {
 #[cfg(feature = "date_time")]
 impl ColumnToVal<chrono::NaiveDate> for ColumnBuffer {
     fn to_val(&self) -> Result<chrono::NaiveDate, FbError> {
-        if unsafe { *self.nullind.as_ref() } < 0 {
+        if *self.nullind < 0 {
             return err_column_null("NaiveDate");
         }
 
@@ -240,7 +232,7 @@ impl ColumnToVal<chrono::NaiveDate> for ColumnBuffer {
 #[cfg(feature = "date_time")]
 impl ColumnToVal<chrono::NaiveTime> for ColumnBuffer {
     fn to_val(&self) -> Result<chrono::NaiveTime, FbError> {
-        if unsafe { *self.nullind.as_ref() } < 0 {
+        if *self.nullind < 0 {
             return err_column_null("NaiveTime");
         }
 
@@ -255,7 +247,7 @@ impl ColumnToVal<chrono::NaiveTime> for ColumnBuffer {
 #[cfg(feature = "date_time")]
 impl ColumnToVal<chrono::NaiveDateTime> for ColumnBuffer {
     fn to_val(&self) -> Result<chrono::NaiveDateTime, FbError> {
-        if unsafe { *self.nullind.as_ref() } < 0 {
+        if *self.nullind < 0 {
             return err_column_null("NaiveDateTime");
         }
 
@@ -273,7 +265,7 @@ where
     ColumnBuffer: ColumnToVal<T>,
 {
     fn to_val(&self) -> Result<Option<T>, FbError> {
-        if unsafe { *self.nullind.as_ref() } < 0 {
+        if *self.nullind < 0 {
             return Ok(None);
         }
 

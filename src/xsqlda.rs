@@ -17,23 +17,23 @@ impl XSqlDa {
         #[allow(clippy::cast_ptr_alignment)]
         let ptr = unsafe { alloc::alloc_zeroed(xsqlda_layout(len)) } as *mut ibase::XSQLDA;
 
-        let mut ptr = if let Some(ptr) = ptr::NonNull::new(ptr) {
+        let ptr = if let Some(ptr) = ptr::NonNull::new(ptr) {
             ptr
         } else {
             alloc::handle_alloc_error(xsqlda_layout(len))
         };
 
-        unsafe {
-            ptr.as_mut().version = ibase::SQLDA_VERSION1 as i16;
-            ptr.as_mut().sqln = len;
-        }
+        let mut xsqlda = Self { ptr, len };
 
-        Self { ptr, len }
+        xsqlda.version = ibase::SQLDA_VERSION1 as i16;
+        xsqlda.sqln = len;
+
+        xsqlda
     }
 
     /// Returns a mutable reference to a XSQLVAR
     pub fn get_xsqlvar_mut(&mut self, col: usize) -> Option<&mut ibase::XSQLVAR> {
-        if col < self.sqld as usize {
+        if col < self.len as usize {
             let xsqlvar = unsafe { self.ptr.as_mut().sqlvar.get_unchecked_mut(col as usize) };
 
             Some(xsqlvar)
