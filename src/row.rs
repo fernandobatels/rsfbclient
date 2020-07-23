@@ -13,11 +13,11 @@ use super::status::{err_buffer_len, err_column_null, err_idx_not_exist, err_type
 use SqlType::*;
 
 /// A database row
-pub struct Row<'c, 't, 's> {
-    pub stmt_ft: &'s StatementFetch<'c, 't>,
+pub struct Row<'a> {
+    pub stmt_ft: &'a StatementFetch<'a>,
 }
 
-impl<'c, 't, 's> Row<'c, 't, 's> {
+impl<'a> Row<'a> {
     /// Get the column value by the index
     pub fn get<T>(&self, idx: usize) -> Result<T, FbError>
     where
