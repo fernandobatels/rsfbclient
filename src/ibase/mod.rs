@@ -4,12 +4,8 @@
 //! fbclient functions and constants
 //!
 
-#[cfg(feature = "dynamic_loading")]
-mod dynamic;
-#[cfg(not(feature = "dynamic_loading"))]
-mod linked;
+mod common;
+mod functions;
 
-#[cfg(feature = "dynamic_loading")]
-pub use dynamic::*;
-#[cfg(not(feature = "dynamic_loading"))]
-pub use linked::*;
+pub use common::*;
+pub use functions::*;

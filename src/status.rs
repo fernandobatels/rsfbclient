@@ -30,7 +30,7 @@ impl Status {
         loop {
             unsafe {
                 let len = ibase::fb_interpret(
-                    buffer.as_mut_ptr() as *mut i8,
+                    buffer.as_mut_ptr() as *mut _,
                     buffer.capacity() as u32,
                     &mut ptr,
                 );

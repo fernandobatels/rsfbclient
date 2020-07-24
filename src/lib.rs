@@ -2,8 +2,6 @@
 //! Rust Firebird Client
 //!
 
-extern crate libc;
-
 mod connection;
 #[cfg(feature = "chrono")]
 mod date_time;

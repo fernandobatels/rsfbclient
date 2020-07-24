@@ -93,7 +93,7 @@ impl ParamBuffer {
         var.sqltype = info.sqltype;
         var.sqlscale = 0;
 
-        var.sqldata = info.buffer.as_mut_ptr() as *mut i8;
+        var.sqldata = info.buffer.as_mut_ptr() as *mut _;
         var.sqllen = info.buffer.len() as i16;
 
         ParamBuffer {

@@ -54,10 +54,10 @@ impl Connection {
             if ibase::isc_attach_database(
                 status.borrow_mut().as_mut_ptr(),
                 conn_string.len() as i16,
-                conn_string.as_ptr() as *const i8,
+                conn_string.as_ptr() as *const _,
                 handle.as_ptr(),
                 dpb.len() as i16,
-                dpb.as_ptr() as *const i8,
+                dpb.as_ptr() as *const _,
             ) != 0
             {
                 return Err(status.borrow().as_error());
@@ -79,7 +79,7 @@ impl Connection {
             if ibase::isc_attach_database(
                 status.borrow_mut().as_mut_ptr(),
                 db_name.len() as i16,
-                db_name.as_ptr() as *const i8,
+                db_name.as_ptr() as *const _,
                 handle.as_ptr(),
                 0,
                 ptr::null(),
