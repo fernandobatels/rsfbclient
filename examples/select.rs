@@ -15,20 +15,22 @@ use rsfbclient::{Connection, FbError};
 fn main() -> Result<(), FbError> {
     let conn = Connection::open("localhost", 3050, "examples.fdb", "SYSDBA", "masterkey")?;
 
-    let tr = conn.transaction()?;
+    conn.with_transaction(|tr| {
+        let rows = tr
+            .prepare("select col_a, col_b, col_c from test")?
+            .query(())?
+            .into_iter();
 
-    let rows = tr
-        .prepare("select col_a, col_b, col_c from test")?
-        .query(())?
-        .into_iter();
+        println!("| col_a | col_b | col_c   |");
+        println!("| ----- | ----- | ------- |");
+        for row in rows {
+            let (col_a, col_b, col_c): (i32, f32, String) = row?;
 
-    println!("| col_a | col_b | col_c   |");
-    println!("| ----- | ----- | ------- |");
-    for row in rows {
-        let (col_a, col_b, col_c): (i32, f32, String) = row?;
+            println!("| {:^5} | {:^5} | {:7} |", col_a, col_b, col_c);
+        }
 
-        println!("| {:^5} | {:^5} | {:7} |", col_a, col_b, col_c);
-    }
+        Ok(())
+    })?;
 
     Ok(())
 }

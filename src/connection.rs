@@ -4,12 +4,12 @@
 //! Connection functions
 //!
 
-use std::cell::{Cell, RefCell};
-use std::ptr;
+use std::{
+    cell::{Cell, RefCell},
+    ptr,
+};
 
-use super::ibase;
-use super::status::{FbError, Status};
-use super::transaction::Transaction;
+use crate::{ibase, FbError, Status, Transaction};
 
 pub struct Connection {
     pub(crate) handle: Cell<ibase::isc_db_handle>,
@@ -158,6 +158,23 @@ impl Connection {
         debug_assert_eq!(self.handle.get(), 0);
 
         Ok(())
+    }
+
+    /// Run a closure with a transaction, if the closure returns an error
+    /// the transaction will rollback, else it will be committed
+    pub fn with_transaction<T>(
+        &self,
+        closure: impl FnOnce(&mut Transaction) -> Result<T, FbError>,
+    ) -> Result<T, FbError> {
+        let mut tr = Transaction::start_transaction(self)?;
+
+        let res = closure(&mut tr);
+
+        if res.is_ok() {
+            tr.commit()?;
+        }
+
+        res
     }
 
     /// Starts a new transaction
