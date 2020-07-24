@@ -14,15 +14,15 @@ use super::status::FbError;
 use super::transaction::Transaction;
 use super::xsqlda::XSqlDa;
 
-pub struct Statement<'c, 't> {
+pub struct Statement<'a> {
     pub(crate) handle: ibase::isc_stmt_handle,
     pub(crate) xsqlda: XSqlDa,
-    pub(crate) tr: &'t Transaction<'c>,
+    pub(crate) tr: &'a Transaction<'a>,
 }
 
-impl<'c, 't> Statement<'c, 't> {
+impl<'a> Statement<'a> {
     /// Prepare the statement that will be executed
-    pub fn prepare(tr: &'t Transaction<'c>, sql: &str) -> Result<Statement<'c, 't>, FbError> {
+    pub fn prepare(tr: &'a Transaction<'a>, sql: &str) -> Result<Self, FbError> {
         let mut handle = 0;
         let status = &tr.conn.status;
 
@@ -86,7 +86,7 @@ impl<'c, 't> Statement<'c, 't> {
     /// and returns the lines founds
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    pub fn query<T>(mut self, params: T) -> Result<StatementFetch<'c, 't>, FbError>
+    pub fn query<T>(mut self, params: T) -> Result<StatementFetch<'a>, FbError>
     where
         T: IntoParams,
     {
@@ -143,7 +143,7 @@ impl<'c, 't> Statement<'c, 't> {
     ///
     /// Use `()` for no parameters or a tuple of parameters
     pub fn execute_immediate<T>(
-        tr: &'t Transaction<'c>,
+        tr: &'a Transaction<'a>,
         sql: &str,
         params: T,
     ) -> Result<(), FbError>
@@ -173,7 +173,7 @@ impl<'c, 't> Statement<'c, 't> {
     }
 }
 
-impl<'c, 't> Drop for Statement<'c, 't> {
+impl<'a> Drop for Statement<'a> {
     fn drop(&mut self) {
         let status = &self.tr.conn.status;
 
@@ -191,14 +191,14 @@ impl<'c, 't> Drop for Statement<'c, 't> {
     }
 }
 /// Cursor to fetch the results of a statement
-pub struct StatementFetch<'c, 't> {
-    pub(crate) stmt: Statement<'c, 't>,
+pub struct StatementFetch<'a> {
+    pub(crate) stmt: Statement<'a>,
     pub(crate) buffers: Vec<ColumnBuffer>,
 }
 
-impl<'c, 't> StatementFetch<'c, 't> {
+impl<'a> StatementFetch<'a> {
     /// Fetch for the next row
-    pub fn fetch<'s>(&'s mut self) -> Result<Option<Row<'c, 't, 's>>, FbError> {
+    pub fn fetch(&mut self) -> Result<Option<Row>, FbError> {
         let status = &self.stmt.tr.conn.status;
 
         let result_fetch = unsafe {
@@ -223,7 +223,7 @@ impl<'c, 't> StatementFetch<'c, 't> {
         Ok(Some(row))
     }
 
-    pub fn into_iter<T>(self) -> StatementIter<'c, 't, T>
+    pub fn into_iter<T>(self) -> StatementIter<'a, T>
     where
         T: FromRow,
     {
@@ -235,12 +235,12 @@ impl<'c, 't> StatementFetch<'c, 't> {
 }
 
 /// Iterator for the statement results
-pub struct StatementIter<'c, 't, T> {
-    stmt_ft: StatementFetch<'c, 't>,
+pub struct StatementIter<'a, T> {
+    stmt_ft: StatementFetch<'a>,
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<'c, 't, 's, T> Iterator for StatementIter<'c, 't, T>
+impl<'a, T> Iterator for StatementIter<'a, T>
 where
     T: FromRow,
 {
@@ -254,7 +254,7 @@ where
     }
 }
 
-impl<'c, 't> Drop for StatementFetch<'c, 't> {
+impl<'a> Drop for StatementFetch<'a> {
     fn drop(&mut self) {
         let status = &self.stmt.tr.conn.status;
 

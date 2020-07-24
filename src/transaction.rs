@@ -48,6 +48,21 @@ impl<'c> Transaction<'c> {
         Statement::execute_immediate(&self, "commit;", ())
     }
 
+    /// Commit the current transaction changes, but allowing to reuse the transaction
+    pub fn commit_retaining(&self) -> Result<(), FbError> {
+        let status = &self.conn.status;
+
+        unsafe {
+            if ibase::isc_commit_retaining(status.borrow_mut().as_mut_ptr(), self.handle.as_ptr())
+                != 0
+            {
+                return Err(status.borrow().as_error());
+            }
+        }
+
+        Ok(())
+    }
+
     /// Rollback the current transaction changes
     pub fn rollback(self) -> Result<(), FbError> {
         Statement::execute_immediate(&self, "rollback;", ())

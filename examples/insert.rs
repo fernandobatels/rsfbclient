@@ -14,22 +14,22 @@ const SQL_INSERT: &str = "insert into test (col_b, col_c) values (?, ?)";
 fn main() -> Result<(), FbError> {
     let conn = Connection::open("localhost", 3050, "examples.fdb", "SYSDBA", "masterkey")?;
 
-    let tr = conn.transaction()?;
+    conn.with_transaction(|tr| {
+        // First alternative
+        {
+            tr.execute_immediate(SQL_INSERT, (-39, "test"))?;
+        }
 
-    // First alternative
-    {
-        tr.execute_immediate(SQL_INSERT, (-39, "test"))?;
-    }
+        // Second alternative
+        {
+            let mut stmt = tr.prepare(SQL_INSERT)?;
 
-    // Second alternative
-    {
-        let mut stmt = tr.prepare(SQL_INSERT)?;
+            stmt.execute((-39, "test"))?;
+            stmt.execute((12, "test 2"))?;
+        }
 
-        stmt.execute((-39, "test"))?;
-        stmt.execute((12, "test 2"))?;
-    }
-
-    tr.commit()?;
+        Ok(())
+    })?;
 
     // Explicit close is optional
     conn.close()?;
