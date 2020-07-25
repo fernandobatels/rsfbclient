@@ -9,22 +9,88 @@ use std::{
     ptr,
 };
 
-use crate::{ibase, FbError, Status, Transaction};
+use crate::{
+    ibase,
+    status::{FbError, Status},
+    Transaction,
+};
 
 pub struct Connection {
     pub(crate) handle: Cell<ibase::isc_db_handle>,
     pub(crate) status: RefCell<Status>,
+    pub(crate) dialect: Dialect,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(u16)]
+pub enum Dialect {
+    D1 = 1,
+    D2 = 2,
+    D3 = 3,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnectionBuilder {
+    host: String,
+    port: u16,
+    db_name: String,
+    user: String,
+    pass: String,
+    dialect: Dialect,
+}
+
+impl Default for ConnectionBuilder {
+    fn default() -> Self {
+        Self {
+            host: "localhost".to_string(),
+            port: 3050,
+            db_name: "test.fdb".to_string(),
+            user: "SYSDBA".to_string(),
+            pass: "masterkey".to_string(),
+            dialect: Dialect::D3,
+        }
+    }
+}
+
+impl ConnectionBuilder {
+    pub fn host<S: Into<String>>(&mut self, host: S) -> &mut Self {
+        self.host = host.into();
+        self
+    }
+
+    pub fn port(&mut self, port: u16) -> &mut Self {
+        self.port = port;
+        self
+    }
+
+    pub fn db_name<S: Into<String>>(&mut self, db_name: S) -> &mut Self {
+        self.db_name = db_name.into();
+        self
+    }
+
+    pub fn user<S: Into<String>>(&mut self, user: S) -> &mut Self {
+        self.user = user.into();
+        self
+    }
+
+    pub fn pass<S: Into<String>>(&mut self, pass: S) -> &mut Self {
+        self.pass = pass.into();
+        self
+    }
+
+    pub fn dialect(&mut self, dialect: Dialect) -> &mut Self {
+        self.dialect = dialect;
+        self
+    }
+
+    pub fn connect(&self) -> Result<Connection, FbError> {
+        Connection::open(self)
+    }
 }
 
 impl Connection {
     /// Open a new connection to the remote database
-    pub fn open(
-        host: &str,
-        port: u16,
-        db_name: &str,
-        user: &str,
-        pass: &str,
-    ) -> Result<Connection, FbError> {
+    fn open(builder: &ConnectionBuilder) -> Result<Connection, FbError> {
         let handle = Cell::new(0);
         let status: RefCell<Status> = Default::default();
 
@@ -33,11 +99,11 @@ impl Connection {
 
             dpb.extend(&[ibase::isc_dpb_version1 as u8]);
 
-            dpb.extend(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
-            dpb.extend(user.bytes());
+            dpb.extend(&[ibase::isc_dpb_user_name as u8, builder.user.len() as u8]);
+            dpb.extend(builder.user.bytes());
 
-            dpb.extend(&[ibase::isc_dpb_password as u8, pass.len() as u8]);
-            dpb.extend(pass.bytes());
+            dpb.extend(&[ibase::isc_dpb_password as u8, builder.pass.len() as u8]);
+            dpb.extend(builder.pass.bytes());
 
             // Makes the database convert the strings to utf-8, allowing non ascii characters
             let charset = b"UTF-8";
@@ -48,7 +114,7 @@ impl Connection {
             dpb
         };
 
-        let conn_string = format!("{}/{}:{}", host, port, db_name);
+        let conn_string = format!("{}/{}:{}", builder.host, builder.port, builder.db_name);
 
         unsafe {
             if ibase::isc_attach_database(
@@ -67,7 +133,11 @@ impl Connection {
         // Assert that the handle is valid
         debug_assert_ne!(handle.get(), 0);
 
-        Ok(Connection { handle, status })
+        Ok(Connection {
+            handle,
+            status,
+            dialect: builder.dialect,
+        })
     }
 
     /// Open a new connection to the local database
@@ -92,7 +162,11 @@ impl Connection {
         // Assert that the handle is valid
         debug_assert_ne!(handle.get(), 0);
 
-        Ok(Connection { handle, status })
+        Ok(Connection {
+            handle,
+            status,
+            dialect: Dialect::D3,
+        })
     }
 
     /// Create a new local database
@@ -100,6 +174,7 @@ impl Connection {
         let local = Connection {
             handle: Cell::new(0),
             status: Default::default(),
+            dialect: Dialect::D3,
         };
 
         let local_tr = Transaction {
@@ -215,7 +290,8 @@ mod test {
 
     #[test]
     fn remote_connection() {
-        let conn = Connection::open("localhost", 3050, "test.fdb", "SYSDBA", "masterkey")
+        let conn = ConnectionBuilder::default()
+            .connect()
             .expect("Error connecting to the test database");
 
         conn.close().expect("error closing the connection");

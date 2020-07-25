@@ -2,8 +2,6 @@
 //! Rust Firebird Client
 //!
 
-extern crate libc;
-
 mod connection;
 #[cfg(feature = "chrono")]
 mod date_time;
@@ -16,9 +14,10 @@ mod status;
 mod transaction;
 mod xsqlda;
 
-pub use self::connection::Connection;
-pub use self::row::Row;
-pub use self::statement::Statement;
-pub use self::status::FbError;
-pub use self::status::Status;
-pub use self::transaction::Transaction;
+pub use crate::{
+    connection::{Connection, ConnectionBuilder, Dialect},
+    row::Row,
+    statement::Statement,
+    status::FbError,
+    transaction::Transaction,
+};
