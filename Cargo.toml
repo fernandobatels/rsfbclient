@@ -17,8 +17,9 @@ chrono = { version = "0.4", optional = true }
 lazy_static = { version = "1.4", optional = true }
 libc = "0.2"
 libloading = { version = "0.6", optional = true }
+once_cell = { version = "1.4", optional = true }
 
 [features]
 default = ["date_time", "dynamic_loading"]
 date_time = ["chrono"]
-dynamic_loading = ["libloading", "lazy_static"]
+dynamic_loading = ["libloading", "lazy_static", "once_cell"]

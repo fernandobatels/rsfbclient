@@ -4,9 +4,63 @@
 //! fbclient functions
 //!
 
-#![allow(non_upper_case_globals, dead_code, non_camel_case_types)]
+#![allow(
+    non_upper_case_globals,
+    dead_code,
+    non_camel_case_types,
+    non_snake_case
+)]
 
 use super::common::*;
+
+#[cfg(not(feature = "dynamic_loading"))]
+#[derive(Debug, Clone)]
+pub struct IBase;
+
+#[cfg(feature = "dynamic_loading")]
+#[derive(Debug, Clone)]
+pub struct IBase(std::sync::Arc<libloading::Library>);
+
+#[cfg(feature = "dynamic_loading")]
+impl IBase {
+    pub fn new(fbclient: &str) -> Result<Self, libloading::Error> {
+        Ok(Self(std::sync::Arc::new(libloading::Library::new(
+            fbclient,
+        )?)))
+    }
+}
+
+// #[cfg(feature = "dynamic_loading")]
+// impl IBase {
+//     unsafe fn fb_interpret(
+//         &self,
+//     ) -> unsafe extern "C" fn(
+//         arg1: *mut ISC_SCHAR,
+//         arg2: ::std::os::raw::c_uint,
+//         arg3: *mut *const ISC_STATUS,
+//     ) -> ISC_LONG {
+//         *self
+//             .0
+//             .get::<unsafe extern "C" fn(
+//                 arg1: *mut ISC_SCHAR,
+//                 arg2: ::std::os::raw::c_uint,
+//                 arg3: *mut *const ISC_STATUS,
+//             ) -> ISC_LONG>(b"fb_interpret")
+//             .unwrap()
+//     }
+// }
+
+// #[cfg(not(feature = "dynamic_loading"))]
+// impl IBase {
+//     unsafe fn fb_ping(
+//         &self,
+//     ) -> unsafe extern "C" fn(arg1: *mut ISC_STATUS, arg2: *mut isc_db_handle) -> ISC_STATUS {
+//         extern "C" {
+//             pub fn fb_ping(arg1: *mut ISC_STATUS, arg2: *mut isc_db_handle) -> ISC_STATUS;
+//         }
+//         fb_ping
+//     }
+// }
 
 #[cfg(feature = "dynamic_loading")]
 lazy_static::lazy_static! {
@@ -19,23 +73,37 @@ lazy_static::lazy_static! {
 macro_rules! parse_functions {
     ( $(
         extern "C" {
-            pub fn $name:ident($($params:tt)*) $( -> $ret:ty )*;
+            pub fn $name:ident( $( $param:tt )* ) $( -> $ret:ty )?;
         }
     )* ) => {
-        $(
-            lazy_static::lazy_static! {
-                pub static ref $name: libloading::Symbol<'static, unsafe extern "C" fn($($params)*) $( -> $ret )*> =
-                    unsafe { LIB.get(stringify!($name).as_bytes()).unwrap() };
-            }
-        )*
-    };
+        impl IBase {
+            $(
+                pub unsafe fn $name(&self) -> unsafe extern "C" fn($( $param )*) $( -> $ret )? {
+                    *self.0.get( stringify!($name).as_bytes() ).unwrap()
+                }
+            )*
+        }
+    }
 }
 
 #[cfg(not(feature = "dynamic_loading"))]
 /// Just passes the functions as they are
 macro_rules! parse_functions {
-    ( $( $tokens:tt )* ) => {
-        $( $tokens )*
+    ( $(
+        extern "C" {
+            pub fn $name:ident( $( $param:tt )* ) $( -> $ret:ty )?;
+        }
+    )* ) => {
+        impl IBase {
+            $(
+                pub unsafe fn $name(&self) -> unsafe extern "C" fn($( $param )*) $( -> $ret )? {
+                    extern "C" {
+                        pub fn $name( $( $param )* ) $( -> $ret )?;
+                    }
+                    $name
+                }
+            )*
+        }
     }
 }
 

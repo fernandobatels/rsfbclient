@@ -12,12 +12,14 @@ pub struct Params {
 impl Params {
     /// Validate and set the parameters of a statement
     pub(crate) fn new(stmt: &mut Statement, infos: Vec<ParamInfo>) -> Result<Self, FbError> {
+        let ibase = &stmt.tr.conn.ibase;
         let status = &stmt.tr.conn.status;
+
         let mut xsqlda = XSqlDa::new(infos.len() as i16);
 
         let buffers = if !infos.is_empty() {
             let ok = unsafe {
-                ibase::isc_dsql_describe_bind(
+                ibase.isc_dsql_describe_bind()(
                     status.borrow_mut().as_mut_ptr(),
                     &mut stmt.handle,
                     1,
@@ -25,7 +27,7 @@ impl Params {
                 )
             };
             if ok != 0 {
-                return Err(status.borrow().as_error());
+                return Err(status.borrow().as_error(ibase));
             }
 
             if xsqlda.sqld != xsqlda.sqln {

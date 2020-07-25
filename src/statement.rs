@@ -4,15 +4,14 @@
 //! Preparation and execution of statements
 //!
 
-use super::ibase;
-use super::params::IntoParams;
-use super::params::Params;
-use super::row::ColumnBuffer;
-use super::row::FromRow;
-use super::row::Row;
-use super::status::FbError;
-use super::transaction::Transaction;
-use super::xsqlda::XSqlDa;
+use super::{
+    ibase,
+    params::{IntoParams, Params},
+    row::{ColumnBuffer, FromRow, Row},
+    status::FbError,
+    transaction::Transaction,
+    xsqlda::XSqlDa,
+};
 
 pub struct Statement<'a> {
     pub(crate) handle: ibase::isc_stmt_handle,
@@ -23,22 +22,24 @@ pub struct Statement<'a> {
 impl<'a> Statement<'a> {
     /// Prepare the statement that will be executed
     pub fn prepare(tr: &'a Transaction<'a>, sql: &str) -> Result<Self, FbError> {
-        let mut handle = 0;
+        let ibase = &tr.conn.ibase;
         let status = &tr.conn.status;
+
+        let mut handle = 0;
 
         let mut xsqlda = XSqlDa::new(1);
 
         unsafe {
-            if ibase::isc_dsql_allocate_statement(
+            if ibase.isc_dsql_allocate_statement()(
                 status.borrow_mut().as_mut_ptr(),
                 tr.conn.handle.as_ptr(),
                 &mut handle,
             ) != 0
             {
-                return Err(status.borrow().as_error());
+                return Err(status.borrow().as_error(ibase));
             }
 
-            if ibase::isc_dsql_prepare(
+            if ibase.isc_dsql_prepare()(
                 status.borrow_mut().as_mut_ptr(),
                 tr.handle.as_ptr(),
                 &mut handle,
@@ -48,7 +49,7 @@ impl<'a> Statement<'a> {
                 &mut *xsqlda,
             ) != 0
             {
-                return Err(status.borrow().as_error());
+                return Err(status.borrow().as_error(ibase));
             }
         }
 
@@ -62,12 +63,13 @@ impl<'a> Statement<'a> {
     where
         T: IntoParams,
     {
+        let ibase = &self.tr.conn.ibase;
         let status = &self.tr.conn.status;
 
         let params = Params::new(self, params.to_params())?;
 
         unsafe {
-            if ibase::isc_dsql_execute(
+            if ibase.isc_dsql_execute()(
                 status.borrow_mut().as_mut_ptr(),
                 self.tr.handle.as_ptr(),
                 &mut self.handle,
@@ -75,7 +77,7 @@ impl<'a> Statement<'a> {
                 &*params.xsqlda,
             ) != 0
             {
-                return Err(status.borrow().as_error());
+                return Err(status.borrow().as_error(ibase));
             }
         }
 
@@ -90,7 +92,9 @@ impl<'a> Statement<'a> {
     where
         T: IntoParams,
     {
+        let ibase = &self.tr.conn.ibase;
         let status = &self.tr.conn.status;
+
         let row_count = self.xsqlda.sqld;
 
         // Need more XSQLVARs
@@ -99,21 +103,21 @@ impl<'a> Statement<'a> {
         }
 
         unsafe {
-            if ibase::isc_dsql_describe(
+            if ibase.isc_dsql_describe()(
                 status.borrow_mut().as_mut_ptr(),
                 &mut self.handle,
                 1,
                 &mut *self.xsqlda,
             ) != 0
             {
-                return Err(status.borrow().as_error());
+                return Err(status.borrow().as_error(ibase));
             }
         }
 
         let params = Params::new(&mut self, params.to_params())?;
 
         unsafe {
-            if ibase::isc_dsql_execute(
+            if ibase.isc_dsql_execute()(
                 status.borrow_mut().as_mut_ptr(),
                 self.tr.handle.as_ptr(),
                 &mut self.handle,
@@ -121,7 +125,7 @@ impl<'a> Statement<'a> {
                 &*params.xsqlda,
             ) != 0
             {
-                return Err(status.borrow().as_error());
+                return Err(status.borrow().as_error(ibase));
             }
         }
 
@@ -150,12 +154,13 @@ impl<'a> Statement<'a> {
     where
         T: IntoParams,
     {
+        let ibase = &tr.conn.ibase;
         let status = &tr.conn.status;
 
         let params = Params::new_immediate(params.to_params());
 
         unsafe {
-            if ibase::isc_dsql_execute_immediate(
+            if ibase.isc_dsql_execute_immediate()(
                 status.borrow_mut().as_mut_ptr(),
                 tr.conn.handle.as_ptr(),
                 tr.handle.as_ptr(),
@@ -165,7 +170,7 @@ impl<'a> Statement<'a> {
                 &*params.xsqlda,
             ) != 0
             {
-                return Err(status.borrow().as_error());
+                return Err(status.borrow().as_error(ibase));
             }
         }
 
@@ -175,11 +180,12 @@ impl<'a> Statement<'a> {
 
 impl<'a> Drop for Statement<'a> {
     fn drop(&mut self) {
+        let ibase = &self.tr.conn.ibase;
         let status = &self.tr.conn.status;
 
         // Close the statement
         unsafe {
-            ibase::isc_dsql_free_statement(
+            ibase.isc_dsql_free_statement()(
                 status.borrow_mut().as_mut_ptr(),
                 &mut self.handle,
                 ibase::DSQL_drop as u16,
@@ -199,10 +205,11 @@ pub struct StatementFetch<'a> {
 impl<'a> StatementFetch<'a> {
     /// Fetch for the next row
     pub fn fetch(&mut self) -> Result<Option<Row>, FbError> {
+        let ibase = &self.stmt.tr.conn.ibase;
         let status = &self.stmt.tr.conn.status;
 
         let result_fetch = unsafe {
-            ibase::isc_dsql_fetch(
+            ibase.isc_dsql_fetch()(
                 status.borrow_mut().as_mut_ptr(),
                 &mut self.stmt.handle,
                 1,
@@ -215,7 +222,7 @@ impl<'a> StatementFetch<'a> {
         }
 
         if result_fetch != 0 {
-            return Err(status.borrow().as_error());
+            return Err(status.borrow().as_error(ibase));
         }
 
         let row = Row { stmt_ft: self };
@@ -256,11 +263,12 @@ where
 
 impl<'a> Drop for StatementFetch<'a> {
     fn drop(&mut self) {
+        let ibase = &self.stmt.tr.conn.ibase;
         let status = &self.stmt.tr.conn.status;
 
         unsafe {
             // Close the cursor
-            ibase::isc_dsql_free_statement(
+            ibase.isc_dsql_free_statement()(
                 status.borrow_mut().as_mut_ptr(),
                 &mut self.stmt.handle,
                 ibase::DSQL_close as u16,
@@ -426,10 +434,20 @@ mod test {
     }
 
     fn setup() -> Connection {
-        Connection::recreate_local("test.fdb").expect("Error on recreate the test database");
-        let conn = Connection::open_local("test.fdb").expect("Error on connect the test database");
+        #[cfg(not(feature = "dynamic_loading"))]
+        let conn = crate::ConnectionBuilder::default()
+            .connect()
+            .expect("Error on connect the test database");
+
+        #[cfg(feature = "dynamic_loading")]
+        let conn = crate::ConnectionBuilder::with_client("./fbclient.lib")
+            .expect("Error finding fbclient lib")
+            .connect()
+            .expect("Error on connect the test database");
 
         let tr = conn.transaction().expect("Error on start the transaction");
+
+        tr.execute_immediate("DROP TABLE product", ()).ok();
 
         tr.execute_immediate(
             "CREATE TABLE product (id int, name varchar(60), quantity int)",
