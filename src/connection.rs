@@ -12,13 +12,6 @@ use crate::{
     Transaction,
 };
 
-pub struct Connection {
-    pub(crate) handle: Cell<ibase::isc_db_handle>,
-    pub(crate) status: RefCell<Status>,
-    pub(crate) dialect: Dialect,
-    pub(crate) ibase: ibase::IBase,
-}
-
 #[derive(Debug, Clone, Copy)]
 #[repr(u16)]
 pub enum Dialect {
@@ -28,6 +21,7 @@ pub enum Dialect {
 }
 
 #[derive(Debug, Clone)]
+/// Builder for creating database connections
 pub struct ConnectionBuilder {
     host: String,
     port: u16,
@@ -55,6 +49,23 @@ impl Default for ConnectionBuilder {
 
 impl ConnectionBuilder {
     #[cfg(feature = "dynamic_loading")]
+    /// Searches for the firebird client at runtime, in the specified path.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use rsfbclient::ConnectionBuilder;
+    ///
+    /// // On windows
+    /// ConnectionBuilder::with_client("fbclient.dll");
+    ///
+    /// // On linux
+    /// ConnectionBuilder::with_client("libfbclient.so");
+    ///
+    /// // Any platform, file located relative to the
+    /// // folder where the executable was run
+    /// ConnectionBuilder::with_client("./fbclient.lib");
+    /// ```
     pub fn with_client(fbclient: &str) -> Result<Self, FbError> {
         Ok(Self {
             host: "localhost".to_string(),
@@ -70,39 +81,54 @@ impl ConnectionBuilder {
         })
     }
 
+    /// Hostname or IP address of the server. Default: localhost
     pub fn host<S: Into<String>>(&mut self, host: S) -> &mut Self {
         self.host = host.into();
         self
     }
 
+    /// TCP Port of the server. Default: 3050
     pub fn port(&mut self, port: u16) -> &mut Self {
         self.port = port;
         self
     }
 
+    /// Database name or path. Default: test.fdb
     pub fn db_name<S: Into<String>>(&mut self, db_name: S) -> &mut Self {
         self.db_name = db_name.into();
         self
     }
 
+    /// Username. Default: SYSDBA
     pub fn user<S: Into<String>>(&mut self, user: S) -> &mut Self {
         self.user = user.into();
         self
     }
 
+    /// Password. Default: masterkey
     pub fn pass<S: Into<String>>(&mut self, pass: S) -> &mut Self {
         self.pass = pass.into();
         self
     }
 
+    /// SQL Dialect. Default: 3
     pub fn dialect(&mut self, dialect: Dialect) -> &mut Self {
         self.dialect = dialect;
         self
     }
 
+    /// Open a new connection to the database
     pub fn connect(&self) -> Result<Connection, FbError> {
         Connection::open(self)
     }
+}
+
+/// A connection to a firebird database
+pub struct Connection {
+    pub(crate) handle: Cell<ibase::isc_db_handle>,
+    pub(crate) status: RefCell<Status>,
+    pub(crate) dialect: Dialect,
+    pub(crate) ibase: ibase::IBase,
 }
 
 impl Connection {
