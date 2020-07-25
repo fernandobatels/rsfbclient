@@ -10,10 +10,15 @@
 //! the database ;)
 //!
 
-use rsfbclient::{Connection, FbError};
+use rsfbclient::{ConnectionBuilder, FbError};
 
 fn main() -> Result<(), FbError> {
-    let conn = Connection::open("localhost", 3050, "examples.fdb", "SYSDBA", "masterkey")?;
+    let conn = ConnectionBuilder::default()
+        .host("localhost")
+        .db_name("examples.fdb")
+        .user("SYSDBA")
+        .pass("masterkey")
+        .connect()?;
 
     conn.with_transaction(|tr| {
         let rows = tr
