@@ -44,7 +44,7 @@ impl<'a> Statement<'a> {
                 &mut handle,
                 sql.len() as u16,
                 sql.as_ptr() as *const _,
-                3, // TODO: Add a way to select the dialect (1, 2 or 3)
+                tr.conn.dialect as u16,
                 &mut *xsqlda,
             ) != 0
             {
@@ -71,7 +71,7 @@ impl<'a> Statement<'a> {
                 status.borrow_mut().as_mut_ptr(),
                 self.tr.handle.as_ptr(),
                 &mut self.handle,
-                3, // Dialect
+                1,
                 &*params.xsqlda,
             ) != 0
             {
@@ -161,7 +161,7 @@ impl<'a> Statement<'a> {
                 tr.handle.as_ptr(),
                 sql.len() as u16,
                 sql.as_ptr() as *const _,
-                3, // Dialect
+                tr.conn.dialect as u16,
                 &*params.xsqlda,
             ) != 0
             {
