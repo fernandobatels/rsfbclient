@@ -9,6 +9,8 @@ Binds to official firebird client lib
 
 - [x] Rust Api
 - [ ] Static link with fbclient
+- [x] Dynamic link with fbclient
+- [x] Dynamic loading the fbclient(.dll or .so)
 - [ ] ARM support
 - [ ] Firebird embedded support
 - [ ] Extern this api to ruby (in a new repo)
