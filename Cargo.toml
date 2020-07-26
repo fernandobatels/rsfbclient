@@ -23,3 +23,10 @@ once_cell = { version = "1.4", optional = true }
 default = ["date_time"]
 date_time = ["chrono"]
 dynamic_loading = ["libloading", "lazy_static", "once_cell"]
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "select"
+harness = false

@@ -3,7 +3,7 @@ use crate::{ibase, statement::Statement, xsqlda::XSqlDa, FbError};
 /// Stores the data needed to send the parameters
 pub struct Params {
     /// Input xsqlda
-    pub(crate) xsqlda: XSqlDa,
+    pub(crate) xsqlda: Option<XSqlDa>,
 
     /// Data used by the xsqlda above
     _buffers: Vec<ParamBuffer>,
@@ -15,9 +15,9 @@ impl Params {
         let ibase = &stmt.tr.conn.ibase;
         let status = &stmt.tr.conn.status;
 
-        let mut xsqlda = XSqlDa::new(infos.len() as i16);
+        let params = if !infos.is_empty() {
+            let mut xsqlda = XSqlDa::new(infos.len() as i16);
 
-        let buffers = if !infos.is_empty() {
             let ok = unsafe {
                 ibase.isc_dsql_describe_bind()(
                     status.borrow_mut().as_mut_ptr(),
@@ -37,40 +37,52 @@ impl Params {
                 });
             }
 
-            infos
+            let buffers = infos
                 .into_iter()
                 .enumerate()
                 .map(|(col, info)| {
                     ParamBuffer::from_parameter(info, xsqlda.get_xsqlvar_mut(col).unwrap())
                 })
-                .collect()
+                .collect();
+
+            Self {
+                _buffers: buffers,
+                xsqlda: Some(xsqlda),
+            }
         } else {
-            vec![]
+            Self {
+                _buffers: vec![],
+                xsqlda: None,
+            }
         };
 
-        Ok(Self {
-            _buffers: buffers,
-            xsqlda,
-        })
+        Ok(params)
     }
 
     /// For use when there is no statement, cant verify the number of parameters ahead of time
     pub fn new_immediate(infos: Vec<ParamInfo>) -> Self {
-        let mut xsqlda = XSqlDa::new(infos.len() as i16);
+        if !infos.is_empty() {
+            let mut xsqlda = XSqlDa::new(infos.len() as i16);
 
-        xsqlda.sqld = xsqlda.sqln;
+            xsqlda.sqld = xsqlda.sqln;
 
-        let buffers = infos
-            .into_iter()
-            .enumerate()
-            .map(|(col, info)| {
-                ParamBuffer::from_parameter(info, xsqlda.get_xsqlvar_mut(col).unwrap())
-            })
-            .collect();
+            let buffers = infos
+                .into_iter()
+                .enumerate()
+                .map(|(col, info)| {
+                    ParamBuffer::from_parameter(info, xsqlda.get_xsqlvar_mut(col).unwrap())
+                })
+                .collect();
 
-        Self {
-            _buffers: buffers,
-            xsqlda,
+            Self {
+                _buffers: buffers,
+                xsqlda: Some(xsqlda),
+            }
+        } else {
+            Self {
+                _buffers: vec![],
+                xsqlda: None,
+            }
         }
     }
 }

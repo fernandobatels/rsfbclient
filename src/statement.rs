@@ -12,6 +12,7 @@ use super::{
     transaction::Transaction,
     xsqlda::XSqlDa,
 };
+use std::ptr;
 
 pub struct Statement<'a> {
     pub(crate) handle: ibase::isc_stmt_handle,
@@ -74,12 +75,28 @@ impl<'a> Statement<'a> {
                 self.tr.handle.as_ptr(),
                 &mut self.handle,
                 1,
-                &*params.xsqlda,
+                if let Some(xsqlda) = &params.xsqlda {
+                    &**xsqlda
+                } else {
+                    ptr::null()
+                },
             ) != 0
             {
                 return Err(status.borrow().as_error(ibase));
             }
         }
+
+        // Just to make sure the params are not dropped too soon
+        drop(params);
+
+        unsafe {
+            // Close the cursor, as it will not be used
+            ibase.isc_dsql_free_statement()(
+                status.borrow_mut().as_mut_ptr(),
+                &mut self.handle,
+                ibase::DSQL_close as u16,
+            )
+        };
 
         Ok(())
     }
@@ -122,12 +139,19 @@ impl<'a> Statement<'a> {
                 self.tr.handle.as_ptr(),
                 &mut self.handle,
                 1,
-                &*params.xsqlda,
+                if let Some(xsqlda) = &params.xsqlda {
+                    &**xsqlda
+                } else {
+                    ptr::null()
+                },
             ) != 0
             {
                 return Err(status.borrow().as_error(ibase));
             }
         }
+
+        // Just to make sure the params are not dropped too soon
+        drop(params);
 
         let col_buffers = (0..self.xsqlda.sqln)
             .map(|col| {
@@ -167,13 +191,19 @@ impl<'a> Statement<'a> {
                 sql.len() as u16,
                 sql.as_ptr() as *const _,
                 tr.conn.dialect as u16,
-                &*params.xsqlda,
+                if let Some(xsqlda) = &params.xsqlda {
+                    &**xsqlda
+                } else {
+                    ptr::null()
+                },
             ) != 0
             {
                 return Err(status.borrow().as_error(ibase));
             }
         }
 
+        // Just to make sure the params are not dropped too soon
+        drop(params);
         Ok(())
     }
 }
@@ -302,9 +332,8 @@ mod test {
 
         drop(stmt);
 
-        tr.commit().expect("Error on commit the transaction");
-
-        let tr = conn.transaction().expect("Error on start the transaction");
+        tr.commit_retaining()
+            .expect("Error on commit the transaction");
 
         let stmt = tr
             .prepare("select id, name from product")
