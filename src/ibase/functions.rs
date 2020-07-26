@@ -30,44 +30,6 @@ impl IBase {
     }
 }
 
-// #[cfg(feature = "dynamic_loading")]
-// impl IBase {
-//     unsafe fn fb_interpret(
-//         &self,
-//     ) -> unsafe extern "C" fn(
-//         arg1: *mut ISC_SCHAR,
-//         arg2: ::std::os::raw::c_uint,
-//         arg3: *mut *const ISC_STATUS,
-//     ) -> ISC_LONG {
-//         *self
-//             .0
-//             .get::<unsafe extern "C" fn(
-//                 arg1: *mut ISC_SCHAR,
-//                 arg2: ::std::os::raw::c_uint,
-//                 arg3: *mut *const ISC_STATUS,
-//             ) -> ISC_LONG>(b"fb_interpret")
-//             .unwrap()
-//     }
-// }
-
-// #[cfg(not(feature = "dynamic_loading"))]
-// impl IBase {
-//     unsafe fn fb_ping(
-//         &self,
-//     ) -> unsafe extern "C" fn(arg1: *mut ISC_STATUS, arg2: *mut isc_db_handle) -> ISC_STATUS {
-//         extern "C" {
-//             pub fn fb_ping(arg1: *mut ISC_STATUS, arg2: *mut isc_db_handle) -> ISC_STATUS;
-//         }
-//         fb_ping
-//     }
-// }
-
-#[cfg(feature = "dynamic_loading")]
-lazy_static::lazy_static! {
-    /// Loads the fbclient library dynamically
-    static ref LIB: libloading::Library = libloading::Library::new("./fbclient.lib").unwrap();
-}
-
 #[cfg(feature = "dynamic_loading")]
 /// Registers the fbclient functions loaded from the library
 macro_rules! parse_functions {
