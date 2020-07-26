@@ -4,22 +4,13 @@
 //! Connection functions
 //!
 
-use std::{
-    cell::{Cell, RefCell},
-    ptr,
-};
+use std::cell::{Cell, RefCell};
 
 use crate::{
     ibase,
     status::{FbError, Status},
     Transaction,
 };
-
-pub struct Connection {
-    pub(crate) handle: Cell<ibase::isc_db_handle>,
-    pub(crate) status: RefCell<Status>,
-    pub(crate) dialect: Dialect,
-}
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u16)]
@@ -30,6 +21,7 @@ pub enum Dialect {
 }
 
 #[derive(Debug, Clone)]
+/// Builder for creating database connections
 pub struct ConnectionBuilder {
     host: String,
     port: u16,
@@ -37,8 +29,10 @@ pub struct ConnectionBuilder {
     user: String,
     pass: String,
     dialect: Dialect,
+    ibase: ibase::IBase,
 }
 
+#[cfg(not(feature = "dynamic_loading"))]
 impl Default for ConnectionBuilder {
     fn default() -> Self {
         Self {
@@ -48,49 +42,100 @@ impl Default for ConnectionBuilder {
             user: "SYSDBA".to_string(),
             pass: "masterkey".to_string(),
             dialect: Dialect::D3,
+            ibase: ibase::IBase,
         }
     }
 }
 
 impl ConnectionBuilder {
+    #[cfg(feature = "dynamic_loading")]
+    /// Searches for the firebird client at runtime, in the specified path.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use rsfbclient::ConnectionBuilder;
+    ///
+    /// // On windows
+    /// ConnectionBuilder::with_client("fbclient.dll");
+    ///
+    /// // On linux
+    /// ConnectionBuilder::with_client("libfbclient.so");
+    ///
+    /// // Any platform, file located relative to the
+    /// // folder where the executable was run
+    /// ConnectionBuilder::with_client("./fbclient.lib");
+    /// ```
+    pub fn with_client(fbclient: &str) -> Result<Self, FbError> {
+        Ok(Self {
+            host: "localhost".to_string(),
+            port: 3050,
+            db_name: "test.fdb".to_string(),
+            user: "SYSDBA".to_string(),
+            pass: "masterkey".to_string(),
+            dialect: Dialect::D3,
+            ibase: ibase::IBase::new(fbclient).map_err(|e| FbError {
+                code: -1,
+                msg: e.to_string(),
+            })?,
+        })
+    }
+
+    /// Hostname or IP address of the server. Default: localhost
     pub fn host<S: Into<String>>(&mut self, host: S) -> &mut Self {
         self.host = host.into();
         self
     }
 
+    /// TCP Port of the server. Default: 3050
     pub fn port(&mut self, port: u16) -> &mut Self {
         self.port = port;
         self
     }
 
+    /// Database name or path. Default: test.fdb
     pub fn db_name<S: Into<String>>(&mut self, db_name: S) -> &mut Self {
         self.db_name = db_name.into();
         self
     }
 
+    /// Username. Default: SYSDBA
     pub fn user<S: Into<String>>(&mut self, user: S) -> &mut Self {
         self.user = user.into();
         self
     }
 
+    /// Password. Default: masterkey
     pub fn pass<S: Into<String>>(&mut self, pass: S) -> &mut Self {
         self.pass = pass.into();
         self
     }
 
+    /// SQL Dialect. Default: 3
     pub fn dialect(&mut self, dialect: Dialect) -> &mut Self {
         self.dialect = dialect;
         self
     }
 
+    /// Open a new connection to the database
     pub fn connect(&self) -> Result<Connection, FbError> {
         Connection::open(self)
     }
 }
 
+/// A connection to a firebird database
+pub struct Connection {
+    pub(crate) handle: Cell<ibase::isc_db_handle>,
+    pub(crate) status: RefCell<Status>,
+    pub(crate) dialect: Dialect,
+    pub(crate) ibase: ibase::IBase,
+}
+
 impl Connection {
     /// Open a new connection to the remote database
     fn open(builder: &ConnectionBuilder) -> Result<Connection, FbError> {
+        let ibase = builder.ibase.clone();
+
         let handle = Cell::new(0);
         let status: RefCell<Status> = Default::default();
 
@@ -117,16 +162,16 @@ impl Connection {
         let conn_string = format!("{}/{}:{}", builder.host, builder.port, builder.db_name);
 
         unsafe {
-            if ibase::isc_attach_database(
+            if ibase.isc_attach_database()(
                 status.borrow_mut().as_mut_ptr(),
                 conn_string.len() as i16,
-                conn_string.as_ptr() as *const i8,
+                conn_string.as_ptr() as *const _,
                 handle.as_ptr(),
                 dpb.len() as i16,
-                dpb.as_ptr() as *const i8,
+                dpb.as_ptr() as *const _,
             ) != 0
             {
-                return Err(status.borrow().as_error());
+                return Err(status.borrow().as_error(&ibase));
             }
         }
 
@@ -137,95 +182,34 @@ impl Connection {
             handle,
             status,
             dialect: builder.dialect,
+            ibase,
         })
-    }
-
-    /// Open a new connection to the local database
-    pub fn open_local(db_name: &str) -> Result<Connection, FbError> {
-        let handle = Cell::new(0);
-        let status: RefCell<Status> = Default::default();
-
-        unsafe {
-            if ibase::isc_attach_database(
-                status.borrow_mut().as_mut_ptr(),
-                db_name.len() as i16,
-                db_name.as_ptr() as *const i8,
-                handle.as_ptr(),
-                0,
-                ptr::null(),
-            ) != 0
-            {
-                return Err(status.borrow().as_error());
-            }
-        }
-
-        // Assert that the handle is valid
-        debug_assert_ne!(handle.get(), 0);
-
-        Ok(Connection {
-            handle,
-            status,
-            dialect: Dialect::D3,
-        })
-    }
-
-    /// Create a new local database
-    pub fn create_local(db_name: &str) -> Result<(), FbError> {
-        let local = Connection {
-            handle: Cell::new(0),
-            status: Default::default(),
-            dialect: Dialect::D3,
-        };
-
-        let local_tr = Transaction {
-            handle: Cell::new(0),
-            conn: &local,
-        };
-
-        // CREATE DATABASE does not work with parameters
-        let sql = format!("create database \"{}\"", db_name);
-
-        if let Err(e) = local_tr.execute_immediate(&sql, ()) {
-            return Err(e);
-        }
-
-        drop(local_tr);
-        local.close()
     }
 
     /// Drop the current database
     pub fn drop_database(self) -> Result<(), FbError> {
         unsafe {
-            if ibase::isc_drop_database(self.status.borrow_mut().as_mut_ptr(), self.handle.as_ptr())
-                != 0
+            if self.ibase.isc_drop_database()(
+                self.status.borrow_mut().as_mut_ptr(),
+                self.handle.as_ptr(),
+            ) != 0
             {
-                return Err(self.status.borrow().as_error());
+                return Err(self.status.borrow().as_error(&self.ibase));
             }
         }
 
         Ok(())
     }
 
-    // Drop the database, if exists, and create a new empty
-    pub fn recreate_local(db_name: &str) -> Result<(), FbError> {
-        if let Ok(conn) = Self::open_local(db_name) {
-            if let Err(e) = conn.drop_database() {
-                return Err(e);
-            }
-        }
-
-        Self::create_local(db_name)
-    }
-
     /// Close the current connection
     pub fn close(self) -> Result<(), FbError> {
         unsafe {
-            if ibase::isc_detach_database(
+            if self.ibase.isc_detach_database()(
                 self.status.borrow_mut().as_mut_ptr(),
                 self.handle.as_ptr(),
             ) != 0
             {
-                return Err(self.status.borrow().as_error());
+                return Err(self.status.borrow().as_error(&self.ibase));
             }
         }
 
@@ -263,7 +247,7 @@ impl Drop for Connection {
         // Close the connection, if the handle is valid
         if self.handle.get() != 0 {
             unsafe {
-                ibase::isc_detach_database(
+                self.ibase.isc_detach_database()(
                     self.status.borrow_mut().as_mut_ptr(),
                     self.handle.as_ptr(),
                 );
@@ -280,19 +264,17 @@ mod test {
     use super::*;
 
     #[test]
-    fn local_connection() {
-        Connection::recreate_local("test.fdb").expect("Error on recreate the test database");
-
-        let conn = Connection::open_local("test.fdb").expect("Error on connect the test database");
-
-        conn.close().expect("error on close the connection");
-    }
-
-    #[test]
     fn remote_connection() {
+        #[cfg(not(feature = "dynamic_loading"))]
         let conn = ConnectionBuilder::default()
             .connect()
-            .expect("Error connecting to the test database");
+            .expect("Error on connect the test database");
+
+        #[cfg(feature = "dynamic_loading")]
+        let conn = ConnectionBuilder::with_client("./fbclient.lib")
+            .expect("Error finding fbclient lib")
+            .connect()
+            .expect("Error on connect the test database");
 
         conn.close().expect("error closing the connection");
     }

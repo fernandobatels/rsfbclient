@@ -17,11 +17,11 @@ impl Default for Status {
 }
 
 impl Status {
-    pub fn sql_code(&self) -> i32 {
-        unsafe { ibase::isc_sqlcode(self.0.as_ptr()) }
+    pub fn sql_code(&self, ibase: &ibase::IBase) -> i32 {
+        unsafe { ibase.isc_sqlcode()(self.0.as_ptr()) }
     }
 
-    pub fn message(&self) -> String {
+    pub fn message(&self, ibase: &ibase::IBase) -> String {
         let mut buffer: Vec<u8> = Vec::with_capacity(256);
         let mut msg = String::new();
 
@@ -29,8 +29,8 @@ impl Status {
 
         loop {
             unsafe {
-                let len = ibase::fb_interpret(
-                    buffer.as_mut_ptr() as *mut i8,
+                let len = ibase.fb_interpret()(
+                    buffer.as_mut_ptr() as *mut _,
                     buffer.capacity() as u32,
                     &mut ptr,
                 );
@@ -54,10 +54,10 @@ impl Status {
         msg
     }
 
-    pub fn as_error(&self) -> FbError {
+    pub fn as_error(&self, ibase: &ibase::IBase) -> FbError {
         FbError {
-            code: self.sql_code(),
-            msg: self.message(),
+            code: self.sql_code(ibase),
+            msg: self.message(ibase),
         }
     }
 

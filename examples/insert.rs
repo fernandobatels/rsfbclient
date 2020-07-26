@@ -12,7 +12,16 @@ use rsfbclient::{ConnectionBuilder, FbError};
 const SQL_INSERT: &str = "insert into test (col_b, col_c) values (?, ?)";
 
 fn main() -> Result<(), FbError> {
+    #[cfg(not(feature = "dynamic_loading"))]
     let conn = ConnectionBuilder::default()
+        .host("localhost")
+        .db_name("examples.fdb")
+        .user("SYSDBA")
+        .pass("masterkey")
+        .connect()?;
+
+    #[cfg(feature = "dynamic_loading")]
+    let conn = ConnectionBuilder::with_client("./fbclient.lib")?
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")
