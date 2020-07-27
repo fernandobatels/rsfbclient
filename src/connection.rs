@@ -4,12 +4,18 @@
 //! Connection functions
 //!
 
-use std::cell::{Cell, RefCell};
+use std::{
+    cell::{Cell, RefCell},
+    marker,
+};
 
 use crate::{
     ibase,
+    params::IntoParams,
+    query::Queryable,
+    row::{ColumnBuffer, FromRow},
     status::{FbError, Status},
-    Transaction,
+    Statement, Transaction,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -125,9 +131,16 @@ impl ConnectionBuilder {
 
 /// A connection to a firebird database
 pub struct Connection {
+    /// Database handler
     pub(crate) handle: Cell<ibase::isc_db_handle>,
+
+    /// Status for the client calls
     pub(crate) status: RefCell<Status>,
+
+    /// Firebird dialect for the statements
     pub(crate) dialect: Dialect,
+
+    /// Firebird client functions
     pub(crate) ibase: ibase::IBase,
 }
 
@@ -201,24 +214,6 @@ impl Connection {
         Ok(())
     }
 
-    /// Close the current connection
-    pub fn close(self) -> Result<(), FbError> {
-        unsafe {
-            if self.ibase.isc_detach_database()(
-                self.status.borrow_mut().as_mut_ptr(),
-                self.handle.as_ptr(),
-            ) != 0
-            {
-                return Err(self.status.borrow().as_error(&self.ibase));
-            }
-        }
-
-        // Assert that the handle is invalid
-        debug_assert_eq!(self.handle.get(), 0);
-
-        Ok(())
-    }
-
     /// Run a closure with a transaction, if the closure returns an error
     /// the transaction will rollback, else it will be committed
     pub fn with_transaction<T>(
@@ -230,8 +225,10 @@ impl Connection {
         let res = closure(&mut tr);
 
         if res.is_ok() {
-            tr.commit()?;
-        }
+            tr.commit_retaining()?;
+        } else {
+            tr.rollback_retaining()?;
+        };
 
         res
     }
@@ -240,28 +237,117 @@ impl Connection {
     pub fn transaction(&self) -> Result<Transaction, FbError> {
         Transaction::start_transaction(self)
     }
-}
 
-impl Drop for Connection {
-    fn drop(&mut self) {
-        // Close the connection, if the handle is valid
-        if self.handle.get() != 0 {
-            unsafe {
-                self.ibase.isc_detach_database()(
+    /// Close the current connection
+    pub fn close(mut self) -> Result<(), FbError> {
+        self.__close()
+    }
+
+    /// Close the current connection. With an `&mut self` to be used in the drop code too
+    fn __close(&mut self) -> Result<(), FbError> {
+        unsafe {
+            // Close the connection, if the handle is valid
+            if self.handle.get() != 0
+                && self.ibase.isc_detach_database()(
                     self.status.borrow_mut().as_mut_ptr(),
                     self.handle.as_ptr(),
-                );
+                ) != 0
+            {
+                return Err(self.status.borrow().as_error(&self.ibase));
             }
         }
 
         // Assert that the handle is invalid
         debug_assert_eq!(self.handle.get(), 0);
+
+        Ok(())
+    }
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.__close().ok();
+    }
+}
+
+/// Variant of the `StatementIter` that owns the `Statement` and the `Transaction`
+struct StmtIter<'a, R> {
+    stmt: Statement<'a>,
+    buffers: Vec<ColumnBuffer>,
+    /// Transaction needs to be alive for the fetch to work
+    tr: Transaction<'a>,
+    _marker: marker::PhantomData<R>,
+}
+
+impl<R> Drop for StmtIter<'_, R> {
+    fn drop(&mut self) {
+        self.stmt.data.close_cursor(self.stmt.conn).ok();
+
+        self.tr.commit_retaining().ok();
+    }
+}
+
+impl<R> Iterator for StmtIter<'_, R>
+where
+    R: FromRow,
+{
+    type Item = Result<R, FbError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.stmt
+            .data
+            .fetch(&self.stmt.conn, &mut self.buffers)
+            .and_then(|row| row.map(|row| row.get_all()).transpose())
+            .transpose()
+    }
+}
+
+impl Queryable for Connection {
+    /// Prepare, execute, return the rows and commit the sql query
+    fn query_iter<'a, P, R>(
+        &'a mut self,
+        sql: &str,
+        params: P,
+    ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
+    where
+        P: IntoParams,
+        R: FromRow + 'a,
+    {
+        let mut tr = self.transaction()?;
+        // TODO: Statement cache
+        let mut stmt = tr.prepare(sql)?;
+        let buffers = stmt.data.query(self, &mut tr.data, params)?;
+
+        let iter = StmtIter {
+            stmt,
+            buffers,
+            tr,
+            _marker: Default::default(),
+        };
+
+        Ok(Box::new(iter))
+    }
+
+    /// Prepare, execute and commit the sql query
+    fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
+    where
+        P: crate::params::IntoParams,
+    {
+        let mut tr = self.transaction()?;
+        // TODO: Statement cache
+        let mut stmt = tr.prepare(sql)?;
+
+        stmt.execute(&mut tr, params)?;
+
+        tr.commit()?;
+
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use crate::*;
 
     #[test]
     fn remote_connection() {
@@ -277,5 +363,40 @@ mod test {
             .expect("Error on connect the test database");
 
         conn.close().expect("error closing the connection");
+    }
+
+    #[test]
+    fn query_iter() {
+        let mut conn = setup();
+
+        let mut rows = 0;
+
+        for row in conn
+            .query_iter("SELECT -3 FROM RDB$DATABASE WHERE 1 = ?", (1,))
+            .expect("Error on the query")
+        {
+            let (v,): (i32,) = row.expect("");
+
+            assert_eq!(v, -3);
+
+            rows += 1;
+        }
+
+        assert_eq!(rows, 1);
+    }
+
+    fn setup() -> Connection {
+        #[cfg(not(feature = "dynamic_loading"))]
+        let conn = ConnectionBuilder::default()
+            .connect()
+            .expect("Error on connect the test database");
+
+        #[cfg(feature = "dynamic_loading")]
+        let conn = ConnectionBuilder::with_client("./fbclient.lib")
+            .expect("Error finding fbclient lib")
+            .connect()
+            .expect("Error on connect the test database");
+
+        conn
     }
 }

@@ -1,4 +1,4 @@
-use crate::{ibase, statement::Statement, xsqlda::XSqlDa, FbError};
+use crate::{ibase, statement::StatementData, xsqlda::XSqlDa, Connection, FbError};
 
 /// Stores the data needed to send the parameters
 pub struct Params {
@@ -11,9 +11,13 @@ pub struct Params {
 
 impl Params {
     /// Validate and set the parameters of a statement
-    pub(crate) fn new(stmt: &mut Statement, infos: Vec<ParamInfo>) -> Result<Self, FbError> {
-        let ibase = &stmt.tr.conn.ibase;
-        let status = &stmt.tr.conn.status;
+    pub(crate) fn new(
+        conn: &Connection,
+        stmt: &mut StatementData,
+        infos: Vec<ParamInfo>,
+    ) -> Result<Self, FbError> {
+        let ibase = &conn.ibase;
+        let status = &conn.status;
 
         let params = if !infos.is_empty() {
             let mut xsqlda = XSqlDa::new(infos.len() as i16);

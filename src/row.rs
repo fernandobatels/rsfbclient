@@ -8,13 +8,12 @@ use std::mem;
 use std::result::Result;
 
 use super::ibase;
-use super::statement::StatementFetch;
 use super::status::{err_buffer_len, err_column_null, err_idx_not_exist, err_type_conv, FbError};
 use SqlType::*;
 
 /// A database row
 pub struct Row<'a> {
-    pub stmt_ft: &'a StatementFetch<'a>,
+    pub buffers: &'a Vec<ColumnBuffer>,
 }
 
 impl<'a> Row<'a> {
@@ -23,7 +22,7 @@ impl<'a> Row<'a> {
     where
         ColumnBuffer: ColumnToVal<T>,
     {
-        if let Some(col) = self.stmt_ft.buffers.get(idx) {
+        if let Some(col) = self.buffers.get(idx) {
             col.to_val()
         } else {
             err_idx_not_exist()
@@ -35,7 +34,7 @@ impl<'a> Row<'a> {
     where
         T: FromRow,
     {
-        T::try_from(&self.stmt_ft.buffers)
+        T::try_from(&self.buffers)
     }
 }
 
