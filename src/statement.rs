@@ -208,7 +208,9 @@ impl StatementData {
         drop(params);
 
         // Close the cursor, as it will not be used
-        self.close_cursor(conn)?;
+        // ignoring the error, as if it was not a select statement,
+        // the cursor will already be closed
+        self.close_cursor(conn).ok();
 
         Ok(())
     }
