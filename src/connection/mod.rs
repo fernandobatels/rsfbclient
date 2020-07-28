@@ -319,7 +319,7 @@ impl<R> Drop for StmtIter<'_, R> {
             .conn
             .stmt_cache
             .borrow_mut()
-            .insert(self.tr.conn, self.stmt_cache_data.take().unwrap())
+            .insert_and_close(self.tr.conn, self.stmt_cache_data.take().unwrap())
             .ok();
 
         // Commit the transaction
@@ -358,7 +358,10 @@ impl Queryable for Connection {
         let mut tr = self.transaction()?;
 
         // Get a statement from the cache
-        let mut stmt_cache_data = self.stmt_cache.borrow_mut().get(self, &mut tr.data, sql)?;
+        let mut stmt_cache_data =
+            self.stmt_cache
+                .borrow_mut()
+                .get_or_prepare(self, &mut tr.data, sql)?;
 
         match stmt_cache_data.stmt.query(self, &mut tr.data, params) {
             Ok(buffers) => {
@@ -373,7 +376,9 @@ impl Queryable for Connection {
             }
             Err(e) => {
                 // Return the statement to the cache
-                self.stmt_cache.borrow_mut().insert(self, stmt_cache_data)?;
+                self.stmt_cache
+                    .borrow_mut()
+                    .insert_and_close(self, stmt_cache_data)?;
 
                 Err(e)
             }
@@ -388,13 +393,18 @@ impl Queryable for Connection {
         let mut tr = self.transaction()?;
 
         // Get a statement from the cache
-        let mut stmt_cache_data = self.stmt_cache.borrow_mut().get(self, &mut tr.data, sql)?;
+        let mut stmt_cache_data =
+            self.stmt_cache
+                .borrow_mut()
+                .get_or_prepare(self, &mut tr.data, sql)?;
 
         // Do not return now in case of error, because we need to return the statement to the cache
         let res = stmt_cache_data.stmt.execute(self, &mut tr.data, params);
 
         // Return the statement to the cache
-        self.stmt_cache.borrow_mut().insert(self, stmt_cache_data)?;
+        self.stmt_cache
+            .borrow_mut()
+            .insert_and_close(self, stmt_cache_data)?;
 
         res?;
 
