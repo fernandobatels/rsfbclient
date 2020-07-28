@@ -29,7 +29,7 @@ fn main() -> Result<(), FbError> {
         .connect()?;
 
     conn.with_transaction(|tr| {
-        // First alternative (Prepares and executes automatically)
+        // First alternative (Recommended) (Prepares if needed and executes automatically)
         tr.execute(SQL_INSERT, (94, "Banana"))?;
 
         // Second alternative

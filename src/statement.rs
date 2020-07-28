@@ -360,7 +360,7 @@ impl StatementData {
 
 #[cfg(test)]
 mod test {
-    use crate::{connection::Connection, prelude::*};
+    use crate::{prelude::*, Connection, Transaction};
 
     #[test]
     fn statements() {
@@ -377,9 +377,9 @@ mod test {
             .connect()
             .expect("Error on connect the test database");
 
-        let mut t1c1 = conn1.transaction().unwrap();
-        let mut t2c2 = conn2.transaction().unwrap();
-        let mut t3c1 = conn1.transaction().unwrap();
+        let mut t1c1 = Transaction::new(&conn1).unwrap();
+        let mut t2c2 = Transaction::new(&conn2).unwrap();
+        let mut t3c1 = Transaction::new(&conn1).unwrap();
 
         println!("T1 {}", t1c1.data.handle);
         println!("T2 {}", t2c2.data.handle);
@@ -538,19 +538,15 @@ mod test {
 
         let vals = vec![(Some(9), "apple"), (Some(12), "jack"), (None, "coffee")];
 
-        let mut tr = conn.transaction().expect("Error on start the transaction");
+        conn.with_transaction(|tr| {
+            for val in vals.into_iter() {
+                tr.execute("insert into product (id, name) values (?, ?)", val)
+                    .expect("Error on insert");
+            }
 
-        let mut stmt = tr
-            .prepare("insert into product (id, name) values (?, ?)")
-            .expect("Error preparing the insert statement");
-
-        for val in vals.into_iter() {
-            stmt.execute(&mut tr, val).expect("Error on insert");
-        }
-
-        drop(stmt);
-
-        tr.commit().expect("Error on commit the transaction");
+            Ok(())
+        })
+        .expect("Error in the transaction");
 
         conn.close().expect("error on close the connection");
     }
@@ -559,15 +555,16 @@ mod test {
     fn immediate_insert() {
         let conn = setup();
 
-        let mut tr = conn.transaction().expect("Error on start the transaction");
+        conn.with_transaction(|tr| {
+            tr.execute_immediate("insert into product (id, name) values (?, ?)", (1, "apple"))
+                .expect("Error on 1° insert");
 
-        tr.execute_immediate("insert into product (id, name) values (?, ?)", (1, "apple"))
-            .expect("Error on 1° insert");
+            tr.execute_immediate("insert into product (id, name) values (?, ?)", (2, "coffe"))
+                .expect("Error on 2° insert");
 
-        tr.execute_immediate("insert into product (id, name) values (?, ?)", (2, "coffe"))
-            .expect("Error on 2° insert");
-
-        tr.commit().expect("Error on commit the transaction");
+            Ok(())
+        })
+        .expect("Error in the transaction");
 
         conn.close().expect("error on close the connection");
     }
@@ -584,17 +581,18 @@ mod test {
             .connect()
             .expect("Error on connect the test database");
 
-        let mut tr = conn.transaction().expect("Error on start the transaction");
+        conn.with_transaction(|tr| {
+            tr.execute_immediate("DROP TABLE product", ()).ok();
 
-        tr.execute_immediate("DROP TABLE product", ()).ok();
+            tr.execute_immediate(
+                "CREATE TABLE product (id int, name varchar(60), quantity int)",
+                (),
+            )
+            .expect("Error on create the table product");
 
-        tr.execute_immediate(
-            "CREATE TABLE product (id int, name varchar(60), quantity int)",
-            (),
-        )
-        .expect("Error on create the table product");
-
-        tr.commit().expect("Error on commit the transaction");
+            Ok(())
+        })
+        .expect("Error in the transaction");
 
         conn
     }

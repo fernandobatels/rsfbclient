@@ -25,7 +25,7 @@ pub struct Transaction<'c> {
 
 impl<'c> Transaction<'c> {
     /// Start a new transaction
-    pub fn start_transaction(conn: &Connection) -> Result<Transaction, FbError> {
+    pub fn new(conn: &Connection) -> Result<Transaction, FbError> {
         let data = TransactionData::new(conn)?;
 
         Ok(Transaction { data, conn })
@@ -126,6 +126,8 @@ where
 
 impl Queryable for Transaction<'_> {
     /// Prepare, execute and return the rows of the sql query
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
     fn query_iter<'a, P, R>(
         &'a mut self,
         sql: &str,
@@ -169,6 +171,8 @@ impl Queryable for Transaction<'_> {
     }
 
     /// Prepare and execute the sql query
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
     fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
     where
         P: IntoParams,

@@ -32,7 +32,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         .connect()
         .expect("Error on connect the test database");
 
-    let mut tr = conn.transaction().unwrap();
+    let mut tr = Transaction::new(&conn).unwrap();
 
     let mut prepared = tr.prepare(SQL).unwrap();
 
@@ -53,7 +53,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| query_select_1_api(&mut conn))
     });
 
-    let mut tr = conn.transaction().unwrap();
+    let mut tr = Transaction::new(&conn).unwrap();
 
     c.bench_function("exec_select_1_api_tr", |b| {
         b.iter(|| {

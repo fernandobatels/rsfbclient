@@ -238,7 +238,7 @@ impl Connection {
         &self,
         closure: impl FnOnce(&mut Transaction) -> Result<T, FbError>,
     ) -> Result<T, FbError> {
-        let mut tr = Transaction::start_transaction(self)?;
+        let mut tr = Transaction::new(self)?;
 
         let res = closure(&mut tr);
 
@@ -249,11 +249,6 @@ impl Connection {
         };
 
         res
-    }
-
-    /// Starts a new transaction
-    pub fn transaction(&self) -> Result<Transaction, FbError> {
-        Transaction::start_transaction(self)
     }
 
     /// Close the current connection
@@ -346,6 +341,8 @@ where
 
 impl Queryable for Connection {
     /// Prepare, execute, return the rows and commit the sql query
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
     fn query_iter<'a, P, R>(
         &'a mut self,
         sql: &str,
@@ -355,7 +352,7 @@ impl Queryable for Connection {
         P: IntoParams,
         R: FromRow + 'a,
     {
-        let mut tr = self.transaction()?;
+        let mut tr = Transaction::new(self)?;
 
         // Get a statement from the cache
         let mut stmt_cache_data =
@@ -386,11 +383,13 @@ impl Queryable for Connection {
     }
 
     /// Prepare, execute and commit the sql query
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
     fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
     where
         P: crate::params::IntoParams,
     {
-        let mut tr = self.transaction()?;
+        let mut tr = Transaction::new(self)?;
 
         // Get a statement from the cache
         let mut stmt_cache_data =
