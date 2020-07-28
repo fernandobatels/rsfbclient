@@ -12,6 +12,7 @@ use super::params::IntoParams;
 use super::statement::Statement;
 use super::status::FbError;
 use crate::{
+    connection::stmt_cache::StmtCacheData,
     params::Params,
     row::{ColumnBuffer, FromRow},
     Queryable,
@@ -72,18 +73,37 @@ impl<'c> Drop for Transaction<'c> {
     }
 }
 
-/// Variant of the `StatementIter` that owns the `Transaction`
+/// Variant of the `StatementIter` that uses the statement cache
 struct StmtIter<'a, R> {
-    stmt: Statement<'a>,
+    /// Statement cache data. Wrapped in option to allow taking the value to send back to the cache
+    stmt_cache_data: Option<StmtCacheData>,
+
+    /// Buffers for the column data
     buffers: Vec<ColumnBuffer>,
+
     /// Transaction needs to be alive for the fetch to work
-    _tr: &'a Transaction<'a>,
+    tr: &'a Transaction<'a>,
+
     _marker: marker::PhantomData<R>,
 }
 
 impl<R> Drop for StmtIter<'_, R> {
     fn drop(&mut self) {
-        self.stmt.data.close_cursor(self.stmt.conn).ok();
+        // Close the cursor
+        self.stmt_cache_data
+            .as_mut()
+            .unwrap()
+            .stmt
+            .close_cursor(self.tr.conn)
+            .ok();
+
+        // Send the statement back to the cache
+        self.tr
+            .conn
+            .stmt_cache
+            .borrow_mut()
+            .insert(self.tr.conn, self.stmt_cache_data.take().unwrap())
+            .ok();
     }
 }
 
@@ -94,9 +114,11 @@ where
     type Item = Result<R, FbError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.stmt
-            .data
-            .fetch(&self.stmt.conn, &mut self.buffers)
+        self.stmt_cache_data
+            .as_mut()
+            .unwrap()
+            .stmt
+            .fetch(&self.tr.conn, &mut self.buffers)
             .and_then(|row| row.map(|row| row.get_all()).transpose())
             .transpose()
     }
@@ -113,18 +135,37 @@ impl Queryable for Transaction<'_> {
         P: IntoParams,
         R: crate::row::FromRow + 'a,
     {
-        // TODO: Statement cache
-        let mut stmt = self.prepare(sql)?;
-        let buffers = stmt.data.query(self.conn, &mut self.data, params)?;
+        // Get a statement from the cache
+        let mut stmt_cache_data =
+            self.conn
+                .stmt_cache
+                .borrow_mut()
+                .get(self.conn, &mut self.data, sql)?;
 
-        let iter = StmtIter {
-            stmt,
-            buffers,
-            _tr: self,
-            _marker: Default::default(),
-        };
+        match stmt_cache_data
+            .stmt
+            .query(self.conn, &mut self.data, params)
+        {
+            Ok(buffers) => {
+                let iter = StmtIter {
+                    stmt_cache_data: Some(stmt_cache_data),
+                    buffers,
+                    tr: self,
+                    _marker: Default::default(),
+                };
 
-        Ok(Box::new(iter))
+                Ok(Box::new(iter))
+            }
+            Err(e) => {
+                // Return the statement to the cache
+                self.conn
+                    .stmt_cache
+                    .borrow_mut()
+                    .insert(self.conn, stmt_cache_data)?;
+
+                Err(e)
+            }
+        }
     }
 
     /// Prepare and execute the sql query
@@ -132,15 +173,33 @@ impl Queryable for Transaction<'_> {
     where
         P: IntoParams,
     {
-        // TODO: Statement cache
-        let mut stmt = self.prepare(sql)?;
+        // Get a statement from the cache
+        let mut stmt_cache_data =
+            self.conn
+                .stmt_cache
+                .borrow_mut()
+                .get(self.conn, &mut self.data, sql)?;
 
-        stmt.execute(self, params)
+        // Do not return now in case of error, because we need to return the statement to the cache
+        let res = stmt_cache_data
+            .stmt
+            .execute(self.conn, &mut self.data, params);
+
+        // Return the statement to the cache
+        self.conn
+            .stmt_cache
+            .borrow_mut()
+            .insert(self.conn, stmt_cache_data)?;
+
+        res?;
+
+        Ok(())
     }
 }
 
 #[derive(Debug)]
 /// Low level transaction handler.
+///
 /// Needs to be closed calling `rollback` before dropping.
 pub struct TransactionData {
     pub(crate) handle: ibase::isc_tr_handle,

@@ -122,6 +122,7 @@ where
 }
 
 /// Low level statement handler.
+///
 /// Needs to be closed calling `close` before dropping.
 pub struct StatementData {
     pub(crate) handle: ibase::isc_stmt_handle,

@@ -4,6 +4,8 @@
 //! Connection functions
 //!
 
+pub mod stmt_cache;
+
 use std::{
     cell::{Cell, RefCell},
     marker,
@@ -15,8 +17,9 @@ use crate::{
     query::Queryable,
     row::{ColumnBuffer, FromRow},
     status::{FbError, Status},
-    Statement, Transaction,
+    Transaction,
 };
+use stmt_cache::{StmtCache, StmtCacheData};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u16)]
@@ -35,6 +38,7 @@ pub struct ConnectionBuilder {
     user: String,
     pass: String,
     dialect: Dialect,
+    stmt_cache_size: usize,
     ibase: ibase::IBase,
 }
 
@@ -48,6 +52,7 @@ impl Default for ConnectionBuilder {
             user: "SYSDBA".to_string(),
             pass: "masterkey".to_string(),
             dialect: Dialect::D3,
+            stmt_cache_size: 20,
             ibase: ibase::IBase,
         }
     }
@@ -80,6 +85,7 @@ impl ConnectionBuilder {
             user: "SYSDBA".to_string(),
             pass: "masterkey".to_string(),
             dialect: Dialect::D3,
+            stmt_cache_size: 20,
             ibase: ibase::IBase::new(fbclient).map_err(|e| FbError {
                 code: -1,
                 msg: e.to_string(),
@@ -123,6 +129,12 @@ impl ConnectionBuilder {
         self
     }
 
+    /// Statement cache size. Default: 20
+    pub fn stmt_cache_size(&mut self, stmt_cache_size: usize) -> &mut Self {
+        self.stmt_cache_size = stmt_cache_size;
+        self
+    }
+
     /// Open a new connection to the database
     pub fn connect(&self) -> Result<Connection, FbError> {
         Connection::open(self)
@@ -139,6 +151,9 @@ pub struct Connection {
 
     /// Firebird dialect for the statements
     pub(crate) dialect: Dialect,
+
+    /// Cache for the prepared statements
+    pub(crate) stmt_cache: RefCell<StmtCache>,
 
     /// Firebird client functions
     pub(crate) ibase: ibase::IBase,
@@ -191,10 +206,13 @@ impl Connection {
         // Assert that the handle is valid
         debug_assert_ne!(handle.get(), 0);
 
+        let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
+
         Ok(Connection {
             handle,
             status,
             dialect: builder.dialect,
+            stmt_cache,
             ibase,
         })
     }
@@ -245,6 +263,8 @@ impl Connection {
 
     /// Close the current connection. With an `&mut self` to be used in the drop code too
     fn __close(&mut self) -> Result<(), FbError> {
+        self.stmt_cache.borrow_mut().close_all(self);
+
         unsafe {
             // Close the connection, if the handle is valid
             if self.handle.get() != 0
@@ -270,19 +290,39 @@ impl Drop for Connection {
     }
 }
 
-/// Variant of the `StatementIter` that owns the `Statement` and the `Transaction`
+/// Variant of the `StatementIter` that owns the `Transaction` and uses the statement cache
 struct StmtIter<'a, R> {
-    stmt: Statement<'a>,
+    /// Statement cache data. Wrapped in option to allow taking the value to send back to the cache
+    stmt_cache_data: Option<StmtCacheData>,
+
+    /// Buffers for the column data
     buffers: Vec<ColumnBuffer>,
+
     /// Transaction needs to be alive for the fetch to work
     tr: Transaction<'a>,
+
     _marker: marker::PhantomData<R>,
 }
 
 impl<R> Drop for StmtIter<'_, R> {
     fn drop(&mut self) {
-        self.stmt.data.close_cursor(self.stmt.conn).ok();
+        // Close the cursor
+        self.stmt_cache_data
+            .as_mut()
+            .unwrap()
+            .stmt
+            .close_cursor(self.tr.conn)
+            .ok();
 
+        // Send the statement back to the cache
+        self.tr
+            .conn
+            .stmt_cache
+            .borrow_mut()
+            .insert(self.tr.conn, self.stmt_cache_data.take().unwrap())
+            .ok();
+
+        // Commit the transaction
         self.tr.commit_retaining().ok();
     }
 }
@@ -294,9 +334,11 @@ where
     type Item = Result<R, FbError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.stmt
-            .data
-            .fetch(&self.stmt.conn, &mut self.buffers)
+        self.stmt_cache_data
+            .as_mut()
+            .unwrap()
+            .stmt
+            .fetch(&self.tr.conn, &mut self.buffers)
             .and_then(|row| row.map(|row| row.get_all()).transpose())
             .transpose()
     }
@@ -314,18 +356,28 @@ impl Queryable for Connection {
         R: FromRow + 'a,
     {
         let mut tr = self.transaction()?;
-        // TODO: Statement cache
-        let mut stmt = tr.prepare(sql)?;
-        let buffers = stmt.data.query(self, &mut tr.data, params)?;
 
-        let iter = StmtIter {
-            stmt,
-            buffers,
-            tr,
-            _marker: Default::default(),
-        };
+        // Get a statement from the cache
+        let mut stmt_cache_data = self.stmt_cache.borrow_mut().get(self, &mut tr.data, sql)?;
 
-        Ok(Box::new(iter))
+        match stmt_cache_data.stmt.query(self, &mut tr.data, params) {
+            Ok(buffers) => {
+                let iter = StmtIter {
+                    stmt_cache_data: Some(stmt_cache_data),
+                    buffers,
+                    tr,
+                    _marker: Default::default(),
+                };
+
+                Ok(Box::new(iter))
+            }
+            Err(e) => {
+                // Return the statement to the cache
+                self.stmt_cache.borrow_mut().insert(self, stmt_cache_data)?;
+
+                Err(e)
+            }
+        }
     }
 
     /// Prepare, execute and commit the sql query
@@ -334,10 +386,17 @@ impl Queryable for Connection {
         P: crate::params::IntoParams,
     {
         let mut tr = self.transaction()?;
-        // TODO: Statement cache
-        let mut stmt = tr.prepare(sql)?;
 
-        stmt.execute(&mut tr, params)?;
+        // Get a statement from the cache
+        let mut stmt_cache_data = self.stmt_cache.borrow_mut().get(self, &mut tr.data, sql)?;
+
+        // Do not return now in case of error, because we need to return the statement to the cache
+        let res = stmt_cache_data.stmt.execute(self, &mut tr.data, params);
+
+        // Return the statement to the cache
+        self.stmt_cache.borrow_mut().insert(self, stmt_cache_data)?;
+
+        res?;
 
         tr.commit()?;
 
