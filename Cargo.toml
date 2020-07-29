@@ -16,13 +16,15 @@ readme = "README.md"
 chrono = { version = "0.4", optional = true }
 libc = "0.2"
 libloading = { version = "0.6", optional = true }
-once_cell = { version = "1.4", optional = true }
 lru-cache = "0.1.2"
+once_cell = { version = "1.4", optional = true }
+r2d2 = { version = "0.8.9", optional = true }
 
 [features]
-default = ["date_time"]
+default = ["date_time", "pool"]
 date_time = ["chrono"]
 dynamic_loading = ["libloading", "once_cell"]
+pool = ["r2d2"]
 
 [dev-dependencies]
 criterion = "0.3"

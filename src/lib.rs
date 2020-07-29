@@ -27,3 +27,6 @@ pub use crate::{
     status::FbError,
     transaction::Transaction,
 };
+
+#[cfg(feature = "pool")]
+pub use crate::connection::pool::FirebirdConnectionManager;

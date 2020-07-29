@@ -4,6 +4,8 @@
 //! Connection functions
 //!
 
+#[cfg(feature = "pool")]
+pub mod pool;
 pub mod stmt_cache;
 
 use std::{
