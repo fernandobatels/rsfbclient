@@ -25,10 +25,3 @@ default = ["date_time", "pool"]
 date_time = ["chrono"]
 dynamic_loading = ["libloading", "once_cell"]
 pool = ["r2d2"]
-
-[dev-dependencies]
-criterion = "0.3"
-
-[[bench]]
-name = "select"
-harness = false
