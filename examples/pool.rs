@@ -37,10 +37,11 @@ fn main() {
 
         let th = thread::spawn(move || loop {
             match pool.get() {
-                Ok(mut conn) => match conn
-                    .query_first::<_, (f64,)>("SELECT rand() FROM RDB$DATABASE", ())
-                {
-                    Ok(Some((res,))) => println!("Thread {}: {}", n, res),
+                Ok(mut conn) => match conn.query_first("SELECT rand() FROM RDB$DATABASE", ()) {
+                    Ok(Some(row)) => {
+                        let (res,): (f64,) = row;
+                        println!("Thread {}: {}", n, res)
+                    }
 
                     Err(e) => println!("execute query error in line:{} ! error: {:?}", line!(), e),
 

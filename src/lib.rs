@@ -3,7 +3,7 @@
 //!
 
 pub mod prelude {
-    pub use crate::query::Queryable;
+    pub use crate::query::{Execute, Queryable};
 }
 
 mod connection;
@@ -21,7 +21,7 @@ mod xsqlda;
 
 pub use crate::{
     connection::{Connection, ConnectionBuilder, Dialect},
-    query::Queryable,
+    query::{Execute, Queryable},
     row::Row,
     statement::Statement,
     status::FbError,

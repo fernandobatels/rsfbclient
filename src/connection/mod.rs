@@ -19,7 +19,7 @@ use crate::{
     query::Queryable,
     row::{ColumnBuffer, FromRow},
     status::{FbError, Status},
-    Transaction,
+    Execute, Transaction,
 };
 use stmt_cache::{StmtCache, StmtCacheData};
 
@@ -288,7 +288,7 @@ impl Drop for Connection {
 }
 
 /// Variant of the `StatementIter` that owns the `Transaction` and uses the statement cache
-struct StmtIter<'a, R> {
+pub struct StmtIter<'a, R> {
     /// Statement cache data. Wrapped in option to allow taking the value to send back to the cache
     stmt_cache_data: Option<StmtCacheData>,
 
@@ -341,18 +341,18 @@ where
     }
 }
 
-impl Queryable for Connection {
+impl<'a, R> Queryable<'a, R> for Connection
+where
+    R: FromRow + 'a,
+{
+    type Iter = StmtIter<'a, R>;
+
     /// Prepare, execute, return the rows and commit the sql query
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    fn query_iter<'a, P, R>(
-        &'a mut self,
-        sql: &str,
-        params: P,
-    ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
+    fn query_iter<P>(&'a mut self, sql: &str, params: P) -> Result<Self::Iter, FbError>
     where
         P: IntoParams,
-        R: FromRow + 'a,
     {
         let mut tr = Transaction::new(self)?;
 
@@ -371,7 +371,7 @@ impl Queryable for Connection {
                     _marker: Default::default(),
                 };
 
-                Ok(Box::new(iter))
+                Ok(iter)
             }
             Err(e) => {
                 // Return the statement to the cache
@@ -383,13 +383,15 @@ impl Queryable for Connection {
             }
         }
     }
+}
 
+impl Execute for Connection {
     /// Prepare, execute and commit the sql query
     ///
     /// Use `()` for no parameters or a tuple of parameters
     fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
     where
-        P: crate::params::IntoParams,
+        P: IntoParams,
     {
         let mut tr = Transaction::new(self)?;
 
