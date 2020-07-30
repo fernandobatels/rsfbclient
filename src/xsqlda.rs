@@ -11,6 +11,8 @@ pub struct XSqlDa {
     len: i16,
 }
 
+unsafe impl Send for XSqlDa {}
+
 impl XSqlDa {
     /// Allocates a new XSQLDA of length `len`
     pub fn new(len: i16) -> Self {

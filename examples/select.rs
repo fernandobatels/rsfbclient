@@ -10,11 +10,11 @@
 //! the database ;)
 //!
 
-use rsfbclient::{ConnectionBuilder, FbError};
+use rsfbclient::{prelude::*, ConnectionBuilder, FbError};
 
 fn main() -> Result<(), FbError> {
     #[cfg(not(feature = "dynamic_loading"))]
-    let conn = ConnectionBuilder::default()
+    let mut conn = ConnectionBuilder::default()
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")
@@ -22,29 +22,28 @@ fn main() -> Result<(), FbError> {
         .connect()?;
 
     #[cfg(feature = "dynamic_loading")]
-    let conn = ConnectionBuilder::with_client("./fbclient.lib")?
+    let mut conn = ConnectionBuilder::with_client("./fbclient.lib")?
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")
         .pass("masterkey")
         .connect()?;
 
-    conn.with_transaction(|tr| {
-        let rows = tr
-            .prepare("select col_a, col_b, col_c from test")?
-            .query(())?
-            .into_iter();
+    // `query_iter` for large quantities of rows, will allocate space for one row at a time
+    let rows = conn.query_iter("select col_a, col_b, col_c from test", ())?;
 
-        println!("| col_a | col_b | col_c   |");
-        println!("| ----- | ----- | ------- |");
-        for row in rows {
-            let (col_a, col_b, col_c): (i32, f32, String) = row?;
+    println!("| col_a | col_b | col_c   |");
+    println!("| ----- | ----- | ------- |");
+    for row in rows {
+        let (col_a, col_b, col_c): (i32, f32, String) = row?;
 
-            println!("| {:^5} | {:^5} | {:7} |", col_a, col_b, col_c);
-        }
+        println!("| {:^5} | {:^5} | {:7} |", col_a, col_b, col_c);
+    }
 
-        Ok(())
-    })?;
+    // `query` for small quantities of rows, will allocate a vector with all rows
+    let rows: Vec<(i32, f32, String)> = conn.query("select col_a, col_b, col_c from test", ())?;
+
+    println!("{:?}", rows);
 
     Ok(())
 }
