@@ -94,7 +94,7 @@ impl Params {
 /// Data for the input XSQLVAR
 pub struct ParamBuffer {
     /// Buffer for the parameter data
-    _buffer: Vec<u8>,
+    _buffer: Box<[u8]>,
 
     /// Null indicator
     _nullind: Box<i16>,
@@ -124,7 +124,7 @@ impl ParamBuffer {
 /// Data used to build the input XSQLVAR
 pub struct ParamInfo {
     pub(crate) sqltype: i16,
-    pub(crate) buffer: Vec<u8>,
+    pub(crate) buffer: Box<[u8]>,
     pub(crate) null: bool,
 }
 
@@ -135,7 +135,7 @@ pub trait ToParam {
 
 impl ToParam for String {
     fn to_info(self) -> ParamInfo {
-        let buffer = Vec::from(self);
+        let buffer = Vec::from(self).into_boxed_slice();
 
         ParamInfo {
             sqltype: ibase::SQL_TEXT as i16 + 1,
@@ -147,7 +147,7 @@ impl ToParam for String {
 
 impl ToParam for i64 {
     fn to_info(self) -> ParamInfo {
-        let buffer = self.to_le_bytes().to_vec();
+        let buffer = self.to_le_bytes().to_vec().into_boxed_slice();
 
         ParamInfo {
             sqltype: ibase::SQL_INT64 as i16 + 1,
@@ -174,7 +174,7 @@ impl_param_int!(i32, u32, i16, u16, i8, u8);
 
 impl ToParam for f64 {
     fn to_info(self) -> ParamInfo {
-        let buffer = self.to_le_bytes().to_vec();
+        let buffer = self.to_le_bytes().to_vec().into_boxed_slice();
 
         ParamInfo {
             sqltype: ibase::SQL_DOUBLE as i16 + 1,
@@ -201,7 +201,7 @@ where
         } else {
             ParamInfo {
                 sqltype: ibase::SQL_NULL as i16 + 1,
-                buffer: vec![],
+                buffer: Box::new([]),
                 null: true,
             }
         }

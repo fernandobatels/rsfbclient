@@ -1,5 +1,5 @@
 use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
-use std::mem;
+use std::{convert::TryInto, mem};
 
 use crate::{
     ibase,
@@ -123,7 +123,7 @@ impl ToParam for NaiveDateTime {
 
         ParamInfo {
             sqltype: ibase::SQL_TIMESTAMP as i16 + 1,
-            buffer,
+            buffer: buffer.into_boxed_slice(),
             null: false,
         }
     }
@@ -137,12 +137,8 @@ pub fn timestamp_from_buffer(buffer: &[u8]) -> Result<chrono::NaiveDateTime, FbE
     }
 
     let date = ibase::ISC_TIMESTAMP {
-        timestamp_date: ibase::ISC_DATE::from_le_bytes([
-            buffer[0], buffer[1], buffer[2], buffer[3],
-        ]),
-        timestamp_time: ibase::ISC_TIME::from_le_bytes([
-            buffer[4], buffer[5], buffer[6], buffer[7],
-        ]),
+        timestamp_date: ibase::ISC_DATE::from_le_bytes(buffer[0..4].try_into().unwrap()),
+        timestamp_time: ibase::ISC_TIME::from_le_bytes(buffer[4..8].try_into().unwrap()),
     };
 
     Ok(decode_timestamp(date))

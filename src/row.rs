@@ -4,11 +4,12 @@
 //! Representation of a fetched row
 //!
 
-use std::mem;
-use std::result::Result;
+use std::{convert::TryInto, mem, result::Result};
 
-use super::ibase;
-use super::status::{err_buffer_len, err_column_null, err_idx_not_exist, err_type_conv, FbError};
+use super::{
+    ibase,
+    status::{err_buffer_len, err_column_null, err_idx_not_exist, err_type_conv, FbError},
+};
 use SqlType::*;
 
 /// A database row
@@ -58,7 +59,7 @@ pub struct ColumnBuffer {
     kind: SqlType,
 
     /// Buffer for the column data
-    buffer: Vec<u8>,
+    buffer: Box<[u8]>,
 
     /// Null indicator
     nullind: Box<i16>,
@@ -76,7 +77,7 @@ impl ColumnBuffer {
         let (kind, mut buffer) = match sqltype as u32 {
             ibase::SQL_TEXT | ibase::SQL_VARYING => {
                 // sqllen + 2 because the two bytes from the varchar length
-                let buffer = vec![0; var.sqllen as usize + 2];
+                let buffer = vec![0; var.sqllen as usize + 2].into_boxed_slice();
 
                 var.sqltype = ibase::SQL_VARYING as i16 + 1;
 
@@ -86,7 +87,7 @@ impl ColumnBuffer {
             ibase::SQL_SHORT | ibase::SQL_LONG | ibase::SQL_INT64 => {
                 var.sqllen = mem::size_of::<i64>() as i16;
 
-                let buffer = vec![0; var.sqllen as usize];
+                let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
 
                 if var.sqlscale == 0 {
                     var.sqltype = ibase::SQL_INT64 as i16 + 1;
@@ -103,7 +104,7 @@ impl ColumnBuffer {
             ibase::SQL_FLOAT | ibase::SQL_DOUBLE => {
                 var.sqllen = mem::size_of::<i64>() as i16;
 
-                let buffer = vec![0; var.sqllen as usize];
+                let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
 
                 var.sqltype = ibase::SQL_DOUBLE as i16 + 1;
 
@@ -113,7 +114,7 @@ impl ColumnBuffer {
             ibase::SQL_TIMESTAMP | ibase::SQL_TYPE_DATE | ibase::SQL_TYPE_TIME => {
                 var.sqllen = mem::size_of::<ibase::ISC_TIMESTAMP>() as i16;
 
-                let buffer = vec![0; var.sqllen as usize];
+                let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
 
                 var.sqltype = ibase::SQL_TIMESTAMP as i16 + 1;
 
@@ -274,7 +275,12 @@ where
 
 /// Converts a varchar in a buffer to a String
 fn varchar_to_string(buffer: &[u8]) -> Result<String, FbError> {
-    let len = i16::from_le_bytes([buffer[0], buffer[1]]) as usize;
+    if buffer.len() < 2 {
+        return err_buffer_len(2, buffer.len(), "String");
+    }
+
+    let len = i16::from_le_bytes(buffer[0..2].try_into().unwrap()) as usize;
+
     if len > buffer.len() - 2 {
         return err_buffer_len(len + 2, buffer.len(), "String");
     }
@@ -294,9 +300,7 @@ fn integer_from_buffer(buffer: &[u8]) -> Result<i64, FbError> {
         return err_buffer_len(len, buffer.len(), "i64");
     }
 
-    Ok(i64::from_le_bytes([
-        buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5], buffer[6], buffer[7],
-    ]))
+    Ok(i64::from_le_bytes(buffer.try_into().unwrap()))
 }
 
 /// Interprets a float value from a buffer
@@ -306,9 +310,7 @@ fn float_from_buffer(buffer: &[u8]) -> Result<f64, FbError> {
         return err_buffer_len(len, buffer.len(), "f64");
     }
 
-    Ok(f64::from_le_bytes([
-        buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5], buffer[6], buffer[7],
-    ]))
+    Ok(f64::from_le_bytes(buffer.try_into().unwrap()))
 }
 
 /// Implemented for types that represents a list of values of columns
