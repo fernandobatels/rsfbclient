@@ -383,6 +383,40 @@ mod test {
     use crate::{prelude::*, Connection, FbError};
 
     #[test]
+    fn fixed_points() -> Result<(), FbError> {
+        let mut conn = conn();
+
+        let (a, b): (f32, f32) = conn
+            .query_first(
+                "select cast(100 as numeric(3, 2)), cast(100 as decimal(3, 2)) from rdb$database",
+                (),
+            )?
+            .unwrap();
+        assert_eq!(100.0, a);
+        assert_eq!(100.0, b);
+
+        let (a, b): (f32, f32) = conn
+            .query_first(
+                "select cast(2358.35321 as numeric(5, 5)), cast(2358.35321 as decimal(5, 5)) from rdb$database",
+                ()
+            )?
+            .unwrap();
+        assert_eq!(2358.35321, a);
+        assert_eq!(2358.35321, b);
+
+        let (a, b): (f64, f64) = conn
+            .query_first(
+                "select cast(2358.78353211234 as numeric(11, 11)), cast(2358.78353211234 as decimal(11, 11)) from rdb$database",
+                ()
+            )?
+            .unwrap();
+        assert_eq!(2358.78353211234, a);
+        assert_eq!(2358.78353211234, b);
+
+        Ok(())
+    }
+
+    #[test]
     fn float_points() -> Result<(), FbError> {
         let mut conn = conn();
 
@@ -419,7 +453,7 @@ mod test {
             .unwrap();
         assert_eq!(1.175E-38, min);
         assert_eq!(3.402E38, max);
-
+        
         Ok(())
     }
 

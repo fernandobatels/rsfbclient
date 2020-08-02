@@ -285,6 +285,39 @@ mod test {
     use crate::{prelude::*, Connection, FbError};
 
     #[test]
+    fn fixed_points() -> Result<(), FbError> {
+        let mut conn = conn();
+
+        conn.execute("DROP TABLE PFIXEDS", ()).ok();
+        conn.execute(
+            "CREATE TABLE PFIXEDS (ref char(1), a numeric(2, 2), b decimal(2, 2))",
+            (),
+        )?;
+
+        conn.execute(
+            "insert into pfixeds (ref, a) values ('a', ?)",
+            (22.33,),
+        )?;
+        let val_exists: Option<(i16,)> = conn.query_first(
+            "select 1 from pfixeds where ref = 'a' and a = 22.33",
+            (),
+        )?;
+        assert!(val_exists.is_some());
+
+        conn.execute(
+            "insert into pfixeds (ref, b) values ('b', ?)",
+            (22.33,),
+        )?;
+        let val_exists: Option<(i16,)> = conn.query_first(
+            "select 1 from pfixeds where ref = 'b' and b = 22.33",
+            (),
+        )?;
+        assert!(val_exists.is_some());
+
+        Ok(())
+    }
+
+    #[test]
     fn float_points() -> Result<(), FbError> {
         let mut conn = conn();
 
