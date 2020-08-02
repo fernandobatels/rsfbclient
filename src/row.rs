@@ -194,6 +194,12 @@ impl ColumnToVal<i32> for ColumnBuffer {
     }
 }
 
+impl ColumnToVal<i16> for ColumnBuffer {
+    fn to_val(&self) -> Result<i16, FbError> {
+        ColumnToVal::<i64>::to_val(self).map(|i| i as i16)
+    }
+}
+
 impl ColumnToVal<f64> for ColumnBuffer {
     fn to_val(&self) -> Result<f64, FbError> {
         if *self.nullind < 0 {
@@ -371,3 +377,73 @@ macro_rules! impls_from_row {
 }
 
 impls_from_row!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z);
+
+#[cfg(test)]
+mod test {
+    use crate::{prelude::*, Connection, FbError};
+
+    #[test]
+    fn cols_ints() -> Result<(), FbError> {
+        let mut conn = conn();
+
+        let (a, b, c): (i32, i16, i64) = conn
+            .query_first(
+                "select cast(100 as int), cast(100 as smallint), cast(100 as bigint) from rdb$database",
+                ()
+            )?
+            .unwrap();
+        assert_eq!(100, a);
+        assert_eq!(100, b);
+        assert_eq!(100, c);
+
+        let (a, b, c): (i32, i16, i64) = conn
+            .query_first(
+                "select cast(2358 as int), cast(2358 as smallint), cast(2358 as bigint) from rdb$database",
+                ()
+            )?
+            .unwrap();
+        assert_eq!(2358, a);
+        assert_eq!(2358, b);
+        assert_eq!(2358, c);
+
+        let (min, max): (i64, i64) = conn.query_first("select cast(-9223372036854775808 as bigint), cast(9223372036854775807 as bigint) from RDB$DATABASE", ())?
+            .unwrap();
+        assert_eq!(i64::MIN, min);
+        assert_eq!(i64::MAX, max);
+
+        let (min, max): (i32, i32) = conn
+            .query_first(
+                "select cast(-2147483648 as int), cast(2147483647 as int) from RDB$DATABASE",
+                (),
+            )?
+            .unwrap();
+        assert_eq!(i32::MIN, min);
+        assert_eq!(i32::MAX, max);
+
+        let (min, max): (i16, i16) = conn
+            .query_first(
+                "select cast(-32768 as bigint), cast(32767 as bigint) from RDB$DATABASE",
+                (),
+            )?
+            .unwrap();
+        assert_eq!(i16::MIN, min);
+        assert_eq!(i16::MAX, max);
+
+        Ok(())
+    }
+
+    fn conn() -> Connection {
+        #[cfg(not(feature = "dynamic_loading"))]
+        let conn = crate::ConnectionBuilder::default()
+            .connect()
+            .expect("Error on connect the test database");
+
+        #[cfg(feature = "dynamic_loading")]
+        let conn = crate::ConnectionBuilder::with_client("./fbclient.lib")
+            .expect("Error finding fbclient lib")
+            .connect()
+            .expect("Error on connect the test database");
+
+        conn
+    }
+}
