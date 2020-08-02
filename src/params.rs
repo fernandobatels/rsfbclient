@@ -285,6 +285,40 @@ mod test {
     use crate::{prelude::*, Connection, FbError};
 
     #[test]
+    fn float_points() -> Result<(), FbError> {
+        let mut conn = conn();
+
+        conn.execute("DROP TABLE PFLOATS", ()).ok();
+        conn.execute(
+            "CREATE TABLE PFLOATS (ref char(1), a float, b double precision)",
+            (),
+        )?;
+
+        conn.execute(
+            "insert into pfloats (ref, a) values ('a', ?)",
+            (3.402E38,),
+        )?;
+        let val_exists: Option<(i16,)> = conn.query_first(
+            "select 1 from pfloats where ref = 'a' and a = cast(3.402E38 as float)",
+            (),
+        )?;
+        assert!(val_exists.is_some());
+
+        conn.execute(
+            "insert into pfloats (ref, b) values ('b', ?)",
+            (2.225e-300,),
+        )?;
+        let val_exists: Option<(i16,)> = conn.query_first(
+            "select 1 from pfloats where ref = 'b' and b = 2.225E-300",
+            (),
+        )?;
+        assert!(val_exists.is_some());
+
+
+        Ok(())
+    }
+
+    #[test]
     fn ints() -> Result<(), FbError> {
         let mut conn = conn();
 
@@ -299,8 +333,8 @@ mod test {
             (i16::MIN,),
         )?;
         let val_exists: Option<(i16,)> = conn.query_first(
-            "select 1 from pintegers where ref = 'a' and a = ?",
-            (i16::MIN,),
+            "select 1 from pintegers where ref = 'a' and a = -32768",
+            (),
         )?;
         assert!(val_exists.is_some());
 
@@ -309,8 +343,8 @@ mod test {
             (i32::MIN,),
         )?;
         let val_exists: Option<(i16,)> = conn.query_first(
-            "select 1 from pintegers where ref = 'b' and b = ?",
-            (i32::MIN,),
+            "select 1 from pintegers where ref = 'b' and b = -2147483648",
+            (),
         )?;
         assert!(val_exists.is_some());
 
@@ -319,8 +353,8 @@ mod test {
             (i64::MIN,),
         )?;
         let val_exists: Option<(i16,)> = conn.query_first(
-            "select 1 from pintegers where ref = 'c' and c = ?",
-            (i64::MIN,),
+            "select 1 from pintegers where ref = 'c' and c = -9223372036854775808",
+            (),
         )?;
         assert!(val_exists.is_some());
 

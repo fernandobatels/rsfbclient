@@ -383,6 +383,47 @@ mod test {
     use crate::{prelude::*, Connection, FbError};
 
     #[test]
+    fn float_points() -> Result<(), FbError> {
+        let mut conn = conn();
+
+        let (a, b): (f32, f64) = conn
+            .query_first(
+                "select cast(100 as float), cast(100 as double precision) from rdb$database",
+                (),
+            )?
+            .unwrap();
+        assert_eq!(100.0, a);
+        assert_eq!(100.0, b);
+
+        let (a, b): (f32, f64) = conn
+            .query_first(
+                "select cast(2358.35 as float), cast(2358.35 as double precision) from rdb$database",
+                ()
+            )?
+            .unwrap();
+        assert_eq!(2358.35, a);
+        assert_eq!(2358.35, b);
+
+        // We use fixed values instead of f64::MAX/MIN, because the supported ranges in rust and firebird aren't the same.
+        let (min, max): (f64, f64) = conn.query_first("select cast(2.225E-300 as double precision), cast(1.797e300 as double precision) from RDB$DATABASE", ())?
+            .unwrap();
+        assert_eq!(2.225e-300, min);
+        assert_eq!(1.797e300, max);
+
+        // We use fixed values instead of f32::MAX/MIN, because the supported ranges in rust and firebird aren't the same.
+        let (min, max): (f32, f32) = conn
+            .query_first(
+                "select cast(1.175E-38 as float), cast(3.402E38 as float) from RDB$DATABASE",
+                (),
+            )?
+            .unwrap();
+        assert_eq!(1.175E-38, min);
+        assert_eq!(3.402E38, max);
+
+        Ok(())
+    }
+
+    #[test]
     fn ints() -> Result<(), FbError> {
         let mut conn = conn();
 
