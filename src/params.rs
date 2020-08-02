@@ -279,3 +279,66 @@ impls_into_params!(
     [N, n],
     [O, o]
 );
+
+#[cfg(test)]
+mod test {
+    use crate::{prelude::*, Connection, FbError};
+
+    #[test]
+    fn ints() -> Result<(), FbError> {
+        let mut conn = conn();
+
+        conn.execute("DROP TABLE PINTEGERS", ()).ok();
+        conn.execute(
+            "CREATE TABLE PINTEGERS (ref char(1), a smallint, b int, c bigint)",
+            (),
+        )?;
+
+        conn.execute(
+            "insert into pintegers (ref, a) values ('a', ?)",
+            (i16::MIN,),
+        )?;
+        let val_exists: Option<(i16,)> = conn.query_first(
+            "select 1 from pintegers where ref = 'a' and a = ?",
+            (i16::MIN,),
+        )?;
+        assert!(val_exists.is_some());
+
+        conn.execute(
+            "insert into pintegers (ref, b) values ('b', ?)",
+            (i32::MIN,),
+        )?;
+        let val_exists: Option<(i16,)> = conn.query_first(
+            "select 1 from pintegers where ref = 'b' and b = ?",
+            (i32::MIN,),
+        )?;
+        assert!(val_exists.is_some());
+
+        conn.execute(
+            "insert into pintegers (ref, c) values ('c', ?)",
+            (i64::MIN,),
+        )?;
+        let val_exists: Option<(i16,)> = conn.query_first(
+            "select 1 from pintegers where ref = 'c' and c = ?",
+            (i64::MIN,),
+        )?;
+        assert!(val_exists.is_some());
+
+        Ok(())
+    }
+
+    fn conn() -> Connection {
+        #[cfg(not(feature = "dynamic_loading"))]
+        let conn = crate::ConnectionBuilder::default()
+            .connect()
+            .expect("Error on connect the test database");
+
+        #[cfg(feature = "dynamic_loading")]
+        let conn = crate::ConnectionBuilder::with_client("./fbclient.lib")
+            .expect("Error finding fbclient lib")
+            .connect()
+            .expect("Error on connect the test database");
+
+        conn
+    }
+}

@@ -383,7 +383,7 @@ mod test {
     use crate::{prelude::*, Connection, FbError};
 
     #[test]
-    fn cols_ints() -> Result<(), FbError> {
+    fn ints() -> Result<(), FbError> {
         let mut conn = conn();
 
         let (a, b, c): (i32, i16, i64) = conn
