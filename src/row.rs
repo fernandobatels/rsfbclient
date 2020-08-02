@@ -381,6 +381,24 @@ impls_from_row!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V
 #[cfg(test)]
 mod test {
     use crate::{prelude::*, Connection, FbError};
+    use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+
+    #[test]
+    fn dates() -> Result<(), FbError> {
+        let mut conn = conn();
+
+        let (a, b, c): (NaiveDate, NaiveDateTime, NaiveTime) = conn
+            .query_first(
+                "select cast('2010-10-10' as date), cast('2010-10-10 10:10:10' as TIMESTAMP), cast('10:10:10' as TIME) from rdb$database",
+                (),
+            )?
+            .unwrap();
+        assert_eq!(NaiveDate::from_ymd(2010, 10, 10), a);
+        assert_eq!(NaiveDate::from_ymd(2010, 10, 10).and_hms(10, 10, 10), b);
+        assert_eq!(NaiveTime::from_hms(10, 10, 10), c);
+
+        Ok(())
+    }
 
     #[test]
     fn strings() -> Result<(), FbError> {
@@ -394,7 +412,6 @@ mod test {
             .unwrap();
         assert_eq!("firebird".to_string(), a);
         assert_eq!("firebird".to_string(), b);
-
 
         let (a, b): (String, String) = conn
             .query_first(
@@ -479,7 +496,7 @@ mod test {
             .unwrap();
         assert_eq!(1.175E-38, min);
         assert_eq!(3.402E38, max);
-        
+
         Ok(())
     }
 

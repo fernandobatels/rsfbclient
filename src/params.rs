@@ -283,6 +283,50 @@ impls_into_params!(
 #[cfg(test)]
 mod test {
     use crate::{prelude::*, Connection, FbError};
+    use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+
+    #[test]
+    fn dates() -> Result<(), FbError> {
+        let mut conn = conn();
+
+        conn.execute("DROP TABLE PDATES", ()).ok();
+        conn.execute(
+            "CREATE TABLE PDATES (ref char(1), a date, b timestamp, c time)",
+            (),
+        )?;
+
+        conn.execute(
+            "insert into pdates (ref, a) values ('a', ?)",
+            (NaiveDate::from_ymd(2009, 08, 07),),
+        )?;
+        let val_exists: Option<(i16,)> = conn.query_first(
+            "select 1 from pdates where ref = 'a' and a = '2009-08-07'",
+            (),
+        )?;
+        assert!(val_exists.is_some());
+
+        conn.execute(
+            "insert into pdates (ref, b) values ('b', ?)",
+            (NaiveDate::from_ymd(2009, 08, 07).and_hms(11, 32, 25),),
+        )?;
+        let val_exists: Option<(i16,)> = conn.query_first(
+            "select 1 from pdates where ref = 'b' and b = '2009-08-07 11:32:25'",
+            (),
+        )?;
+        assert!(val_exists.is_some());
+
+        conn.execute(
+            "insert into pdates (ref, c) values ('c', ?)",
+            (NaiveTime::from_hms(11, 22, 33),),
+        )?;
+        let val_exists: Option<(i16,)> = conn.query_first(
+            "select 1 from pdates where ref = 'c' and c = '11:22:33'",
+            (),
+        )?;
+        assert!(val_exists.is_some());
+
+        Ok(())
+    }
 
     #[test]
     fn strings() -> Result<(), FbError> {
@@ -327,24 +371,14 @@ mod test {
             (),
         )?;
 
-        conn.execute(
-            "insert into pfixeds (ref, a) values ('a', ?)",
-            (22.33,),
-        )?;
-        let val_exists: Option<(i16,)> = conn.query_first(
-            "select 1 from pfixeds where ref = 'a' and a = 22.33",
-            (),
-        )?;
+        conn.execute("insert into pfixeds (ref, a) values ('a', ?)", (22.33,))?;
+        let val_exists: Option<(i16,)> =
+            conn.query_first("select 1 from pfixeds where ref = 'a' and a = 22.33", ())?;
         assert!(val_exists.is_some());
 
-        conn.execute(
-            "insert into pfixeds (ref, b) values ('b', ?)",
-            (22.33,),
-        )?;
-        let val_exists: Option<(i16,)> = conn.query_first(
-            "select 1 from pfixeds where ref = 'b' and b = 22.33",
-            (),
-        )?;
+        conn.execute("insert into pfixeds (ref, b) values ('b', ?)", (22.33,))?;
+        let val_exists: Option<(i16,)> =
+            conn.query_first("select 1 from pfixeds where ref = 'b' and b = 22.33", ())?;
         assert!(val_exists.is_some());
 
         Ok(())
@@ -360,10 +394,7 @@ mod test {
             (),
         )?;
 
-        conn.execute(
-            "insert into pfloats (ref, a) values ('a', ?)",
-            (3.402E38,),
-        )?;
+        conn.execute("insert into pfloats (ref, a) values ('a', ?)", (3.402E38,))?;
         let val_exists: Option<(i16,)> = conn.query_first(
             "select 1 from pfloats where ref = 'a' and a = cast(3.402E38 as float)",
             (),
@@ -379,7 +410,6 @@ mod test {
             (),
         )?;
         assert!(val_exists.is_some());
-
 
         Ok(())
     }
@@ -398,10 +428,8 @@ mod test {
             "insert into pintegers (ref, a) values ('a', ?)",
             (i16::MIN,),
         )?;
-        let val_exists: Option<(i16,)> = conn.query_first(
-            "select 1 from pintegers where ref = 'a' and a = -32768",
-            (),
-        )?;
+        let val_exists: Option<(i16,)> =
+            conn.query_first("select 1 from pintegers where ref = 'a' and a = -32768", ())?;
         assert!(val_exists.is_some());
 
         conn.execute(
