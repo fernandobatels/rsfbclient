@@ -285,6 +285,39 @@ mod test {
     use crate::{prelude::*, Connection, FbError};
 
     #[test]
+    fn strings() -> Result<(), FbError> {
+        let mut conn = conn();
+
+        conn.execute("DROP TABLE PSTRINGS", ()).ok();
+        conn.execute(
+            "CREATE TABLE PSTRINGS (ref char(1), a varchar(10), b varchar(10))",
+            (),
+        )?;
+
+        conn.execute(
+            "insert into pstrings (ref, a) values ('a', ?)",
+            ("firebird",),
+        )?;
+        let val_exists: Option<(i16,)> = conn.query_first(
+            "select 1 from pstrings where ref = 'a' and a = 'firebird'",
+            (),
+        )?;
+        assert!(val_exists.is_some());
+
+        conn.execute(
+            "insert into pstrings (ref, b) values ('b', ?)",
+            ("firebird",),
+        )?;
+        let val_exists: Option<(i16,)> = conn.query_first(
+            "select 1 from pstrings where ref = 'b' and b = 'firebird  '",
+            (),
+        )?;
+        assert!(val_exists.is_some());
+
+        Ok(())
+    }
+
+    #[test]
     fn fixed_points() -> Result<(), FbError> {
         let mut conn = conn();
 

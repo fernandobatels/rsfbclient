@@ -383,6 +383,32 @@ mod test {
     use crate::{prelude::*, Connection, FbError};
 
     #[test]
+    fn strings() -> Result<(), FbError> {
+        let mut conn = conn();
+
+        let (a, b): (String, String) = conn
+            .query_first(
+                "select cast('firebird' as varchar(8)), cast('firebird' as char(8)) from rdb$database",
+                (),
+            )?
+            .unwrap();
+        assert_eq!("firebird".to_string(), a);
+        assert_eq!("firebird".to_string(), b);
+
+
+        let (a, b): (String, String) = conn
+            .query_first(
+                "select cast('firebird' as varchar(10)), cast('firebird' as char(10)) from rdb$database",
+                (),
+            )?
+            .unwrap();
+        assert_eq!("firebird".to_string(), a);
+        assert_eq!("firebird  ".to_string(), b);
+
+        Ok(())
+    }
+
+    #[test]
     fn fixed_points() -> Result<(), FbError> {
         let mut conn = conn();
 
