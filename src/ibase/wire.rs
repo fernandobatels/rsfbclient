@@ -4,6 +4,8 @@
 //! Wire protocol implementation
 //!
 
+#![allow(non_upper_case_globals)]
+
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::{
     convert::TryFrom,
@@ -33,7 +35,7 @@ impl WireConnection {
     fn connect(host: &str, port: u16, db_name: &str) -> Result<Self, FbError> {
         let mut socket = TcpStream::connect((host, port))?;
 
-        socket.write_all(&connect(db_name))?;
+        socket.write_all(&connect(db_name, false))?;
 
         // May be a bit too much
         let mut buff = vec![0; BUFFER_LENGTH as usize * 2];
@@ -190,70 +192,8 @@ fn connection_test() {
     std::thread::sleep(std::time::Duration::from_millis(100));
 }
 
-/// Prepare statement request. Use u32::MAX as `stmt_handle` if the statement was allocated
-/// in the previous request
-fn prepare_statement(tr_handle: u32, stmt_handle: u32, dialect: u32, query: &str) -> Bytes {
-    let mut req = BytesMut::with_capacity(256);
-
-    req.put_u32(WireOp::PrepareStatement as u32);
-    req.put_u32(tr_handle);
-    req.put_u32(stmt_handle);
-    req.put_u32(dialect);
-    put_wire_bytes(&mut req, query.as_bytes());
-    put_wire_bytes(&mut req, &XSQLDA_DESCRIBE_VARS);
-
-    req.put_u32(BUFFER_LENGTH);
-
-    req.freeze()
-}
-
-/// Statement allocation request (lazy response)
-fn allocate_statement(db_handle: u32) -> Bytes {
-    let mut req = BytesMut::with_capacity(8);
-
-    req.put_u32(WireOp::AllocateStatement as u32);
-    req.put_u32(db_handle);
-
-    req.freeze()
-}
-
-/// Begin transaction request
-fn transaction(db_handle: u32, tpb: &[u8]) -> Bytes {
-    let mut tr = BytesMut::with_capacity(tpb.len() + 8);
-
-    tr.put_u32(WireOp::Transaction as u32);
-    tr.put_u32(db_handle);
-    put_wire_bytes(&mut tr, tpb);
-
-    tr.freeze()
-}
-
-#[derive(Debug)]
-/// `WireOp::Response` response
-struct Response {
-    handle: u32,
-    object_id: u64,
-    data: Bytes,
-}
-
-/// Parse a server response (`WireOp::Response`)
-fn parse_response(resp: &mut Bytes) -> Result<Response, FbError> {
-    let handle = resp.get_u32();
-    let object_id = resp.get_u64();
-
-    let data = get_wire_bytes(resp);
-
-    parse_status_vector(resp)?;
-
-    Ok(Response {
-        handle,
-        object_id,
-        data,
-    })
-}
-
 /// Connection request
-fn connect(db_name: &str) -> Bytes {
+fn connect(db_name: &str, create_db: bool) -> Bytes {
     let protocols = [
         // PROTOCOL_VERSION, Arch type (Generic=1), min, max, weight
         [ProtocolVersion::V10 as u32, 1, 0, 5, 2],
@@ -264,12 +204,18 @@ fn connect(db_name: &str) -> Bytes {
 
     let mut connect = BytesMut::new();
     connect.put_u32(WireOp::Connect as u32);
-    connect.put_u32(WireOp::Attach as u32);
+    connect.put_u32(if create_db {
+        WireOp::Create
+    } else {
+        WireOp::Attach
+    } as u32);
     connect.put_u32(3); // CONNECT_VERSION
     connect.put_u32(1); // arch_generic
 
-    put_wire_bytes(&mut connect, db_name.as_bytes());
+    // Db file path / name
+    connect.put_wire_bytes(db_name.as_bytes());
 
+    // Protocol versions understood
     connect.put_u32(protocols.len() as u32);
 
     // User identification, TODO: Wire protocol 13
@@ -330,8 +276,7 @@ fn connect(db_name: &str) -> Bytes {
 
         uid.freeze()
     };
-
-    put_wire_bytes(&mut connect, &uid);
+    connect.put_wire_bytes(&uid);
 
     // Protocols
     for i in protocols.iter().flatten() {
@@ -375,11 +320,72 @@ fn attach(db_name: &str, user: &str, pass: &str, protocol: u32) -> Bytes {
     attach.put_u32(WireOp::Attach as u32);
     attach.put_u32(0); // Database Object ID
 
-    put_wire_bytes(&mut attach, db_name.as_bytes());
+    attach.put_wire_bytes(db_name.as_bytes());
 
-    put_wire_bytes(&mut attach, &dpb);
+    attach.put_wire_bytes(&dpb);
 
     attach.freeze()
+}
+
+/// Begin transaction request
+fn transaction(db_handle: u32, tpb: &[u8]) -> Bytes {
+    let mut tr = BytesMut::with_capacity(tpb.len() + 8);
+
+    tr.put_u32(WireOp::Transaction as u32);
+    tr.put_u32(db_handle);
+    tr.put_wire_bytes(tpb);
+
+    tr.freeze()
+}
+/// Statement allocation request (lazy response)
+fn allocate_statement(db_handle: u32) -> Bytes {
+    let mut req = BytesMut::with_capacity(8);
+
+    req.put_u32(WireOp::AllocateStatement as u32);
+    req.put_u32(db_handle);
+
+    req.freeze()
+}
+
+/// Prepare statement request. Use u32::MAX as `stmt_handle` if the statement was allocated
+/// in the previous request
+fn prepare_statement(tr_handle: u32, stmt_handle: u32, dialect: u32, query: &str) -> Bytes {
+    let mut req = BytesMut::with_capacity(256);
+
+    req.put_u32(WireOp::PrepareStatement as u32);
+    req.put_u32(tr_handle);
+    req.put_u32(stmt_handle);
+    req.put_u32(dialect);
+    req.put_wire_bytes(query.as_bytes());
+    req.put_wire_bytes(&XSQLDA_DESCRIBE_VARS);
+
+    req.put_u32(BUFFER_LENGTH);
+
+    req.freeze()
+}
+
+#[derive(Debug)]
+/// `WireOp::Response` response
+struct Response {
+    handle: u32,
+    object_id: u64,
+    data: Bytes,
+}
+
+/// Parse a server response (`WireOp::Response`)
+fn parse_response(resp: &mut Bytes) -> Result<Response, FbError> {
+    let handle = resp.get_u32();
+    let object_id = resp.get_u64();
+
+    let data = resp.get_wire_bytes()?;
+
+    parse_status_vector(resp)?;
+
+    Ok(Response {
+        handle,
+        object_id,
+        data,
+    })
 }
 
 /// Parses the error messages from the response
@@ -390,44 +396,65 @@ fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
     let mut gds_code = 0;
     let mut num_arg = 0;
 
-    let mut n = resp.get_u32();
-
-    while n != isc_arg_end {
-        if n == isc_arg_gds {
-            gds_code = resp.get_u32();
-
-            if gds_code != 0 {
-                message += gds_to_msg(gds_code);
-                num_arg = 0;
-            }
-        } else if n == isc_arg_number {
-            let num = resp.get_i32();
-            if gds_code == 335544436 {
-                sql_code = num
-            }
-            num_arg += 1;
-            message = message.replace(&format!("@{}", num_arg), &format!("{}", num));
-        } else if n == isc_arg_string {
-            let msg = get_wire_bytes(resp);
-            let msg = std::str::from_utf8(&msg[..]).unwrap_or("**Invalid message**");
-
-            num_arg += 1;
-            message = message.replace(&format!("@{}", num_arg), &msg);
-        } else if n == isc_arg_interpreted {
-            let msg = get_wire_bytes(resp);
-            let msg = std::str::from_utf8(&msg[..]).unwrap_or("**Invalid message**");
-
-            message += msg;
-        } else if n == isc_arg_sql_state {
-            let len = resp.get_u32() as usize;
-
-            resp.advance(len as usize);
-            if len % 4 != 0 {
-                resp.advance(4 - (len % 4));
-            }
+    loop {
+        if resp.remaining() < 4 {
+            return err_invalid_response();
         }
 
-        n = resp.get_u32();
+        match resp.get_u32() {
+            // New error message
+            isc_arg_gds => {
+                gds_code = resp.get_u32();
+
+                if gds_code != 0 {
+                    message += gds_to_msg(gds_code);
+                    num_arg = 0;
+                }
+            }
+
+            // Error message arg number
+            isc_arg_number => {
+                let num = resp.get_i32();
+                // Sql error code
+                if gds_code == 335544436 {
+                    sql_code = num
+                }
+
+                num_arg += 1;
+                message = message.replace(&format!("@{}", num_arg), &format!("{}", num));
+            }
+
+            // Error message arg string
+            isc_arg_string => {
+                let msg = resp.get_wire_bytes()?;
+                let msg = std::str::from_utf8(&msg[..]).unwrap_or("**Invalid message**");
+
+                num_arg += 1;
+                message = message.replace(&format!("@{}", num_arg), &msg);
+            }
+
+            // Aditional error message string
+            isc_arg_interpreted => {
+                let msg = resp.get_wire_bytes()?;
+                let msg = std::str::from_utf8(&msg[..]).unwrap_or("**Invalid message**");
+
+                message += msg;
+            }
+
+            isc_arg_sql_state => {
+                resp.get_wire_bytes()?;
+            }
+
+            // End of error messages
+            isc_arg_end => break,
+
+            cod => {
+                return Err(FbError::Other(format!(
+                    "Invalid / Unknown status vector item: {}",
+                    cod
+                )));
+            }
+        }
     }
 
     if message.ends_with('\n') {
@@ -444,31 +471,56 @@ fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
     }
 }
 
-/// Put a u32 with the bytes length and the byte data
-/// with padding to align for 4 bytes
-fn put_wire_bytes(into: &mut impl BufMut, bytes: &[u8]) {
-    let len = bytes.len() as usize;
+trait BufMutWireExt: BufMut {
+    /// Put a u32 with the bytes length and the byte data
+    /// with padding to align for 4 bytes
+    fn put_wire_bytes(&mut self, bytes: &[u8])
+    where
+        Self: Sized,
+    {
+        let len = bytes.len() as usize;
 
-    into.put_u32(len as u32);
-    into.put(bytes);
-    if len % 4 != 0 {
-        into.put_slice(&[0; 4][..4 - (len % 4)]);
+        self.put_u32(len as u32);
+        self.put(bytes);
+        if len % 4 != 0 {
+            self.put_slice(&[0; 4][..4 - (len % 4)]);
+        }
     }
 }
 
-/// Get the length of the bytes from the first u32
-/// and return the bytes read, advancing the cursor
-/// to align to 4 bytes
-fn get_wire_bytes(from: &mut Bytes) -> Bytes {
-    let len = from.get_u32() as usize;
+impl<T> BufMutWireExt for T where T: BufMut {}
 
-    let mut bytes = from.clone();
-    bytes.truncate(len);
+trait BytesWireExt {
+    /// Get the length of the bytes from the first u32
+    /// and return the bytes read, advancing the cursor
+    /// to align to 4 bytes
+    fn get_wire_bytes(&mut self) -> Result<Bytes, FbError>;
+}
 
-    from.advance(len);
-    if len % 4 != 0 {
-        from.advance(4 - (len % 4));
+impl BytesWireExt for Bytes {
+    fn get_wire_bytes(&mut self) -> Result<Bytes, FbError> {
+        if self.remaining() < 4 {
+            return err_invalid_response();
+        }
+        let len = self.get_u32() as usize;
+
+        if self.remaining() < len {
+            return err_invalid_response();
+        }
+        let mut bytes = self.clone();
+        bytes.truncate(len);
+
+        self.advance(len);
+        if len % 4 != 0 {
+            self.advance(4 - (len % 4));
+        }
+
+        Ok(bytes)
     }
+}
 
-    bytes
+fn err_invalid_response<T>() -> Result<T, FbError> {
+    Err(FbError::Other(
+        "Invalid server response, missing bytes".to_string(),
+    ))
 }

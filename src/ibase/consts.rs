@@ -114,16 +114,31 @@ pub enum WireOp {
 
 #[derive(Debug)]
 #[repr(u8)]
+/// User identification data
+///
+/// Format: `type` `length` 'data'
+///
+/// * `type`      is a u8 (this enum)
+/// * `length`    is an u8 containing length of data
+/// * `data`      is 'type' specific
 pub enum Cnct {
+    /// User name
     User = 1,
     Passwd = 2,
     Host = 4,
+    /// Effective Unix group id
     Group = 5,
+    /// Attach / Create using this connection
     UserVerification = 6,
+    /// Some data, needed for user verification on server
     SpecificData = 7,
+    /// Name of plugin, which generated that data
     PluginName = 8,
+    /// Database user name
     Login = 9,
+    /// List of plugins available on client
     PluginList = 10,
+    /// Client encyption level (DISABLED / ENABLED / REQUIRED)
     ClientCrypt = 11,
 }
 
