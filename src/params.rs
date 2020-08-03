@@ -35,10 +35,10 @@ impl Params {
             }
 
             if xsqlda.sqld != xsqlda.sqln {
-                return Err(FbError {
-                    code: -1,
-                    msg: format!("Wrong parameter count, you passed {}, but the sql contains needs {} params", xsqlda.sqln, xsqlda.sqld)
-                });
+                return Err(FbError::Other(format!(
+                    "Wrong parameter count, you passed {}, but the sql contains needs {} params",
+                    xsqlda.sqln, xsqlda.sqld
+                )));
             }
 
             let buffers = infos

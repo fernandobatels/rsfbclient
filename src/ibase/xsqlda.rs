@@ -58,6 +58,8 @@ pub struct XSqlVar {
     pub alias_name: String,
 }
 
+/// Parses the data from the `PrepareStatement` response.
+///
 /// XSqlDa data format: u8 type, optional data preceded by a u16 length.
 /// Returns the statement type, xsqlda and an indicator if the data was truncated (xsqlda not entirely filled)
 pub fn parse_xsqlda(data: &[u8]) -> Result<(StmtType, XSqlDa, bool), FbError> {
@@ -68,7 +70,8 @@ pub fn parse_xsqlda(data: &[u8]) -> Result<(StmtType, XSqlDa, bool), FbError> {
     let mut c = Cursor::new(data);
     c.advance(3);
 
-    let stmt_type = StmtType::try_from(c.get_u32_le())?;
+    let stmt_type =
+        StmtType::try_from(c.get_u32_le()).map_err(|e| FbError::Other(e.to_string()))?;
 
     let mut xsqlda = Vec::new();
 
@@ -275,10 +278,10 @@ fn parse_select_items(c: &mut impl Buf, xsqlda: &mut XSqlDa) -> Result<bool, FbE
             isc_info_end => break false,
 
             item => {
-                return Err(FbError {
-                    code: -1,
-                    msg: format!("Invalid item received in the xsqlda: {}", item),
-                })
+                return Err(FbError::Other(format!(
+                    "Invalid item received in the xsqlda: {}",
+                    item
+                )))
             }
         }
     };
@@ -287,8 +290,7 @@ fn parse_select_items(c: &mut impl Buf, xsqlda: &mut XSqlDa) -> Result<bool, FbE
 }
 
 fn err_invalid_xsqlda<T>() -> Result<T, FbError> {
-    Err(FbError {
-        code: -1,
-        msg: "Invalid Xsqlda received from server".to_string(),
-    })
+    Err(FbError::Other(
+        "Invalid Xsqlda received from server".to_string(),
+    ))
 }

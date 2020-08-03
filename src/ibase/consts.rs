@@ -6,11 +6,9 @@
 
 #![allow(dead_code)]
 
-use std::convert::TryFrom;
+use num_enum::TryFromPrimitive;
 
-use crate::FbError;
-
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, TryFromPrimitive)]
 #[repr(u32)]
 pub enum ProtocolVersion {
     V10 = 0x0000000A,
@@ -23,48 +21,94 @@ pub enum ProtocolVersion {
 #[repr(u8)]
 /// Wire protocol operation
 pub enum WireOp {
+    /// Connect to remote server
     Connect = 1,
+    /// Remote end has exitted
     Exit = 2,
+    /// Server accepts connection
     Accept = 3,
+    /// Server rejects connection
     Reject = 4,
-    Protocol = 5,
+    /// Connect is going away
     Disconnect = 6,
+    /// Generic response block
     Response = 9,
+
+    /// Attach database
     Attach = 19,
+    /// Create database
     Create = 20,
+    /// Detach database
     Detach = 21,
+
+    /// Transaction operations
     Transaction = 29,
+    /// Commit transaction
     Commit = 30,
+    /// Rollback transaction
     Rollback = 31,
+
+    /// Open a blob
     OpenBlob = 35,
+    /// Get blob segment
     GetSegment = 36,
+    /// Put blob segment
     PutSegment = 37,
+    /// Create blob
+    CreateBlob = 38,
+    /// Close a blob
     CloseBlob = 39,
+
+    /// Get informations of the database
     InfoDatabase = 40,
+    /// Get informations of the transaction
     InfoTransaction = 42,
+
+    /// Put multiple blob segments
     BatchSegments = 44,
+    /// Que event notification request
     QueEvents = 48,
+    /// Cancel event notification request
     CancelEvents = 49,
+    /// Commit transaction, allowing to reuse it
     CommitRetaining = 50,
+    /// Completed event request (asynchronous)
     Event = 52,
+    /// Request to establish connection
     ConnectRequest = 53,
+    /// Open blob v2
+    OpenBlob2 = 56,
+    /// Create blob v2
     CreateBlob2 = 57,
+
+    /// Allocate a statment handle
     AllocateStatement = 62,
+    /// Execute a prepared statement
     Execute = 63,
+    /// Execute a statement
     ExecImmediate = 64,
+    /// Fetch a record
     Fetch = 65,
+    /// Response for record fetch
     FetchResponse = 66,
+    /// Free a statement
     FreeStatement = 67,
+    /// Prepare a statement
     PrepareStatement = 68,
+    /// Statement info
     InfoSql = 70,
+
+    /// Dummy packet to detect loss of client
     Dummy = 71,
-    Execute2 = 76,
+    /// Response from execute, exec immed, insert
     SqlResponse = 78,
+    /// Drop database request
     DropDatabase = 81,
     ServiceAttach = 82,
     ServiceDetach = 83,
     ServiceInfo = 84,
     ServiceStart = 85,
+    /// Rollback transaction, allowing to reuse it
     RollbackRetaining = 86,
 }
 
@@ -83,8 +127,8 @@ pub enum Cnct {
     ClientCrypt = 11,
 }
 
-#[derive(Debug)]
-#[repr(u8)]
+#[derive(Debug, TryFromPrimitive)]
+#[repr(u32)]
 /// Statement type
 pub enum StmtType {
     Select = 1,
@@ -92,24 +136,6 @@ pub enum StmtType {
     Update = 3,
     Delete = 4,
     DDL = 5,
-}
-
-impl TryFrom<u32> for StmtType {
-    type Error = FbError;
-
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
-        match value {
-            1 => Ok(Self::Select),
-            2 => Ok(Self::Insert),
-            3 => Ok(Self::Update),
-            4 => Ok(Self::Delete),
-            5 => Ok(Self::DDL),
-            _ => Err(FbError {
-                code: -1,
-                msg: "Invalid statement type".to_string(),
-            }),
-        }
-    }
 }
 
 /// Converts a gds_code to a error message

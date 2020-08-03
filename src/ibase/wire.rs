@@ -7,122 +7,191 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::{
     convert::TryFrom,
-    io::{Cursor, Read, Write},
+    io::{Read, Write},
     net::TcpStream,
 };
 
 use super::*;
-use crate::FbError;
+use crate::{status::SqlError, FbError};
 
 /// Buffer length to use in the connection
 const BUFFER_LENGTH: u32 = 1024;
 
 pub struct WireConnection {
+    /// Connection socket
     socket: TcpStream,
+
+    /// Wire protocol version
+    version: ProtocolVersion,
+
+    /// Buffer to read the network data
+    buff: Vec<u8>,
 }
 
 impl WireConnection {
-    fn new(db_name: &str, user: &str, pass: &str) -> Result<Self, FbError> {
-        unimplemented!()
+    /// Start a connection to the firebird server
+    fn connect(host: &str, port: u16, db_name: &str) -> Result<Self, FbError> {
+        let mut socket = TcpStream::connect((host, port))?;
+
+        socket.write_all(&connect(db_name))?;
+
+        // May be a bit too much
+        let mut buff = vec![0; BUFFER_LENGTH as usize * 2];
+
+        let len = socket.read(&mut buff)?;
+        let mut resp = Bytes::copy_from_slice(&buff[..len]);
+
+        let op_code = resp.get_u32();
+        if op_code != WireOp::Accept as u32 {
+            return Err(FbError::Other(format!(
+                "Connection rejected with code {}",
+                op_code
+            )));
+        }
+
+        let version =
+            ProtocolVersion::try_from(resp.get_u32()).map_err(|e| FbError::Other(e.to_string()))?;
+        // println!("Arch: {:X}", resp.get_u32());
+        // println!("Type: {:X}", resp.get_u32());
+
+        Ok(Self {
+            socket,
+            version,
+            buff,
+        })
+    }
+
+    /// Connect to a database, returning a database handle
+    fn attach_database(
+        &mut self,
+        db_name: &str,
+        user: &str,
+        pass: &str,
+    ) -> Result<DbHandle, FbError> {
+        self.socket
+            .write_all(&attach(db_name, user, pass, self.version as u32))?;
+
+        let resp = self.read_response()?;
+
+        Ok(DbHandle(resp.handle))
+    }
+
+    /// Start a new transaction, with the specified transaction parameter buffer
+    fn begin_transaction(&mut self, db_handle: DbHandle, tpb: &[u8]) -> Result<TrHandle, FbError> {
+        self.socket
+            .write_all(&transaction(db_handle.0, tpb))
+            .unwrap();
+
+        let resp = self.read_response()?;
+
+        Ok(TrHandle(resp.handle))
+    }
+
+    fn prepare_statement(
+        &mut self,
+        db_handle: DbHandle,
+        tr_handle: TrHandle,
+        sql: &str,
+    ) -> Result<(StmtType, StmtHandle, XSqlDa), FbError> {
+        // Alloc statement
+        self.socket.write_all(&allocate_statement(db_handle.0))?;
+
+        // Prepare statement
+        self.socket
+            .write_all(&prepare_statement(tr_handle.0, u32::MAX, 3, sql))?;
+
+        let len = self.socket.read(&mut self.buff)?;
+        let mut resp = Bytes::copy_from_slice(&self.buff[..len]);
+
+        // Alloc resp
+        let op_code = resp.get_u32();
+        if op_code != WireOp::Response as u32 {
+            return Err(FbError::Other(format!(
+                "Connection rejected with code {}",
+                op_code
+            )));
+        }
+
+        let stmt_handle = StmtHandle(parse_response(&mut resp)?.handle);
+
+        // Prepare resp
+        let op_code = resp.get_u32();
+        if op_code != WireOp::Response as u32 {
+            return Err(FbError::Other(format!(
+                "Connection rejected with code {}",
+                op_code
+            )));
+        }
+
+        let resp = parse_response(&mut resp)?;
+        let (stmt_type, xsqlda, truncated) = parse_xsqlda(&resp.data)?;
+        // TODO: handle truncated
+
+        Ok((stmt_type, stmt_handle, xsqlda))
+    }
+
+    /// Read a server response
+    fn read_response(&mut self) -> Result<Response, FbError> {
+        let len = self.socket.read(&mut self.buff).unwrap();
+        let mut resp = Bytes::copy_from_slice(&self.buff[..len]);
+
+        let op_code = resp.get_u32();
+        if op_code != WireOp::Response as u32 {
+            return Err(FbError::Other(format!(
+                "Connection rejected with code {}",
+                op_code
+            )));
+        }
+
+        parse_response(&mut resp)
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+/// A database handle
+struct DbHandle(u32);
+
+#[derive(Debug, Clone, Copy)]
+/// A transaction handle
+struct TrHandle(u32);
+
+#[derive(Debug, Clone, Copy)]
+/// A statement handle
+struct StmtHandle(u32);
+
 #[test]
 fn connection_test() {
-    let mut stream = TcpStream::connect("127.0.0.1:3050").unwrap();
-
     let db_name = "test.fdb";
     let user = "SYSDBA";
     let pass = "masterkey";
 
-    // Connect
-    stream.write_all(&connect(db_name, user)).unwrap();
+    let mut conn = WireConnection::connect("127.0.0.1", 3050, db_name).unwrap();
 
-    let mut buff = vec![0; BUFFER_LENGTH as usize];
+    let db_handle = conn.attach_database(db_name, user, pass).unwrap();
 
-    let len = stream.read(&mut buff).unwrap();
-    let mut resp = Bytes::copy_from_slice(&buff[..len]);
-
-    let op_code = resp.get_u32();
-    println!("Op code: {}", op_code);
-    let protocol = resp.get_u32();
-    println!("Version: {:X}", protocol);
-    println!("Arch: {:X}", resp.get_u32());
-    println!("Type: {:X}", resp.get_u32());
-
-    assert_eq!(op_code, WireOp::Accept as u32);
-    assert_eq!(protocol, ProtocolVersion::V12 as u32);
-
-    // Attach db
-    stream
-        .write_all(&attach(db_name, user, pass, protocol))
-        .unwrap();
-
-    let len = stream.read(&mut buff).unwrap();
-    let mut resp = Bytes::copy_from_slice(&buff[..len]);
-
-    let op_code = resp.get_u32();
-    println!("Op code: {}", op_code);
-
-    let resp = parse_response(&mut resp).unwrap();
-    let db_handle = resp.handle;
-
-    println!("{:#?}", resp);
-
-    // Begin transaction
-    stream
-        .write_all(&transaction(
+    let tr_handle = conn
+        .begin_transaction(
             db_handle,
             &[isc_tpb_version3 as u8, isc_tpb_read_committed as u8],
-        ))
+        )
         .unwrap();
 
-    let len = stream.read(&mut buff).unwrap();
-    let mut resp = Bytes::copy_from_slice(&buff[..len]);
-
-    let op_code = resp.get_u32();
-    println!("Op code: {}", op_code);
-
-    let resp = parse_response(&mut resp).unwrap();
-    let tr_handle = resp.handle;
-
-    println!("{:#?}", resp);
-
-    // Alloc statement
-    stream.write_all(&allocate_statement(db_handle)).unwrap();
-
-    // Prepare statement
-    stream
-        .write_all(&prepare_statement(
+    let (stmt_type, stmt_handle, xsqlda) = conn
+        .prepare_statement(
+            db_handle,
             tr_handle,
-            u32::MAX,
-            3,
-            "SELECT 1, cast(null as bigint) as tst FROM RDB$DATABASE",
-        ))
+            "SELECT 1, cast('abcdefghijk' as varchar(10)) as tst FROM RDB$DATABASE",
+        )
         .unwrap();
 
-    // Alloc resp
-    let len = stream.read(&mut buff).unwrap();
-    let mut resp = Bytes::copy_from_slice(&buff[..len]);
+    println!("{:#?}", xsqlda);
+    println!("StmtType: {:?}", stmt_type);
 
-    let op_code = resp.get_u32();
-    println!("Op code: {}", op_code);
-
-    let resp_alloc = parse_response(&mut resp).unwrap();
-    let stmt_handle = resp_alloc.handle;
-
-    println!("{:#?}", resp_alloc);
-
-    // Prepare resp
-    let op_code = resp.get_u32();
-    println!("Op code: {}", op_code);
-
-    let resp = parse_response(&mut resp).unwrap();
-    println!("{:#?}", resp);
-
-    println!("{:#?}", parse_xsqlda(&resp.data).unwrap());
+    std::thread::sleep(std::time::Duration::from_millis(100));
 }
 
+/// Prepare statement request. Use u32::MAX as `stmt_handle` if the statement was allocated
+/// in the previous request
 fn prepare_statement(tr_handle: u32, stmt_handle: u32, dialect: u32, query: &str) -> Bytes {
     let mut req = BytesMut::with_capacity(256);
 
@@ -138,6 +207,7 @@ fn prepare_statement(tr_handle: u32, stmt_handle: u32, dialect: u32, query: &str
     req.freeze()
 }
 
+/// Statement allocation request (lazy response)
 fn allocate_statement(db_handle: u32) -> Bytes {
     let mut req = BytesMut::with_capacity(8);
 
@@ -147,6 +217,7 @@ fn allocate_statement(db_handle: u32) -> Bytes {
     req.freeze()
 }
 
+/// Begin transaction request
 fn transaction(db_handle: u32, tpb: &[u8]) -> Bytes {
     let mut tr = BytesMut::with_capacity(tpb.len() + 8);
 
@@ -158,12 +229,14 @@ fn transaction(db_handle: u32, tpb: &[u8]) -> Bytes {
 }
 
 #[derive(Debug)]
+/// `WireOp::Response` response
 struct Response {
     handle: u32,
     object_id: u64,
     data: Bytes,
 }
 
+/// Parse a server response (`WireOp::Response`)
 fn parse_response(resp: &mut Bytes) -> Result<Response, FbError> {
     let handle = resp.get_u32();
     let object_id = resp.get_u64();
@@ -179,7 +252,8 @@ fn parse_response(resp: &mut Bytes) -> Result<Response, FbError> {
     })
 }
 
-fn connect(db_name: &str, user: &str) -> Bytes {
+/// Connection request
+fn connect(db_name: &str) -> Bytes {
     let protocols = [
         // PROTOCOL_VERSION, Arch type (Generic=1), min, max, weight
         [ProtocolVersion::V10 as u32, 1, 0, 5, 2],
@@ -192,7 +266,7 @@ fn connect(db_name: &str, user: &str) -> Bytes {
     connect.put_u32(WireOp::Connect as u32);
     connect.put_u32(WireOp::Attach as u32);
     connect.put_u32(3); // CONNECT_VERSION
-    connect.put_u32(1); //arch_generic
+    connect.put_u32(1); // arch_generic
 
     put_wire_bytes(&mut connect, db_name.as_bytes());
 
@@ -361,10 +435,10 @@ fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
     }
 
     if !message.is_empty() {
-        Err(FbError {
+        Err(FbError::Sql(SqlError {
             code: sql_code,
             msg: message,
-        })
+        }))
     } else {
         Ok(())
     }

@@ -122,10 +122,10 @@ impl ColumnBuffer {
             }
 
             sqltype => {
-                return Err(FbError {
-                    code: -1,
-                    msg: format!("Unsupported column type ({})", sqltype),
-                })
+                return Err(FbError::Other(format!(
+                    "Unsupported column type ({})",
+                    sqltype
+                )))
             }
         };
 
@@ -165,11 +165,9 @@ impl ColumnToVal<String> for ColumnBuffer {
             }
 
             #[cfg(not(feature = "date_time"))]
-            Timestamp => Err(FbError {
-                code: -1,
-                msg: "Enable the `date_time` feature to use Timestamp, Date and Time types"
-                    .to_string(),
-            }),
+            Timestamp => Err(FbError::Other(
+                "Enable the `date_time` feature to use Timestamp, Date and Time types".to_string(),
+            )),
         }
     }
 }
@@ -287,10 +285,7 @@ fn varchar_to_string(buffer: &[u8]) -> Result<String, FbError> {
 
     std::str::from_utf8(&buffer[2..(len + 2)])
         .map(|str| str.to_string())
-        .map_err(|_| FbError {
-            code: -1,
-            msg: "Found column with an invalid utf-8 string".to_owned(),
-        })
+        .map_err(|_| FbError::Other("Found column with an invalid utf-8 string".to_owned()))
 }
 
 /// Interprets an integer value from a buffer
@@ -345,10 +340,9 @@ macro_rules! impl_from_row {
                         iter
                             .next()
                             .ok_or_else(|| {
-                                FbError {
-                                    code: -1,
-                                    msg: format!("The sql returned less columns than the {} expected", row.len())
-                                }
+                                FbError::Other(
+                                    format!("The sql returned less columns than the {} expected", row.len())
+                                )
                             })?
                     )?,
                 )+ ))
