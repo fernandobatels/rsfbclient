@@ -14,7 +14,12 @@ use std::{
 };
 
 use super::*;
-use crate::{status::SqlError, FbError};
+use crate::{
+    params::IntoParams,
+    row::{ColumnType, FromRow},
+    status::SqlError,
+    FbError,
+};
 
 /// Buffer length to use in the connection
 const BUFFER_LENGTH: u32 = 1024;
@@ -182,12 +187,38 @@ fn connection_test() {
         .prepare_statement(
             db_handle,
             tr_handle,
-            "SELECT 1, cast('abcdefghijk' as varchar(10)) as tst FROM RDB$DATABASE",
+            "SELECT cast(1 as bigint), cast('abcdefghij' as varchar(10)) as tst FROM RDB$DATABASE where 1 = ?",
         )
         .unwrap();
 
     println!("{:#?}", xsqlda);
     println!("StmtType: {:?}", stmt_type);
+
+    let params = params_to_blr(&IntoParams::to_params((1,))).unwrap();
+    let output_blr = xsqlda_to_blr(&xsqlda).unwrap();
+
+    conn.socket
+        .write_all(&execute2(
+            tr_handle.0,
+            stmt_handle.0,
+            &params.blr,
+            &params.values,
+            &output_blr,
+        ))
+        .unwrap();
+
+    let len = conn.socket.read(&mut conn.buff).unwrap();
+    let mut resp = Bytes::copy_from_slice(&conn.buff[..len]);
+
+    assert_eq!(WireOp::SqlResponse as u32, resp.get_u32());
+
+    let sql_resp = parse_sql_response(&mut resp, &xsqlda).unwrap();
+    println!("Sql Resp: {:?}", sql_resp);
+
+    assert_eq!(WireOp::Response as u32, resp.get_u32());
+
+    let resp = parse_response(&mut resp).unwrap();
+    println!("Resp: {:#?}", resp);
 
     std::thread::sleep(std::time::Duration::from_millis(100));
 }
@@ -202,7 +233,8 @@ fn connect(db_name: &str, create_db: bool) -> Bytes {
         // [ProtocolVersion::V13 as u32, 1, 0, 5, 8],
     ];
 
-    let mut connect = BytesMut::new();
+    let mut connect = BytesMut::with_capacity(256);
+
     connect.put_u32(WireOp::Connect as u32);
     connect.put_u32(if create_db {
         WireOp::Create
@@ -286,36 +318,37 @@ fn connect(db_name: &str, create_db: bool) -> Bytes {
     connect.freeze()
 }
 
+/// Attach request
 fn attach(db_name: &str, user: &str, pass: &str, protocol: u32) -> Bytes {
     let dpb = {
-        let mut dpb = BytesMut::with_capacity(256);
+        let mut dpb = BytesMut::with_capacity(64);
 
         dpb.put_u8(1); //Version
 
-        let charset = b"UTF-8";
+        let charset = b"UTF8";
 
-        dpb.extend_from_slice(&[isc_dpb_lc_ctype as u8, charset.len() as u8]);
-        dpb.extend_from_slice(charset);
+        dpb.put_slice(&[isc_dpb_lc_ctype as u8, charset.len() as u8]);
+        dpb.put_slice(charset);
 
-        dpb.extend_from_slice(&[isc_dpb_user_name as u8, user.len() as u8]);
-        dpb.extend_from_slice(user.as_bytes());
+        dpb.put_slice(&[isc_dpb_user_name as u8, user.len() as u8]);
+        dpb.put_slice(user.as_bytes());
 
         if protocol < ProtocolVersion::V11 as u32 {
-            dpb.extend_from_slice(&[isc_dpb_password as u8, pass.len() as u8]);
-            dpb.extend_from_slice(pass.as_bytes());
+            dpb.put_slice(&[isc_dpb_password as u8, pass.len() as u8]);
+            dpb.put_slice(pass.as_bytes());
         } else {
             #[allow(deprecated)]
             let enc_pass = pwhash::unix_crypt::hash_with("9z", pass).unwrap();
             let enc_pass = &enc_pass[2..];
 
-            dpb.extend_from_slice(&[isc_dpb_password_enc as u8, enc_pass.len() as u8]);
-            dpb.extend_from_slice(enc_pass.as_bytes());
+            dpb.put_slice(&[isc_dpb_password_enc as u8, enc_pass.len() as u8]);
+            dpb.put_slice(enc_pass.as_bytes());
         }
 
         dpb.freeze()
     };
 
-    let mut attach = BytesMut::with_capacity(256);
+    let mut attach = BytesMut::with_capacity(16 + db_name.len() + dpb.len());
 
     attach.put_u32(WireOp::Attach as u32);
     attach.put_u32(0); // Database Object ID
@@ -329,7 +362,7 @@ fn attach(db_name: &str, user: &str, pass: &str, protocol: u32) -> Bytes {
 
 /// Begin transaction request
 fn transaction(db_handle: u32, tpb: &[u8]) -> Bytes {
-    let mut tr = BytesMut::with_capacity(tpb.len() + 8);
+    let mut tr = BytesMut::with_capacity(12 + tpb.len());
 
     tr.put_u32(WireOp::Transaction as u32);
     tr.put_u32(db_handle);
@@ -350,7 +383,7 @@ fn allocate_statement(db_handle: u32) -> Bytes {
 /// Prepare statement request. Use u32::MAX as `stmt_handle` if the statement was allocated
 /// in the previous request
 fn prepare_statement(tr_handle: u32, stmt_handle: u32, dialect: u32, query: &str) -> Bytes {
-    let mut req = BytesMut::with_capacity(256);
+    let mut req = BytesMut::with_capacity(28 + query.len() + XSQLDA_DESCRIBE_VARS.len());
 
     req.put_u32(WireOp::PrepareStatement as u32);
     req.put_u32(tr_handle);
@@ -360,6 +393,33 @@ fn prepare_statement(tr_handle: u32, stmt_handle: u32, dialect: u32, query: &str
     req.put_wire_bytes(&XSQLDA_DESCRIBE_VARS);
 
     req.put_u32(BUFFER_LENGTH);
+
+    req.freeze()
+}
+
+/// Execute prepared statement request. Enables coercing the return types via `output_blr`
+fn execute2(
+    tr_handle: u32,
+    stmt_handle: u32,
+    input_blr: &[u8],
+    input_data: &[u8],
+    output_blr: &[u8],
+) -> Bytes {
+    let mut req =
+        BytesMut::with_capacity(36 + input_blr.len() + input_data.len() + output_blr.len());
+
+    req.put_u32(WireOp::Execute2 as u32);
+    req.put_u32(stmt_handle);
+    req.put_u32(tr_handle);
+
+    req.put_wire_bytes(input_blr);
+    req.put_u32(0);
+    req.put_u32(if input_blr.is_empty() { 0 } else { 1 });
+
+    req.put_slice(input_data);
+
+    req.put_wire_bytes(output_blr);
+    req.put_u32(0);
 
     req.freeze()
 }
@@ -374,6 +434,9 @@ struct Response {
 
 /// Parse a server response (`WireOp::Response`)
 fn parse_response(resp: &mut Bytes) -> Result<Response, FbError> {
+    if resp.remaining() < 12 {
+        return err_invalid_response();
+    }
     let handle = resp.get_u32();
     let object_id = resp.get_u64();
 
@@ -388,12 +451,75 @@ fn parse_response(resp: &mut Bytes) -> Result<Response, FbError> {
     })
 }
 
+/// Parse a server sql response (`WireOp::SqlResponse`)
+fn parse_sql_response(resp: &mut Bytes, xsqlda: &[XSqlVar]) -> Result<Vec<Option<Bytes>>, FbError> {
+    if resp.remaining() < 4 {
+        return err_invalid_response();
+    }
+    // Has columns?
+    let cols = resp.get_u32() != 0;
+    if cols && xsqlda.is_empty() {
+        return Err(format!(
+            "Sql response received with no columns, xsqlda provided with {}",
+            xsqlda.len()
+        )
+        .into());
+    }
+
+    let mut data = Vec::with_capacity(xsqlda.len());
+
+    for var in xsqlda {
+        let column_type = var.to_column_type()?;
+
+        match column_type {
+            ColumnType::Text => {
+                let d = resp.get_wire_bytes()?;
+
+                if resp.remaining() < 4 {
+                    return err_invalid_response();
+                }
+
+                let null = resp.get_u32() != 0;
+                if null {
+                    data.push(None)
+                } else {
+                    data.push(Some(d))
+                }
+            }
+            ColumnType::Integer | ColumnType::Float | ColumnType::Timestamp => {
+                let len = 8;
+
+                if resp.remaining() < len {
+                    return err_invalid_response();
+                }
+
+                let mut d = resp.clone();
+                d.truncate(len);
+                resp.advance(len);
+
+                let null = resp.get_u32() != 0;
+                if null {
+                    data.push(None)
+                } else {
+                    data.push(Some(d))
+                }
+            }
+        }
+    }
+
+    Ok(data)
+}
+
 /// Parses the error messages from the response
 fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
-    let mut sql_code = 0;
+    // Sql error code (default to -1)
+    let mut sql_code = -1;
+    // Error messages
     let mut message = String::new();
 
+    // Code of the last error message
     let mut gds_code = 0;
+    // Error message argument index
     let mut num_arg = 0;
 
     loop {

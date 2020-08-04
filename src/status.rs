@@ -7,7 +7,7 @@
 use std::fmt::Write;
 use thiserror::Error;
 
-use crate::{ibase, row::SqlType};
+use crate::{ibase, row::ColumnType};
 
 pub struct Status(Box<ibase::ISC_STATUS_ARRAY>);
 
@@ -79,6 +79,18 @@ pub enum FbError {
     Other(String),
 }
 
+impl From<String> for FbError {
+    fn from(msg: String) -> Self {
+        Self::Other(msg)
+    }
+}
+
+impl From<&str> for FbError {
+    fn from(msg: &str) -> Self {
+        Self::Other(msg.to_string())
+    }
+}
+
 #[derive(Debug)]
 pub struct SqlError {
     pub msg: String,
@@ -96,7 +108,7 @@ pub fn err_column_null<T>(type_name: &str) -> Result<T, FbError> {
     )))
 }
 
-pub fn err_type_conv<T>(from: SqlType, to: &str) -> Result<T, FbError> {
+pub fn err_type_conv<T>(from: ColumnType, to: &str) -> Result<T, FbError> {
     Err(FbError::Other(format!(
         "Can't convert {:?} column to {}",
         from, to

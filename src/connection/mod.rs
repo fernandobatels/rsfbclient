@@ -424,12 +424,12 @@ mod test {
     #[test]
     fn remote_connection() {
         #[cfg(not(feature = "dynamic_loading"))]
-        let conn = ConnectionBuilder::default()
+        let mut conn = ConnectionBuilder::default()
             .connect()
             .expect("Error on connect the test database");
 
         #[cfg(feature = "dynamic_loading")]
-        let conn = ConnectionBuilder::with_client("./fbclient.lib")
+        let mut conn = ConnectionBuilder::with_client("./fbclient.lib")
             .expect("Error finding fbclient lib")
             .connect()
             .expect("Error on connect the test database");

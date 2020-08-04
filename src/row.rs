@@ -4,13 +4,14 @@
 //! Representation of a fetched row
 //!
 
+use num_enum::TryFromPrimitive;
 use std::{convert::TryInto, mem, result::Result};
 
 use super::{
     ibase,
     status::{err_buffer_len, err_column_null, err_idx_not_exist, err_type_conv, FbError},
 };
-use SqlType::*;
+use ColumnType::*;
 
 /// A database row
 pub struct Row<'a> {
@@ -39,24 +40,25 @@ impl<'a> Row<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, TryFromPrimitive)]
+#[repr(u32)]
 /// Types supported by the crate
-pub enum SqlType {
+pub enum ColumnType {
     /// Coerces to Varchar
-    Text,
+    Text = ibase::SQL_VARYING,
     /// Coerces to Int64
-    Integer,
+    Integer = ibase::SQL_INT64,
     /// Coerces to Double
-    Float,
+    Float = ibase::SQL_DOUBLE,
     /// Coerces to Timestamp
-    Timestamp,
+    Timestamp = ibase::SQL_TIMESTAMP,
 }
 
 #[derive(Debug)]
 /// Allocates memory for a column
 pub struct ColumnBuffer {
     /// Type of the data for conversion
-    kind: SqlType,
+    kind: ColumnType,
 
     /// Buffer for the column data
     buffer: Box<[u8]>,
@@ -79,7 +81,7 @@ impl ColumnBuffer {
                 // sqllen + 2 because the two bytes from the varchar length
                 let buffer = vec![0; var.sqllen as usize + 2].into_boxed_slice();
 
-                var.sqltype = ibase::SQL_VARYING as i16 + 1;
+                var.sqltype = Text as i16 + 1;
 
                 (Text, buffer)
             }
@@ -90,12 +92,12 @@ impl ColumnBuffer {
                 let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
 
                 if var.sqlscale == 0 {
-                    var.sqltype = ibase::SQL_INT64 as i16 + 1;
+                    var.sqltype = Integer as i16 + 1;
 
                     (Integer, buffer)
                 } else {
                     var.sqlscale = 0;
-                    var.sqltype = ibase::SQL_DOUBLE as i16 + 1;
+                    var.sqltype = Float as i16 + 1;
 
                     (Float, buffer)
                 }
@@ -106,7 +108,7 @@ impl ColumnBuffer {
 
                 let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
 
-                var.sqltype = ibase::SQL_DOUBLE as i16 + 1;
+                var.sqltype = Float as i16 + 1;
 
                 (Float, buffer)
             }
@@ -116,7 +118,7 @@ impl ColumnBuffer {
 
                 let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
 
-                var.sqltype = ibase::SQL_TIMESTAMP as i16 + 1;
+                var.sqltype = Timestamp as i16 + 1;
 
                 (Timestamp, buffer)
             }
@@ -277,7 +279,7 @@ fn varchar_to_string(buffer: &[u8]) -> Result<String, FbError> {
         return err_buffer_len(2, buffer.len(), "String");
     }
 
-    let len = i16::from_le_bytes(buffer[0..2].try_into().unwrap()) as usize;
+    let len = i16::from_be_bytes(buffer[0..2].try_into().unwrap()) as usize;
 
     if len > buffer.len() - 2 {
         return err_buffer_len(len + 2, buffer.len(), "String");
@@ -295,7 +297,7 @@ fn integer_from_buffer(buffer: &[u8]) -> Result<i64, FbError> {
         return err_buffer_len(len, buffer.len(), "i64");
     }
 
-    Ok(i64::from_le_bytes(buffer.try_into().unwrap()))
+    Ok(i64::from_be_bytes(buffer.try_into().unwrap()))
 }
 
 /// Interprets a float value from a buffer
@@ -305,7 +307,7 @@ fn float_from_buffer(buffer: &[u8]) -> Result<f64, FbError> {
         return err_buffer_len(len, buffer.len(), "f64");
     }
 
-    Ok(f64::from_le_bytes(buffer.try_into().unwrap()))
+    Ok(f64::from_be_bytes(buffer.try_into().unwrap()))
 }
 
 /// Implemented for types that represents a list of values of columns

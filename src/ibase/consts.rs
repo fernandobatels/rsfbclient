@@ -100,6 +100,10 @@ pub enum WireOp {
 
     /// Dummy packet to detect loss of client
     Dummy = 71,
+
+    /// Execute a prepared statement, enables data coercion
+    Execute2 = 76,
+
     /// Response from execute, exec immed, insert
     SqlResponse = 78,
     /// Drop database request
@@ -1596,4 +1600,306 @@ pub fn gds_to_msg(gds_code: u32) -> &'static str {
         337182760 => "mandatory switch '@1' is missing\n",
         _ => "Error message not found",
     }
+}
+
+/// Binary Language Representation constants
+pub mod blr {
+    pub const TEXT: u8 = 14;
+    pub const TEXT2: u8 = 15; /* added in 3.2 JPN */
+    pub const SHORT: u8 = 7;
+    pub const LONG: u8 = 8;
+    pub const QUAD: u8 = 9;
+    pub const FLOAT: u8 = 10;
+    pub const DOUBLE: u8 = 27;
+    pub const D_FLOAT: u8 = 11;
+    pub const TIMESTAMP: u8 = 35;
+    pub const VARYING: u8 = 37;
+    pub const VARYING2: u8 = 38; /* added in 3.2 JPN */
+    pub const BLOB: u16 = 261;
+    pub const CSTRING: u8 = 40;
+    pub const CSTRING2: u8 = 41; /* added in 3.2 JPN */
+    pub const BLOB_ID: u8 = 45; /* added from gds.h */
+    pub const SQL_DATE: u8 = 12;
+    pub const SQL_TIME: u8 = 13;
+    pub const INT64: u8 = 16;
+    pub const BLOB2: u8 = 17;
+    pub const DOMAIN_NAME: u8 = 18;
+    pub const DOMAIN_NAME2: u8 = 19;
+    pub const NOT_NULLABLE: u8 = 20;
+    pub const COLUMN_NAME: u8 = 21;
+    pub const COLUMN_NAME2: u8 = 22;
+    pub const BOOL: u8 = 23;
+    // first sub parameter for domain_name[2]
+    pub const DOMAIN_TYPE_OF: u8 = 0;
+    pub const DOMAIN_FULL: u8 = 1;
+
+    pub const INNER: u8 = 0;
+    pub const LEFT: u8 = 1;
+    pub const RIGHT: u8 = 2;
+    pub const FULL: u8 = 3;
+    pub const GDS_CODE: u8 = 0;
+    pub const SQL_CODE: u8 = 1;
+    pub const EXCEPTION: u8 = 2;
+    pub const TRIGGER_CODE: u8 = 3;
+    pub const DEFAULT_CODE: u8 = 4;
+    pub const RAISE: u8 = 5;
+    pub const EXCEPTION_MSG: u8 = 6;
+    pub const EXCEPTION_PARAMS: u8 = 7;
+    pub const VERSION4: u8 = 4;
+    pub const VERSION5: u8 = 5;
+    //const VERSION6        : u8 =6;
+    pub const EOC: u8 = 76;
+    pub const END: u8 = 255;
+    pub const ASSIGNMENT: u8 = 1;
+    pub const BEGIN: u8 = 2;
+    pub const DCL_VARIABLE: u8 = 3; /* added from gds.h */
+    pub const MESSAGE: u8 = 4;
+    pub const ERASE: u8 = 5;
+    pub const FETCH: u8 = 6;
+    pub const FOR: u8 = 7;
+    pub const IF: u8 = 8;
+    pub const LOOP: u8 = 9;
+    pub const MODIFY: u8 = 10;
+    pub const HANDLER: u8 = 11;
+    pub const RECEIVE: u8 = 12;
+    pub const SELECT: u8 = 13;
+    pub const SEND: u8 = 14;
+    pub const STORE: u8 = 15;
+    pub const LABEL: u8 = 17;
+    pub const LEAVE: u8 = 18;
+    pub const STORE2: u8 = 19;
+    pub const POST: u8 = 20;
+    pub const LITERAL: u8 = 21;
+    pub const DBKEY: u8 = 22;
+    pub const FIELD: u8 = 23;
+    pub const FID: u8 = 24;
+    pub const PARAMETER: u8 = 25;
+    pub const VARIABLE: u8 = 26;
+    pub const AVERAGE: u8 = 27;
+    pub const COUNT: u8 = 28;
+    pub const MAXIMUM: u8 = 29;
+    pub const MINIMUM: u8 = 30;
+    pub const TOTAL: u8 = 31;
+    // unused codes: 32..33
+    pub const ADD: u8 = 34;
+    pub const SUBTRACT: u8 = 35;
+    pub const MULTIPLY: u8 = 36;
+    pub const DIVIDE: u8 = 37;
+    pub const NEGATE: u8 = 38;
+    pub const CONCATENATE: u8 = 39;
+    pub const SUBSTRING: u8 = 40;
+    pub const PARAMETER2: u8 = 41;
+    pub const FROM: u8 = 42;
+    pub const VIA: u8 = 43;
+    pub const USER_NAME: u8 = 44; /* added from gds.h */
+    pub const NULL: u8 = 45;
+    pub const EQUIV: u8 = 46;
+    pub const EQL: u8 = 47;
+    pub const NEQ: u8 = 48;
+    pub const GTR: u8 = 49;
+    pub const GEQ: u8 = 50;
+    pub const LSS: u8 = 51;
+    pub const LEQ: u8 = 52;
+    pub const CONTAINING: u8 = 53;
+    pub const MATCHING: u8 = 54;
+    pub const STARTING: u8 = 55;
+    pub const BETWEEN: u8 = 56;
+    pub const OR: u8 = 57;
+    pub const AND: u8 = 58;
+    pub const NOT: u8 = 59;
+    pub const ANY: u8 = 60;
+    pub const MISSING: u8 = 61;
+    pub const UNIQUE: u8 = 62;
+    pub const LIKE: u8 = 63;
+    // unused codes: 64..66
+    pub const RSE: u8 = 67;
+    pub const FIRST: u8 = 68;
+    pub const PROJECT: u8 = 69;
+    pub const SORT: u8 = 70;
+    pub const BOOLEAN: u8 = 71;
+    pub const ASCENDING: u8 = 72;
+    pub const DESCENDING: u8 = 73;
+    pub const RELATION: u8 = 74;
+    pub const RID: u8 = 75;
+    pub const UNION: u8 = 76;
+    pub const MAP: u8 = 77;
+    pub const GROUP_BY: u8 = 78;
+    pub const AGGREGATE: u8 = 79;
+    pub const JOIN_TYPE: u8 = 80;
+    // unused codes: 81..82
+    pub const AGG_COUNT: u8 = 83;
+    pub const AGG_MAX: u8 = 84;
+    pub const AGG_MIN: u8 = 85;
+    pub const AGG_TOTAL: u8 = 86;
+    pub const AGG_AVERAGE: u8 = 87;
+    pub const PARAMETER3: u8 = 88; /* same as Rdb definition */
+    /* unsupported
+    const RUN_MAX        : u8 =89;
+    const RUN_MIN        : u8 =90;
+    const RUN_TOTAL        : u8 =91;
+    const RUN_AVERAGE        : u8 =92;
+    */
+    pub const AGG_COUNT2: u8 = 93;
+    pub const AGG_COUNT_DISTINCT: u8 = 94;
+    pub const AGG_TOTAL_DISTINCT: u8 = 95;
+    pub const AGG_AVERAGE_DISTINCT: u8 = 96;
+    // unused codes: 97..99
+    pub const FUNCTION: u8 = 100;
+    pub const GEN_ID: u8 = 101;
+    ///const PROT_MASK        : u8 =102;
+    pub const UPCASE: u8 = 103;
+    ///const LOCK_STATE        : u8 =104;
+    pub const VALUE_IF: u8 = 105;
+    pub const MATCHING2: u8 = 106;
+    pub const INDEX: u8 = 107;
+    pub const ANSI_LIKE: u8 = 108;
+    pub const SCROLLABLE: u8 = 109;
+    // unused codes: 110..117
+    pub const RUN_COUNT: u8 = 118; /* changed from 88 to avoid conflict with parameter3 */
+    pub const RS_STREAM: u8 = 119;
+    pub const EXEC_PROC: u8 = 120;
+    // unused codes: 121..123
+    pub const PROCEDURE: u8 = 124;
+    pub const PID: u8 = 125;
+    pub const EXEC_PID: u8 = 126;
+    pub const SINGULAR: u8 = 127;
+    pub const ABORT: u8 = 128;
+    pub const BLOCK: u8 = 129;
+    pub const ERROR_HANDLER: u8 = 130;
+    pub const CAST: u8 = 131;
+    pub const PID2: u8 = 132;
+    pub const PROCEDURE2: u8 = 133;
+    pub const START_SAVEPOINT: u8 = 134;
+    pub const END_SAVEPOINT: u8 = 135;
+    // unused codes: 136..138
+    pub const PLAN: u8 = 139; /* access plan items */
+    pub const MERGE: u8 = 140;
+    pub const JOIN: u8 = 141;
+    pub const SEQUENTIAL: u8 = 142;
+    pub const NAVIGATIONAL: u8 = 143;
+    pub const INDICES: u8 = 144;
+    pub const RETRIEVE: u8 = 145;
+    pub const RELATION2: u8 = 146;
+    pub const RID2: u8 = 147;
+    // unused codes: 148..149
+    pub const SET_GENERATOR: u8 = 150;
+    pub const ANSI_ANY: u8 = 151; /* required for NULL handling */
+    pub const EXISTS: u8 = 152; /* required for NULL handling */
+    // unused codes: 153
+    pub const RECORD_VERSION: u8 = 154; /* get tid of record */
+    pub const STALL: u8 = 155; /* fake server stall */
+    // unused codes: 156..157
+    pub const ANSI_ALL: u8 = 158; /* required for NULL handling */
+    pub const EXTRACT: u8 = 159;
+    /* sub parameters for extract */
+    pub const EXTRACT_YEAR: u8 = 0;
+    pub const EXTRACT_MONTH: u8 = 1;
+    pub const EXTRACT_DAY: u8 = 2;
+    pub const EXTRACT_HOUR: u8 = 3;
+    pub const EXTRACT_MINUTE: u8 = 4;
+    pub const EXTRACT_SECOND: u8 = 5;
+    pub const EXTRACT_WEEKDAY: u8 = 6;
+    pub const EXTRACT_YEARDAY: u8 = 7;
+    pub const EXTRACT_MILLISECOND: u8 = 8;
+    pub const EXTRACT_WEEK: u8 = 9;
+    pub const CURRENT_DATE: u8 = 160;
+    pub const CURRENT_TIMESTAMP: u8 = 161;
+    pub const CURRENT_TIME: u8 = 162;
+    /* These codes reuse  code space */
+    pub const POST_ARG: u8 = 163;
+    pub const EXEC_INTO: u8 = 164;
+    pub const USER_SAVEPOINT: u8 = 165;
+    pub const DCL_CURSOR: u8 = 166;
+    pub const CURSOR_STMT: u8 = 167;
+    pub const CURRENT_TIMESTAMP2: u8 = 168;
+    pub const CURRENT_TIME2: u8 = 169;
+    pub const AGG_LIST: u8 = 170;
+    pub const AGG_LIST_DISTINCT: u8 = 171;
+    pub const MODIFY2: u8 = 172;
+    // unused codes: 173
+    /* FB 1.0 specific  */
+    pub const CURRENT_ROLE: u8 = 174;
+    pub const SKIP: u8 = 175;
+    /* FB 1.5 specific  */
+    pub const EXEC_SQL: u8 = 176;
+    pub const INTERNAL_INFO: u8 = 177;
+    pub const NULLSFIRST: u8 = 178;
+    pub const WRITELOCK: u8 = 179;
+    pub const NULLSLAST: u8 = 180;
+    /* FB 2.0 specific  */
+    pub const LOWCASE: u8 = 181;
+    pub const STRLEN: u8 = 182;
+    /* sub parameter for strlen */
+    pub const STRLEN_BIT: u8 = 0;
+    pub const STRLEN_CHAR: u8 = 1;
+    pub const STRLEN_OCTET: u8 = 2;
+    pub const TRIM: u8 = 183;
+    /* first sub parameter for trim */
+    pub const TRIM_BOTH: u8 = 0;
+    pub const TRIM_LEADING: u8 = 1;
+    pub const TRIM_TRAILING: u8 = 2;
+    /* second sub parameter for trim */
+    pub const TRIM_SPACES: u8 = 0;
+    pub const TRIM_CHARACTERS: u8 = 1;
+    /* These codes are actions for user-defined savepoints */
+    pub const SAVEPOINT_SET: u8 = 0;
+    pub const SAVEPOINT_RELEASE: u8 = 1;
+    pub const SAVEPOINT_UNDO: u8 = 2;
+    pub const SAVEPOINT_RELEASE_SINGLE: u8 = 3;
+    /* These codes are actions for cursors */
+    pub const CURSOR_OPEN: u8 = 0;
+    pub const CURSOR_CLOSE: u8 = 1;
+    pub const CURSOR_FETCH: u8 = 2;
+    pub const CURSOR_FETCH_SCROLL: u8 = 3;
+    /* scroll options */
+    pub const SCROLL_FORWARD: u8 = 0;
+    pub const SCROLL_BACKWARD: u8 = 1;
+    pub const SCROLL_BOF: u8 = 2;
+    pub const SCROLL_EOF: u8 = 3;
+    pub const SCROLL_ABSOLUTE: u8 = 4;
+    pub const SCROLL_RELATIVE: u8 = 5;
+    /* FB 2.1 specific  */
+    pub const INIT_VARIABLE: u8 = 184;
+    pub const RECURSE: u8 = 185;
+    pub const SYS_FUNCTION: u8 = 186;
+    // FB 2.5 specific
+    pub const AUTO_TRANS: u8 = 187;
+    pub const SIMILAR: u8 = 188;
+    pub const EXEC_STMT: u8 = 189;
+    // subcodes of exec_stmt
+    pub const EXEC_STMT_INPUTS: u8 = 1; // input parameters count
+    pub const EXEC_STMT_OUTPUTS: u8 = 2; // output parameters count
+    pub const EXEC_STMT_SQL: u8 = 3;
+    pub const EXEC_STMT_PROC_BLOCK: u8 = 4;
+    pub const EXEC_STMT_DATA_SRC: u8 = 5;
+    pub const EXEC_STMT_USER: u8 = 6;
+    pub const EXEC_STMT_PWD: u8 = 7;
+    pub const EXEC_STMT_TRAN: u8 = 8; // not implemented yet
+    pub const EXEC_STMT_TRAN_CLONE: u8 = 9; // make transaction parameters equal to current transaction
+    pub const EXEC_STMT_PRIVS: u8 = 10;
+    pub const EXEC_STMT_IN_PARAMS: u8 = 11; // not named input parameters
+    pub const EXEC_STMT_IN_PARAMS2: u8 = 12; // named input parameters
+    pub const EXEC_STMT_OUT_PARAMS: u8 = 13; // output parameters
+    pub const EXEC_STMT_ROLE: u8 = 14;
+    pub const STMT_EXPR: u8 = 190;
+    pub const DERIVED_EXPR: u8 = 191;
+    // FB 3.0 specific
+    pub const PROCEDURE3: u8 = 192;
+    pub const EXEC_PROC2: u8 = 193;
+    pub const FUNCTION2: u8 = 194;
+    pub const WINDOW: u8 = 195;
+    pub const PARTITION_BY: u8 = 196;
+    pub const CONTINUE_LOOP: u8 = 197;
+    pub const PROCEDURE4: u8 = 198;
+    pub const AGG_FUNCTION: u8 = 199;
+    pub const SUBSTRING_SIMILAR: u8 = 200;
+    pub const BOOL_AS_VALUE: u8 = 201;
+    pub const COALESCE: u8 = 202;
+    pub const DECODE: u8 = 203;
+    pub const EXEC_SUBPROC: u8 = 204;
+    pub const SUBPROC_DECL: u8 = 205;
+    pub const SUBPROC: u8 = 206;
+    pub const SUBFUNC_DECL: u8 = 207;
+    pub const SUBFUNC: u8 = 208;
+    pub const RECORD_VERSION2: u8 = 209;
 }

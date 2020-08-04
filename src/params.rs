@@ -1,5 +1,7 @@
 use crate::{ibase, statement::StatementData, xsqlda::XSqlDa, Connection, FbError};
 
+use ParamType::*;
+
 /// Stores the data needed to send the parameters
 pub struct Params {
     /// Input xsqlda
@@ -108,7 +110,13 @@ impl ParamBuffer {
         let mut nullind = Box::new(null);
         var.sqlind = &mut *nullind;
 
-        var.sqltype = info.sqltype;
+        var.sqltype = match info.sqltype {
+            ParamType::Text => ibase::SQL_TEXT as i16 + 1,
+            ParamType::Integer => ibase::SQL_INT64 as i16 + 1,
+            ParamType::Floating => ibase::SQL_DOUBLE as i16 + 1,
+            ParamType::Timestamp => ibase::SQL_TIMESTAMP as i16 + 1,
+            ParamType::Null => ibase::SQL_NULL as i16 + 1,
+        };
         var.sqlscale = 0;
 
         var.sqldata = info.buffer.as_mut_ptr() as *mut _;
@@ -123,9 +131,26 @@ impl ParamBuffer {
 
 /// Data used to build the input XSQLVAR
 pub struct ParamInfo {
-    pub(crate) sqltype: i16,
+    pub(crate) sqltype: ParamType,
     pub(crate) buffer: Box<[u8]>,
     pub(crate) null: bool,
+}
+
+pub enum ParamType {
+    /// Send as text
+    Text,
+
+    /// Send as bigint
+    Integer,
+
+    /// Send as double
+    Floating,
+
+    // Send as timestamp
+    Timestamp,
+
+    // Send as null
+    Null,
 }
 
 /// Implemented for types that can be sent as parameters
@@ -138,7 +163,7 @@ impl ToParam for String {
         let buffer = Vec::from(self).into_boxed_slice();
 
         ParamInfo {
-            sqltype: ibase::SQL_TEXT as i16 + 1,
+            sqltype: Text,
             buffer,
             null: false,
         }
@@ -147,10 +172,10 @@ impl ToParam for String {
 
 impl ToParam for i64 {
     fn to_info(self) -> ParamInfo {
-        let buffer = self.to_le_bytes().to_vec().into_boxed_slice();
+        let buffer = self.to_be_bytes().to_vec().into_boxed_slice();
 
         ParamInfo {
-            sqltype: ibase::SQL_INT64 as i16 + 1,
+            sqltype: Integer,
             buffer,
             null: false,
         }
@@ -174,10 +199,10 @@ impl_param_int!(i32, u32, i16, u16, i8, u8);
 
 impl ToParam for f64 {
     fn to_info(self) -> ParamInfo {
-        let buffer = self.to_le_bytes().to_vec().into_boxed_slice();
+        let buffer = self.to_be_bytes().to_vec().into_boxed_slice();
 
         ParamInfo {
-            sqltype: ibase::SQL_DOUBLE as i16 + 1,
+            sqltype: Floating,
             buffer,
             null: false,
         }
@@ -200,7 +225,7 @@ where
             v.to_info()
         } else {
             ParamInfo {
-                sqltype: ibase::SQL_NULL as i16 + 1,
+                sqltype: Null,
                 buffer: Box::new([]),
                 null: true,
             }

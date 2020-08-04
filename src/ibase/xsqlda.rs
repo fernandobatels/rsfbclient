@@ -6,11 +6,15 @@
 
 #![allow(non_upper_case_globals)]
 
-use bytes::Buf;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::{convert::TryFrom, io::Cursor};
 
 use super::*;
-use crate::FbError;
+use crate::{
+    params::{ParamInfo, ParamType},
+    row::ColumnType,
+    FbError,
+};
 
 /// Data for the statement to return
 pub const XSQLDA_DESCRIBE_VARS: [u8; 14] = [
@@ -29,6 +33,9 @@ pub const XSQLDA_DESCRIBE_VARS: [u8; 14] = [
     isc_info_sql_alias as u8,         // Column alias
     isc_info_sql_describe_end as u8,
 ];
+
+/// Maximum parameter data length
+const MAX_DATA_LENGTH: u16 = 32767;
 
 pub type XSqlDa = Vec<XSqlVar>;
 #[derive(Debug, Default)]
@@ -56,6 +63,20 @@ pub struct XSqlVar {
 
     /// Column alias
     pub alias_name: String,
+}
+
+impl XSqlVar {
+    pub fn to_column_type(&self) -> Result<ColumnType, FbError> {
+        // Remove nullable type indicator
+        let sqltype = self.sqltype & (!1);
+
+        ColumnType::try_from(sqltype as u32).map_err(|_| {
+            FbError::Other(format!(
+                "Conversion from sql type {} not implemented",
+                sqltype
+            ))
+        })
+    }
 }
 
 /// Parses the data from the `PrepareStatement` response.
@@ -287,6 +308,112 @@ fn parse_select_items(c: &mut impl Buf, xsqlda: &mut XSqlDa) -> Result<bool, FbE
     };
 
     Ok(truncated)
+}
+
+/// Convert the xsqlda a blr (binary representation)
+pub fn xsqlda_to_blr(xsqlda: &XSqlDa) -> Result<Bytes, FbError> {
+    let mut blr = BytesMut::with_capacity(256);
+    blr.put_slice(&[
+        blr::VERSION5,
+        blr::BEGIN,
+        blr::MESSAGE,
+        0, // Message index
+    ]);
+    // Message length, * 2 as there is 1 msg for the param type and another for the nullind
+    blr.put_u16_le(xsqlda.len() as u16 * 2);
+
+    for var in xsqlda {
+        let column_type = var.to_column_type()?;
+
+        match column_type {
+            ColumnType::Text => {
+                blr.put_u8(blr::VARYING);
+                blr.put_i16_le(var.data_length);
+            }
+
+            ColumnType::Integer => blr.put_slice(&[
+                blr::INT64,
+                0, // Scale
+            ]),
+
+            ColumnType::Float => blr.put_u8(blr::DOUBLE),
+
+            ColumnType::Timestamp => blr.put_u8(blr::TIMESTAMP),
+        }
+        // Nullind
+        blr.put_slice(&[blr::SHORT, 0]);
+    }
+
+    blr.put_slice(&[blr::END, blr::EOC]);
+
+    Ok(blr.freeze())
+}
+
+/// Data for the parameters to send in the wire
+pub struct ParamBrl {
+    /// Definitions of the data types
+    pub blr: Bytes,
+    /// Actual values of the data ()
+    pub values: Bytes,
+}
+
+/// Convert the parameters a blr (binary representation)
+pub fn params_to_blr(params: &[ParamInfo]) -> Result<ParamBrl, FbError> {
+    let mut blr = BytesMut::with_capacity(256);
+    let mut values = BytesMut::with_capacity(256);
+
+    blr.put_slice(&[
+        blr::VERSION5,
+        blr::BEGIN,
+        blr::MESSAGE,
+        0, // Message index
+    ]);
+    // Message length, * 2 as there is 1 msg for the param type and another for the nullind
+    blr.put_u16_le(params.len() as u16 * 2);
+
+    for p in params {
+        let len = p.buffer.len() as u16;
+        if len > MAX_DATA_LENGTH {
+            return Err("Parameter too big! Not supported yet".into());
+        }
+
+        values.put_slice(&p.buffer);
+        if len % 4 != 0 {
+            values.put_slice(&[0; 4][..4 - (len as usize % 4)])
+        }
+        values.put_i32_le(if p.null { -1 } else { 0 });
+
+        match p.sqltype {
+            ParamType::Text => {
+                blr.put_u8(blr::TEXT);
+                blr.put_u16_le(len);
+            }
+
+            ParamType::Integer => blr.put_slice(&[
+                blr::INT64,
+                0, // Scale
+            ]),
+
+            ParamType::Floating => blr.put_u8(blr::DOUBLE),
+
+            ParamType::Timestamp => blr.put_u8(blr::TIMESTAMP),
+
+            ParamType::Null => {
+                // Represent as empty text
+                blr.put_u8(blr::TEXT);
+                blr.put_u16_le(0);
+            }
+        }
+        // Nullind
+        blr.put_slice(&[blr::SHORT, 0]);
+    }
+
+    blr.put_slice(&[blr::END, blr::EOC]);
+
+    Ok(ParamBrl {
+        blr: blr.freeze(),
+        values: values.freeze(),
+    })
 }
 
 fn err_invalid_xsqlda<T>() -> Result<T, FbError> {

@@ -3,7 +3,7 @@ use std::{convert::TryInto, mem};
 
 use crate::{
     ibase,
-    params::{ParamInfo, ToParam},
+    params::{ParamInfo, ParamType, ToParam},
     status::err_buffer_len,
     FbError,
 };
@@ -122,7 +122,7 @@ impl ToParam for NaiveDateTime {
         buffer.extend(&timestamp.timestamp_time.to_le_bytes());
 
         ParamInfo {
-            sqltype: ibase::SQL_TIMESTAMP as i16 + 1,
+            sqltype: ParamType::Timestamp,
             buffer: buffer.into_boxed_slice(),
             null: false,
         }
