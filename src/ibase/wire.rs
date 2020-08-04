@@ -183,42 +183,63 @@ fn connection_test() {
         )
         .unwrap();
 
+    // Prepare
     let (stmt_type, stmt_handle, xsqlda) = conn
         .prepare_statement(
             db_handle,
             tr_handle,
-            "SELECT cast(1 as bigint), cast('abcdefghij' as varchar(10)) as tst FROM RDB$DATABASE where 1 = ?",
+            // "SELECT cast(1 as bigint), cast('abcdefghij' as varchar(10)) as tst FROM RDB$DATABASE where 1 = ?",
+            "
+            SELECT cast(1 as bigint) FROM RDB$DATABASE UNION ALL
+            SELECT cast(2 as bigint) FROM RDB$DATABASE UNION ALL
+            SELECT cast(3 as bigint) FROM RDB$DATABASE UNION ALL
+            SELECT cast(4 as bigint) FROM RDB$DATABASE UNION ALL
+            SELECT cast(5 as bigint) FROM RDB$DATABASE
+            ",
         )
         .unwrap();
 
     println!("{:#?}", xsqlda);
     println!("StmtType: {:?}", stmt_type);
 
-    let params = params_to_blr(&IntoParams::to_params((1,))).unwrap();
+    let params = params_to_blr(&IntoParams::to_params(("1",))).unwrap();
     let output_blr = xsqlda_to_blr(&xsqlda).unwrap();
 
     conn.socket
-        .write_all(&execute2(
+        .write_all(&execute(
             tr_handle.0,
             stmt_handle.0,
             &params.blr,
             &params.values,
-            &output_blr,
         ))
         .unwrap();
 
     let len = conn.socket.read(&mut conn.buff).unwrap();
     let mut resp = Bytes::copy_from_slice(&conn.buff[..len]);
 
-    assert_eq!(WireOp::SqlResponse as u32, resp.get_u32());
-
-    let sql_resp = parse_sql_response(&mut resp, &xsqlda).unwrap();
-    println!("Sql Resp: {:?}", sql_resp);
-
     assert_eq!(WireOp::Response as u32, resp.get_u32());
 
     let resp = parse_response(&mut resp).unwrap();
     println!("Resp: {:#?}", resp);
+
+    loop {
+        // Fetch
+        conn.socket
+            .write_all(&fetch(stmt_handle.0, &output_blr))
+            .unwrap();
+
+        let len = conn.socket.read(&mut conn.buff).unwrap();
+        let mut resp = Bytes::copy_from_slice(&conn.buff[..len]);
+
+        assert_eq!(WireOp::FetchResponse as u32, resp.get_u32());
+
+        let fetch_resp = parse_fetch_response(&mut resp, &xsqlda).unwrap();
+        println!("Fetch Resp: {:#?}", fetch_resp);
+
+        if fetch_resp.is_none() {
+            break;
+        }
+    }
 
     std::thread::sleep(std::time::Duration::from_millis(100));
 }
@@ -397,18 +418,11 @@ fn prepare_statement(tr_handle: u32, stmt_handle: u32, dialect: u32, query: &str
     req.freeze()
 }
 
-/// Execute prepared statement request. Enables coercing the return types via `output_blr`
-fn execute2(
-    tr_handle: u32,
-    stmt_handle: u32,
-    input_blr: &[u8],
-    input_data: &[u8],
-    output_blr: &[u8],
-) -> Bytes {
-    let mut req =
-        BytesMut::with_capacity(36 + input_blr.len() + input_data.len() + output_blr.len());
+/// Execute prepared statement request.
+fn execute(tr_handle: u32, stmt_handle: u32, input_blr: &[u8], input_data: &[u8]) -> Bytes {
+    let mut req = BytesMut::with_capacity(36 + input_blr.len() + input_data.len());
 
-    req.put_u32(WireOp::Execute2 as u32);
+    req.put_u32(WireOp::Execute as u32);
     req.put_u32(stmt_handle);
     req.put_u32(tr_handle);
 
@@ -418,8 +432,18 @@ fn execute2(
 
     req.put_slice(input_data);
 
-    req.put_wire_bytes(output_blr);
-    req.put_u32(0);
+    req.freeze()
+}
+
+/// Fetch row request
+fn fetch(stmt_handle: u32, blr: &[u8]) -> Bytes {
+    let mut req = BytesMut::with_capacity(20 + blr.len());
+
+    req.put_u32(WireOp::Fetch as u32);
+    req.put_u32(stmt_handle);
+    req.put_wire_bytes(blr);
+    req.put_u32(0); // Message number
+    req.put_u32(1); // Message count TODO: increase to return more rows in one fetch request
 
     req.freeze()
 }
@@ -452,18 +476,25 @@ fn parse_response(resp: &mut Bytes) -> Result<Response, FbError> {
 }
 
 /// Parse a server sql response (`WireOp::SqlResponse`)
-fn parse_sql_response(resp: &mut Bytes, xsqlda: &[XSqlVar]) -> Result<Vec<Option<Bytes>>, FbError> {
-    if resp.remaining() < 4 {
+fn parse_fetch_response(
+    resp: &mut Bytes,
+    xsqlda: &[XSqlVar],
+) -> Result<Option<Vec<Option<Bytes>>>, FbError> {
+    const STATUS_EOS: u32 = 100;
+
+    if resp.remaining() < 8 {
         return err_invalid_response();
     }
-    // Has columns?
-    let cols = resp.get_u32() != 0;
-    if cols && xsqlda.is_empty() {
-        return Err(format!(
-            "Sql response received with no columns, xsqlda provided with {}",
-            xsqlda.len()
-        )
-        .into());
+
+    let status = resp.get_u32();
+
+    let has_row = resp.get_u32() != 0;
+    if !has_row && status != STATUS_EOS {
+        return Err("Fetch returned no columns".into());
+    }
+
+    if status == STATUS_EOS {
+        return Ok(None);
     }
 
     let mut data = Vec::with_capacity(xsqlda.len());
@@ -507,7 +538,7 @@ fn parse_sql_response(resp: &mut Bytes, xsqlda: &[XSqlVar]) -> Result<Vec<Option
         }
     }
 
-    Ok(data)
+    Ok(Some(data))
 }
 
 /// Parses the error messages from the response
