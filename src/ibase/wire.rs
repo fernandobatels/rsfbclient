@@ -9,6 +9,7 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::{
     convert::TryFrom,
+    env,
     io::{Read, Write},
     net::TcpStream,
 };
@@ -41,7 +42,15 @@ impl WireConnection {
     pub fn connect(host: &str, port: u16, db_name: &str) -> Result<Self, FbError> {
         let mut socket = TcpStream::connect((host, port))?;
 
-        socket.write_all(&connect(db_name, false))?;
+        // System username
+        let username =
+            env::var("USER").unwrap_or_else(|_| env::var("USERNAME").unwrap_or_default());
+        let hostname = socket
+            .local_addr()
+            .map(|addr| addr.to_string())
+            .unwrap_or_default();
+
+        socket.write_all(&connect(db_name, false, &username, &hostname))?;
 
         // May be a bit too much
         let mut buff = vec![0; BUFFER_LENGTH as usize * 2];
@@ -358,7 +367,7 @@ fn connection_test() {
 }
 
 /// Connection request
-fn connect(db_name: &str, create_db: bool) -> Bytes {
+fn connect(db_name: &str, create_db: bool, username: &str, hostname: &str) -> Bytes {
     let protocols = [
         // PROTOCOL_VERSION, Arch type (Generic=1), min, max, weight
         [ProtocolVersion::V10 as u32, 1, 0, 5, 2],
@@ -384,9 +393,10 @@ fn connect(db_name: &str, create_db: bool) -> Bytes {
     // Protocol versions understood
     connect.put_u32(protocols.len() as u32);
 
-    // User identification, TODO: Wire protocol 13
     let uid = {
-        let uid = BytesMut::new();
+        let mut uid = BytesMut::new();
+
+        // User identification with SRP, TODO: Wire protocol 13
 
         // let key: [u8; 16] = rand::random();
         // let srp = SrpClient::<sha1::Sha1>::new(&key, &groups::G_1024);
@@ -425,20 +435,16 @@ fn connect(db_name: &str, create_db: bool) -> Bytes {
         // uid.put_u8(wire_crypt.len() as u8);
         // uid.put(wire_crypt.as_bytes());
 
-        // let usr = "username";
+        uid.put_u8(Cnct::User as u8);
+        uid.put_u8(username.len() as u8);
+        uid.put(username.as_bytes());
 
-        // uid.put_u8(Cnct::User as u8);
-        // uid.put_u8(usr.len() as u8);
-        // uid.put(usr.as_bytes());
+        uid.put_u8(Cnct::Host as u8);
+        uid.put_u8(hostname.len() as u8);
+        uid.put(hostname.as_bytes());
 
-        // let host = "localhost";
-
-        // uid.put_u8(Cnct::Host as u8);
-        // uid.put_u8(host.len() as u8);
-        // uid.put(host.as_bytes());
-
-        // uid.put_u8(Cnct::UserVerification as u8);
-        // uid.put_u8(0);
+        uid.put_u8(Cnct::UserVerification as u8);
+        uid.put_u8(0);
 
         uid.freeze()
     };
