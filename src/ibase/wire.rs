@@ -58,16 +58,17 @@ impl WireConnection {
         let len = socket.read(&mut buff)?;
         let mut resp = Bytes::copy_from_slice(&buff[..len]);
 
-        if resp.remaining() < 16 {
+        if resp.remaining() < 4 {
             return err_invalid_response();
         }
-
         let op_code = resp.get_u32();
+
         if op_code != WireOp::Accept as u32 {
-            return Err(FbError::Other(format!(
-                "Connection rejected with code {}",
-                op_code
-            )));
+            return err_conn_rejected(op_code);
+        }
+
+        if resp.remaining() < 12 {
+            return err_invalid_response();
         }
 
         let version =
@@ -181,10 +182,7 @@ impl WireConnection {
 
         // Alloc resp
         if op_code != WireOp::Response as u32 {
-            return Err(FbError::Other(format!(
-                "Connection rejected with code {}",
-                op_code
-            )));
+            return err_conn_rejected(op_code);
         }
 
         let stmt_handle = StmtHandle(parse_response(&mut resp)?.handle);
@@ -196,10 +194,7 @@ impl WireConnection {
         let op_code = resp.get_u32();
 
         if op_code != WireOp::Response as u32 {
-            return Err(FbError::Other(format!(
-                "Connection rejected with code {}",
-                op_code
-            )));
+            return err_conn_rejected(op_code);
         }
 
         let resp = parse_response(&mut resp)?;
@@ -254,10 +249,7 @@ impl WireConnection {
         let (op_code, mut resp) = self.read_packet()?;
 
         if op_code != WireOp::FetchResponse as u32 {
-            return Err(FbError::Other(format!(
-                "Connection rejected with code {}",
-                op_code
-            )));
+            return err_conn_rejected(op_code);
         }
 
         parse_fetch_response(&mut resp, xsqlda)
@@ -268,10 +260,7 @@ impl WireConnection {
         let (op_code, mut resp) = self.read_packet()?;
 
         if op_code != WireOp::Response as u32 {
-            return Err(FbError::Other(format!(
-                "Connection rejected with code {}",
-                op_code
-            )));
+            return err_conn_rejected(op_code);
         }
 
         parse_response(&mut resp)
@@ -308,6 +297,17 @@ pub struct TrHandle(u32);
 /// A statement handle
 /// (pub on field to help in testing the `StmtCache`)
 pub struct StmtHandle(pub(crate) u32);
+
+fn err_conn_rejected<T>(op_code: u32) -> Result<T, FbError> {
+    Err(format!(
+        "Connection rejected with code {}{}",
+        op_code,
+        WireOp::try_from(op_code as u8)
+            .map(|op| format!(" ({:?})", op))
+            .unwrap_or_default()
+    )
+    .into())
+}
 
 #[test]
 fn connection_test() {
