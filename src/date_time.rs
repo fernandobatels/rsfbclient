@@ -118,8 +118,8 @@ impl ToParam for NaiveDateTime {
         let mut buffer = Vec::with_capacity(mem::size_of::<ibase::ISC_TIMESTAMP>());
         let timestamp = encode_timestamp(self);
 
-        buffer.extend(&timestamp.timestamp_date.to_le_bytes());
-        buffer.extend(&timestamp.timestamp_time.to_le_bytes());
+        buffer.extend(&timestamp.timestamp_date.to_be_bytes());
+        buffer.extend(&timestamp.timestamp_time.to_be_bytes());
 
         ParamInfo {
             sqltype: ParamType::Timestamp,
@@ -137,8 +137,8 @@ pub fn timestamp_from_buffer(buffer: &[u8]) -> Result<chrono::NaiveDateTime, FbE
     }
 
     let date = ibase::ISC_TIMESTAMP {
-        timestamp_date: ibase::ISC_DATE::from_le_bytes(buffer[0..4].try_into().unwrap()),
-        timestamp_time: ibase::ISC_TIME::from_le_bytes(buffer[4..8].try_into().unwrap()),
+        timestamp_date: ibase::ISC_DATE::from_be_bytes(buffer[0..4].try_into().unwrap()),
+        timestamp_time: ibase::ISC_TIME::from_be_bytes(buffer[4..8].try_into().unwrap()),
     };
 
     Ok(decode_timestamp(date))

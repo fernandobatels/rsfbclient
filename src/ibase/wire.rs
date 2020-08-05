@@ -15,10 +15,10 @@ use std::{
 
 use super::*;
 use crate::{
-    params::ParamsBlr,
-    row::ColumnType,
+    params::Params,
+    row::{ColumnBuffer, ColumnType},
     status::SqlError,
-    xsqlda::{parse_xsqlda, XSqlDa, XSQLDA_DESCRIBE_VARS},
+    xsqlda::{parse_xsqlda, XSqlVar, XSQLDA_DESCRIBE_VARS},
     Dialect, FbError,
 };
 
@@ -97,6 +97,15 @@ impl WireConnection {
         Ok(())
     }
 
+    /// Drop the database
+    pub fn drop_database(&mut self, db_handle: DbHandle) -> Result<(), FbError> {
+        self.socket.write_all(&drop_database(db_handle.0))?;
+
+        self.read_response()?;
+
+        Ok(())
+    }
+
     /// Start a new transaction, with the specified transaction parameter buffer
     pub fn begin_transaction(
         &mut self,
@@ -122,6 +131,7 @@ impl WireConnection {
         Ok(())
     }
 
+    /// Execute a sql immediately, without returning rows
     pub fn exec_immediate(
         &mut self,
         tr_handle: TrHandle,
@@ -132,7 +142,7 @@ impl WireConnection {
             .write_all(&exec_immediate(tr_handle.0, dialect as u32, sql))
             .unwrap();
 
-        let resp = self.read_response()?;
+        self.read_response()?;
 
         Ok(())
     }
@@ -146,7 +156,7 @@ impl WireConnection {
         tr_handle: TrHandle,
         dialect: Dialect,
         sql: &str,
-    ) -> Result<(StmtType, StmtHandle, XSqlDa), FbError> {
+    ) -> Result<(StmtType, StmtHandle, Vec<XSqlVar>), FbError> {
         // Alloc statement
         self.socket.write_all(&allocate_statement(db_handle.0))?;
 
@@ -190,12 +200,23 @@ impl WireConnection {
         Ok((stmt_type, stmt_handle, xsqlda))
     }
 
+    /// Closes or drops a statement
+    pub fn free_statement(
+        &mut self,
+        stmt_handle: StmtHandle,
+        op: FreeStmtOp,
+    ) -> Result<(), FbError> {
+        self.socket.write_all(&free_statement(stmt_handle.0, op))?;
+        // Obs.: Lazy response
+        Ok(())
+    }
+
     /// Execute the prepared statement with parameters
     pub fn execute(
         &mut self,
         tr_handle: TrHandle,
         stmt_handle: StmtHandle,
-        params: &ParamsBlr,
+        params: &Params,
     ) -> Result<(), FbError> {
         self.socket
             .write_all(&execute(
@@ -216,9 +237,9 @@ impl WireConnection {
     pub fn fetch(
         &mut self,
         stmt_handle: StmtHandle,
-        xsqlda: &XSqlDa,
+        xsqlda: &[XSqlVar],
         blr: &[u8],
-    ) -> Result<Option<Vec<Option<Bytes>>>, FbError> {
+    ) -> Result<Option<Vec<Option<ColumnBuffer>>>, FbError> {
         self.socket.write_all(&fetch(stmt_handle.0, &blr))?;
 
         let (op_code, mut resp) = self.read_packet()?;
@@ -276,7 +297,8 @@ pub struct TrHandle(u32);
 
 #[derive(Debug, Clone, Copy)]
 /// A statement handle
-pub struct StmtHandle(u32);
+/// (pub on field to help in testing the `StmtCache`)
+pub struct StmtHandle(pub(crate) u32);
 
 #[test]
 fn connection_test() {
@@ -482,6 +504,16 @@ fn detach(db_handle: u32) -> Bytes {
     tr.freeze()
 }
 
+/// Drop database request
+fn drop_database(db_handle: u32) -> Bytes {
+    let mut tr = BytesMut::with_capacity(8);
+
+    tr.put_u32(WireOp::DropDatabase as u32);
+    tr.put_u32(db_handle);
+
+    tr.freeze()
+}
+
 /// Begin transaction request
 fn transaction(db_handle: u32, tpb: &[u8]) -> Bytes {
     let mut tr = BytesMut::with_capacity(12 + tpb.len());
@@ -541,6 +573,17 @@ fn prepare_statement(tr_handle: u32, stmt_handle: u32, dialect: u32, query: &str
     req.put_wire_bytes(&XSQLDA_DESCRIBE_VARS);
 
     req.put_u32(BUFFER_LENGTH);
+
+    req.freeze()
+}
+
+/// Close or drop statement request
+fn free_statement(stmt_handle: u32, op: FreeStmtOp) -> Bytes {
+    let mut req = BytesMut::with_capacity(12);
+
+    req.put_u32(WireOp::FreeStatement as u32);
+    req.put_u32(stmt_handle);
+    req.put_u32(op as u32);
 
     req.freeze()
 }
@@ -605,8 +648,8 @@ fn parse_response(resp: &mut Bytes) -> Result<Response, FbError> {
 /// Parse a server sql response (`WireOp::FetchResponse`)
 fn parse_fetch_response(
     resp: &mut Bytes,
-    xsqlda: &XSqlDa,
-) -> Result<Option<Vec<Option<Bytes>>>, FbError> {
+    xsqlda: &[XSqlVar],
+) -> Result<Option<Vec<Option<ColumnBuffer>>>, FbError> {
     const STATUS_EOS: u32 = 100;
 
     if resp.remaining() < 8 {
@@ -630,7 +673,7 @@ fn parse_fetch_response(
         let column_type = var.to_column_type()?;
 
         match column_type {
-            ColumnType::Text => {
+            t @ ColumnType::Text => {
                 let d = resp.get_wire_bytes()?;
 
                 if resp.remaining() < 4 {
@@ -641,10 +684,10 @@ fn parse_fetch_response(
                 if null {
                     data.push(None)
                 } else {
-                    data.push(Some(d))
+                    data.push(Some(ColumnBuffer { kind: t, buffer: d }))
                 }
             }
-            ColumnType::Integer | ColumnType::Float | ColumnType::Timestamp => {
+            t @ ColumnType::Integer | t @ ColumnType::Float | t @ ColumnType::Timestamp => {
                 let len = 8;
 
                 if resp.remaining() < len {
@@ -659,7 +702,7 @@ fn parse_fetch_response(
                 if null {
                     data.push(None)
                 } else {
-                    data.push(Some(d))
+                    data.push(Some(ColumnBuffer { kind: t, buffer: d }))
                 }
             }
         }

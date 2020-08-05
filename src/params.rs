@@ -1,4 +1,4 @@
-use crate::{ibase, statement::StatementData, xsqlda::XSqlDa, Connection, FbError};
+use crate::{ibase, statement::StatementData, Connection, FbError};
 
 use bytes::{BufMut, Bytes, BytesMut};
 use ParamType::*;
@@ -6,13 +6,12 @@ use ParamType::*;
 /// Maximum parameter data length
 const MAX_DATA_LENGTH: u16 = 32767;
 
-/// Stores the data needed to send the parameters
+/// Data for the parameters to send in the wire
 pub struct Params {
-    /// Input xsqlda
-    pub(crate) xsqlda: Option<XSqlDa>,
-
-    /// Data used by the xsqlda above
-    _buffers: Vec<ParamBuffer>,
+    /// Definitions of the data types
+    pub(crate) blr: Bytes,
+    /// Actual values of the data
+    pub(crate) values: Bytes,
 }
 
 impl Params {
@@ -22,95 +21,18 @@ impl Params {
         stmt: &mut StatementData,
         infos: Vec<ParamInfo>,
     ) -> Result<Self, FbError> {
-        todo!();
-
-        // let ibase = &conn.ibase;
-        // let status = &conn.status;
-
-        // let params = if !infos.is_empty() {
-        //     let mut xsqlda = XSqlDa::new(infos.len() as i16);
-
-        //     let ok = unsafe {
-        //         ibase.isc_dsql_describe_bind()(
-        //             status.borrow_mut().as_mut_ptr(),
-        //             &mut stmt.handle,
-        //             1,
-        //             &mut *xsqlda,
-        //         )
-        //     };
-        //     if ok != 0 {
-        //         return Err(status.borrow().as_error(ibase));
-        //     }
-
-        //     if xsqlda.sqld != xsqlda.sqln {
-        //         return Err(FbError::Other(format!(
-        //             "Wrong parameter count, you passed {}, but the sql contains needs {} params",
-        //             xsqlda.sqln, xsqlda.sqld
-        //         )));
-        //     }
-
-        //     let buffers = infos
-        //         .into_iter()
-        //         .enumerate()
-        //         .map(|(col, info)| {
-        //             ParamBuffer::from_parameter(info, xsqlda.get_xsqlvar_mut(col).unwrap())
-        //         })
-        //         .collect();
-
-        //     Self {
-        //         _buffers: buffers,
-        //         xsqlda: Some(xsqlda),
-        //     }
-        // } else {
-        //     Self {
-        //         _buffers: vec![],
-        //         xsqlda: None,
-        //     }
-        // };
-
-        // Ok(params)
+        // TODO: Verify if parameter length match the sql
+        params_to_blr(&infos)
     }
 
     /// For use when there is no statement, cant verify the number of parameters ahead of time
-    pub fn new_immediate(infos: Vec<ParamInfo>) -> Self {
-        todo!();
-
-        // if !infos.is_empty() {
-        //     let mut xsqlda = XSqlDa::new(infos.len() as i16);
-
-        //     xsqlda.sqld = xsqlda.sqln;
-
-        //     let buffers = infos
-        //         .into_iter()
-        //         .enumerate()
-        //         .map(|(col, info)| {
-        //             ParamBuffer::from_parameter(info, xsqlda.get_xsqlvar_mut(col).unwrap())
-        //         })
-        //         .collect();
-
-        //     Self {
-        //         _buffers: buffers,
-        //         xsqlda: Some(xsqlda),
-        //     }
-        // } else {
-        //     Self {
-        //         _buffers: vec![],
-        //         xsqlda: None,
-        //     }
-        // }
+    pub fn new_immediate(infos: Vec<ParamInfo>) -> Result<Self, FbError> {
+        params_to_blr(&infos)
     }
 }
 
-/// Data for the parameters to send in the wire
-pub struct ParamsBlr {
-    /// Definitions of the data types
-    pub blr: Bytes,
-    /// Actual values of the data
-    pub values: Bytes,
-}
-
 /// Convert the parameters to a blr (binary representation)
-pub fn params_to_blr(params: &[ParamInfo]) -> Result<ParamsBlr, FbError> {
+pub fn params_to_blr(params: &[ParamInfo]) -> Result<Params, FbError> {
     let mut blr = BytesMut::with_capacity(256);
     let mut values = BytesMut::with_capacity(256);
 
@@ -162,46 +84,10 @@ pub fn params_to_blr(params: &[ParamInfo]) -> Result<ParamsBlr, FbError> {
 
     blr.put_slice(&[ibase::blr::END, ibase::blr::EOC]);
 
-    Ok(ParamsBlr {
+    Ok(Params {
         blr: blr.freeze(),
         values: values.freeze(),
     })
-}
-
-/// Data for the input XSQLVAR
-pub struct ParamBuffer {
-    /// Buffer for the parameter data
-    _buffer: Box<[u8]>,
-
-    /// Null indicator
-    _nullind: Box<i16>,
-}
-
-impl ParamBuffer {
-    /// Allocate a buffer from a value to use in an input (parameter) XSQLVAR
-    pub fn from_parameter(mut info: ParamInfo, var: &mut ibase::XSQLVAR) -> Self {
-        let null = if info.null { -1 } else { 0 };
-
-        let mut nullind = Box::new(null);
-        var.sqlind = &mut *nullind;
-
-        var.sqltype = match info.sqltype {
-            ParamType::Text => ibase::SQL_TEXT as i16 + 1,
-            ParamType::Integer => ibase::SQL_INT64 as i16 + 1,
-            ParamType::Floating => ibase::SQL_DOUBLE as i16 + 1,
-            ParamType::Timestamp => ibase::SQL_TIMESTAMP as i16 + 1,
-            ParamType::Null => ibase::SQL_NULL as i16 + 1,
-        };
-        var.sqlscale = 0;
-
-        var.sqldata = info.buffer.as_mut_ptr() as *mut _;
-        var.sqllen = info.buffer.len() as i16;
-
-        ParamBuffer {
-            _buffer: info.buffer,
-            _nullind: nullind,
-        }
-    }
 }
 
 /// Data used to build the input XSQLVAR
@@ -383,7 +269,7 @@ impls_into_params!(
 #[cfg(test)]
 mod test {
     use crate::{prelude::*, Connection, FbError};
-    use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+    use chrono::{NaiveDate, NaiveTime};
 
     #[test]
     fn dates() -> Result<(), FbError> {
@@ -397,7 +283,7 @@ mod test {
 
         conn.execute(
             "insert into pdates (ref, a) values ('a', ?)",
-            (NaiveDate::from_ymd(2009, 08, 07),),
+            (NaiveDate::from_ymd(2009, 8, 7),),
         )?;
         let val_exists: Option<(i16,)> = conn.query_first(
             "select 1 from pdates where ref = 'a' and a = '2009-08-07'",
@@ -407,7 +293,7 @@ mod test {
 
         conn.execute(
             "insert into pdates (ref, b) values ('b', ?)",
-            (NaiveDate::from_ymd(2009, 08, 07).and_hms(11, 32, 25),),
+            (NaiveDate::from_ymd(2009, 8, 7).and_hms(11, 32, 25),),
         )?;
         let val_exists: Option<(i16,)> = conn.query_first(
             "select 1 from pdates where ref = 'b' and b = '2009-08-07 11:32:25'",

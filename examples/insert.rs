@@ -32,8 +32,8 @@ fn main() -> Result<(), FbError> {
         // First alternative (Recommended) (Prepares if needed and executes automatically)
         tr.execute(SQL_INSERT, (94, "Banana"))?;
 
-        // Second alternative
-        tr.execute_immediate(SQL_INSERT, (-39, "test"))?;
+        // // Second alternative
+        // tr.execute_immediate(SQL_INSERT, (-39, "test"))?;
 
         // Third alternative
         {

@@ -7,13 +7,13 @@
 use crate::{
     ibase,
     params::{IntoParams, Params},
-    row::{ColumnBuffer, FromRow, Row},
+    row::{FromRow, Row},
     status::FbError,
     transaction::{Transaction, TransactionData},
-    xsqlda::XSqlDa,
+    xsqlda::{xsqlda_to_blr, XSqlVar},
     Connection,
 };
-use std::ptr;
+use bytes::Bytes;
 
 pub struct Statement<'c> {
     pub(crate) data: StatementData,
@@ -53,11 +53,10 @@ impl<'c> Statement<'c> {
     where
         T: IntoParams,
     {
-        let buffers = self.data.query(self.conn, &mut tr.data, params)?;
+        self.data.query(self.conn, &mut tr.data, params)?;
 
         Ok(StatementFetch {
             stmt: &mut self.data,
-            buffers,
             _tr: tr,
             conn: self.conn,
         })
@@ -72,7 +71,6 @@ impl Drop for Statement<'_> {
 /// Cursor to fetch the results of a statement
 pub struct StatementFetch<'s> {
     pub(crate) stmt: &'s mut StatementData,
-    pub(crate) buffers: Vec<ColumnBuffer>,
     /// Transaction needs to be alive for the fetch to work
     pub(crate) _tr: &'s Transaction<'s>,
     pub(crate) conn: &'s Connection,
@@ -81,7 +79,7 @@ pub struct StatementFetch<'s> {
 impl<'s> StatementFetch<'s> {
     /// Fetch for the next row
     pub fn fetch(&mut self) -> Result<Option<Row>, FbError> {
-        self.stmt.fetch(self.conn, &mut self.buffers)
+        self.stmt.fetch(self.conn)
     }
 
     pub fn into_iter<T>(self) -> StatementIter<'s, T>
@@ -97,7 +95,7 @@ impl<'s> StatementFetch<'s> {
 
 impl Drop for StatementFetch<'_> {
     fn drop(&mut self) {
-        self.stmt.close_cursor(&self.conn).ok();
+        self.stmt.close_cursor(self.conn).ok();
     }
 }
 
@@ -125,8 +123,10 @@ where
 ///
 /// Needs to be closed calling `close` before dropping.
 pub struct StatementData {
-    pub(crate) handle: ibase::isc_stmt_handle,
-    pub(crate) xsqlda: XSqlDa,
+    pub(crate) handle: ibase::StmtHandle,
+    pub(crate) xsqlda: Vec<XSqlVar>,
+    pub(crate) blr: Bytes,
+    pub(crate) stmt_type: ibase::StmtType,
 }
 
 impl StatementData {
@@ -136,40 +136,22 @@ impl StatementData {
         tr: &mut TransactionData,
         sql: &str,
     ) -> Result<Self, FbError> {
-        let ibase = &conn.ibase;
-        let status = &conn.status;
+        let (stmt_type, handle, mut xsqlda) =
+            conn.wire
+                .borrow_mut()
+                .prepare_statement(conn.handle, tr.handle, conn.dialect, sql)?;
 
-        todo!();
+        for var in xsqlda.iter_mut() {
+            var.coerce()?;
+        }
+        let blr = xsqlda_to_blr(&xsqlda)?;
 
-        // let mut handle = 0;
-
-        // let mut xsqlda = XSqlDa::new(1);
-
-        // unsafe {
-        //     if ibase.isc_dsql_allocate_statement()(
-        //         status.borrow_mut().as_mut_ptr(),
-        //         conn.handle.as_ptr(),
-        //         &mut handle,
-        //     ) != 0
-        //     {
-        //         return Err(status.borrow().as_error(ibase));
-        //     }
-
-        //     if ibase.isc_dsql_prepare()(
-        //         status.borrow_mut().as_mut_ptr(),
-        //         &mut tr.handle,
-        //         &mut handle,
-        //         sql.len() as u16,
-        //         sql.as_ptr() as *const _,
-        //         conn.dialect as u16,
-        //         &mut *xsqlda,
-        //     ) != 0
-        //     {
-        //         return Err(status.borrow().as_error(ibase));
-        //     }
-        // }
-
-        // Ok(Self { handle, xsqlda })
+        Ok(Self {
+            handle,
+            xsqlda,
+            blr,
+            stmt_type,
+        })
     }
 
     /// Execute the current statement without returnig any row
@@ -184,41 +166,21 @@ impl StatementData {
     where
         T: IntoParams,
     {
-        let ibase = &conn.ibase;
-        let status = &conn.status;
+        let params = Params::new(conn, self, params.to_params())?;
 
-        todo!();
+        conn.wire
+            .borrow_mut()
+            .execute(tr.handle, self.handle, &params)?;
 
-        // let params = Params::new(conn, self, params.to_params())?;
+        if self.stmt_type == ibase::StmtType::Select {
+            // If it was a select, we need to close the cursor
+            self.close_cursor(conn)?;
+        }
 
-        // unsafe {
-        //     if ibase.isc_dsql_execute()(
-        //         status.borrow_mut().as_mut_ptr(),
-        //         &mut tr.handle,
-        //         &mut self.handle,
-        //         1,
-        //         if let Some(xsqlda) = &params.xsqlda {
-        //             &**xsqlda
-        //         } else {
-        //             ptr::null()
-        //         },
-        //     ) != 0
-        //     {
-        //         return Err(status.borrow().as_error(ibase));
-        //     }
-        // }
-
-        // // Just to make sure the params are not dropped too soon
-        // drop(params);
-
-        // // Close the cursor, as it will not be used
-        // // ignoring the error, as if it was not a select statement,
-        // // the cursor will already be closed
-        // self.close_cursor(conn).ok();
-
-        // Ok(())
+        Ok(())
     }
 
+    // TODO: Remove if not necessary anymore
     /// Execute the current statement
     /// and returns the column buffer
     ///
@@ -228,55 +190,15 @@ impl StatementData {
         conn: &'s Connection,
         tr: &mut TransactionData,
         params: T,
-    ) -> Result<Vec<ColumnBuffer>, FbError>
+    ) -> Result<(), FbError>
     where
         T: IntoParams,
     {
-        let ibase = &conn.ibase;
-        let status = &conn.status;
+        let params = Params::new(conn, self, params.to_params())?;
 
-        todo!();
-
-        // let row_count = self.xsqlda.sqld;
-
-        // // Need more XSQLVARs
-        // if row_count > self.xsqlda.sqln {
-        //     self.xsqlda = XSqlDa::new(row_count);
-        // }
-
-        // unsafe {
-        //     if ibase.isc_dsql_describe()(
-        //         status.borrow_mut().as_mut_ptr(),
-        //         &mut self.handle,
-        //         1,
-        //         &mut *self.xsqlda,
-        //     ) != 0
-        //     {
-        //         return Err(status.borrow().as_error(ibase));
-        //     }
-        // }
-
-        // let params = Params::new(conn, self, params.to_params())?;
-
-        // unsafe {
-        //     if ibase.isc_dsql_execute()(
-        //         status.borrow_mut().as_mut_ptr(),
-        //         &mut tr.handle,
-        //         &mut self.handle,
-        //         1,
-        //         if let Some(xsqlda) = &params.xsqlda {
-        //             &**xsqlda
-        //         } else {
-        //             ptr::null()
-        //         },
-        //     ) != 0
-        //     {
-        //         return Err(status.borrow().as_error(ibase));
-        //     }
-        // }
-
-        // // Just to make sure the params are not dropped too soon
-        // drop(params);
+        conn.wire
+            .borrow_mut()
+            .execute(tr.handle, self.handle, &params)
 
         // let col_buffers = (0..self.xsqlda.sqln)
         //     .map(|col| {
@@ -290,79 +212,27 @@ impl StatementData {
     }
 
     /// Fetch for the next row, needs to be called after `query`
-    pub fn fetch<'a>(
-        &mut self,
-        conn: &Connection,
-        buffers: &'a mut Vec<ColumnBuffer>,
-    ) -> Result<Option<Row<'a>>, FbError> {
-        let ibase = &conn.ibase;
-        let status = &conn.status;
+    pub fn fetch(&mut self, conn: &Connection) -> Result<Option<Row>, FbError> {
+        let res = conn
+            .wire
+            .borrow_mut()
+            .fetch(self.handle, &self.xsqlda, &self.blr)?;
 
-        todo!();
-
-        // let result_fetch = unsafe {
-        //     ibase.isc_dsql_fetch()(
-        //         status.borrow_mut().as_mut_ptr(),
-        //         &mut self.handle,
-        //         1,
-        //         &*self.xsqlda,
-        //     )
-        // };
-        // // 100 indicates that no more rows: http://docwiki.embarcadero.com/InterBase/2020/en/Isc_dsql_fetch()
-        // if result_fetch == 100 {
-        //     return Ok(None);
-        // }
-
-        // if result_fetch != 0 {
-        //     return Err(status.borrow().as_error(ibase));
-        // }
-
-        // let row = Row { buffers };
-
-        // Ok(Some(row))
+        Ok(res.map(|cols| Row { buffers: cols }))
     }
 
     /// Closes the statement cursor, if it was open
     pub fn close_cursor(&mut self, conn: &Connection) -> Result<(), FbError> {
-        let ibase = &conn.ibase;
-        let status = &conn.status;
-
-        unsafe {
-            // Close the cursor
-            if ibase.isc_dsql_free_statement()(
-                status.borrow_mut().as_mut_ptr(),
-                &mut self.handle,
-                ibase::DSQL_close as u16,
-            ) != 0
-            {
-                return Err(status.borrow().as_error(&ibase));
-            }
-        };
-
-        Ok(())
+        conn.wire
+            .borrow_mut()
+            .free_statement(self.handle, ibase::FreeStmtOp::Close)
     }
 
     /// Closes the statement
     pub fn close(&mut self, conn: &Connection) -> Result<(), FbError> {
-        let ibase = &conn.ibase;
-        let status = &conn.status;
-
-        unsafe {
-            if self.handle != 0
-                && ibase.isc_dsql_free_statement()(
-                    status.borrow_mut().as_mut_ptr(),
-                    &mut self.handle,
-                    ibase::DSQL_drop as u16,
-                ) != 0
-            {
-                return Err(status.borrow().as_error(ibase));
-            }
-        };
-
-        // Assert that the handle is invalid
-        debug_assert_eq!(self.handle, 0);
-
-        Ok(())
+        conn.wire
+            .borrow_mut()
+            .free_statement(self.handle, ibase::FreeStmtOp::Drop)
     }
 }
 
@@ -371,17 +241,12 @@ mod test {
     use crate::{prelude::*, Connection, Transaction};
 
     #[test]
+    #[ignore]
+    // Not working as the way the fbclient handled the handle ids is diffrent (was unique in the app, not only the connection)
     fn statements() {
         let conn1 = setup();
 
-        #[cfg(not(feature = "dynamic_loading"))]
         let conn2 = crate::ConnectionBuilder::default()
-            .connect()
-            .expect("Error on connect the test database");
-
-        #[cfg(feature = "dynamic_loading")]
-        let conn2 = crate::ConnectionBuilder::with_client("./fbclient.lib")
-            .expect("Error finding fbclient lib")
             .connect()
             .expect("Error on connect the test database");
 
@@ -389,9 +254,9 @@ mod test {
         let mut t2c2 = Transaction::new(&conn2).unwrap();
         let mut t3c1 = Transaction::new(&conn1).unwrap();
 
-        println!("T1 {}", t1c1.data.handle);
-        println!("T2 {}", t2c2.data.handle);
-        println!("T3 {}", t3c1.data.handle);
+        println!("T1 {:?}", t1c1.data.handle);
+        println!("T2 {:?}", t2c2.data.handle);
+        println!("T3 {:?}", t3c1.data.handle);
 
         let mut stmt = t1c1.prepare("SELECT 1 FROM RDB$DATABASE").unwrap();
 
@@ -559,44 +424,34 @@ mod test {
         conn.close().expect("error on close the connection");
     }
 
-    #[test]
-    fn immediate_insert() {
-        let conn = setup();
+    // #[test]
+    // fn immediate_insert() {
+    //     let conn = setup();
 
-        conn.with_transaction(|tr| {
-            tr.execute_immediate("insert into product (id, name) values (?, ?)", (1, "apple"))
-                .expect("Error on 1° insert");
+    //     conn.with_transaction(|tr| {
+    //         tr.execute_immediate("insert into product (id, name) values (?, ?)", (1, "apple"))
+    //             .expect("Error on 1° insert");
 
-            tr.execute_immediate("insert into product (id, name) values (?, ?)", (2, "coffe"))
-                .expect("Error on 2° insert");
+    //         tr.execute_immediate("insert into product (id, name) values (?, ?)", (2, "coffe"))
+    //             .expect("Error on 2° insert");
 
-            Ok(())
-        })
-        .expect("Error in the transaction");
+    //         Ok(())
+    //     })
+    //     .expect("Error in the transaction");
 
-        conn.close().expect("error on close the connection");
-    }
+    //     conn.close().expect("error on close the connection");
+    // }
 
     fn setup() -> Connection {
-        #[cfg(not(feature = "dynamic_loading"))]
         let conn = crate::ConnectionBuilder::default()
             .connect()
             .expect("Error on connect the test database");
 
-        #[cfg(feature = "dynamic_loading")]
-        let conn = crate::ConnectionBuilder::with_client("./fbclient.lib")
-            .expect("Error finding fbclient lib")
-            .connect()
-            .expect("Error on connect the test database");
-
         conn.with_transaction(|tr| {
-            tr.execute_immediate("DROP TABLE product", ()).ok();
+            tr.execute_immediate("DROP TABLE product").ok();
 
-            tr.execute_immediate(
-                "CREATE TABLE product (id int, name varchar(60), quantity int)",
-                (),
-            )
-            .expect("Error on create the table product");
+            tr.execute_immediate("CREATE TABLE product (id int, name varchar(60), quantity int)")
+                .expect("Error on create the table product");
 
             Ok(())
         })

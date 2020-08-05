@@ -125,6 +125,13 @@ pub enum TrOp {
     RollbackRetaining = WireOp::RollbackRetaining as u8,
 }
 
+#[repr(u8)]
+/// Drop / Close statement
+pub enum FreeStmtOp {
+    Close = 1,
+    Drop = 2,
+}
+
 #[derive(Debug)]
 #[repr(u8)]
 /// User identification data
@@ -155,7 +162,7 @@ pub enum Cnct {
     ClientCrypt = 11,
 }
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u32)]
 /// Statement type
 pub enum StmtType {

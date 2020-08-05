@@ -4,6 +4,7 @@
 //! Representation of a fetched row
 //!
 
+use bytes::Bytes;
 use num_enum::TryFromPrimitive;
 use std::{convert::TryInto, mem, result::Result};
 
@@ -14,15 +15,15 @@ use super::{
 use ColumnType::*;
 
 /// A database row
-pub struct Row<'a> {
-    pub buffers: &'a Vec<ColumnBuffer>,
+pub struct Row {
+    pub buffers: Vec<Option<ColumnBuffer>>,
 }
 
-impl<'a> Row<'a> {
+impl Row {
     /// Get the column value by the index
     pub fn get<T>(&self, idx: usize) -> Result<T, FbError>
     where
-        ColumnBuffer: ColumnToVal<T>,
+        Option<ColumnBuffer>: ColumnToVal<T>,
     {
         if let Some(col) = self.buffers.get(idx) {
             col.to_val()
@@ -55,90 +56,13 @@ pub enum ColumnType {
 }
 
 #[derive(Debug)]
-/// Allocates memory for a column
+/// Data returned for a column
 pub struct ColumnBuffer {
     /// Type of the data for conversion
-    kind: ColumnType,
+    pub(crate) kind: ColumnType,
 
     /// Buffer for the column data
-    buffer: Box<[u8]>,
-
-    /// Null indicator
-    nullind: Box<i16>,
-}
-
-impl ColumnBuffer {
-    /// Allocate a buffer from an output (column) XSQLVAR, coercing the data types as necessary
-    pub fn from_xsqlvar(var: &mut ibase::XSQLVAR) -> Result<Self, FbError> {
-        // Remove nullable type indicator
-        let sqltype = var.sqltype & (!1);
-
-        let mut nullind = Box::new(0);
-        var.sqlind = &mut *nullind;
-
-        let (kind, mut buffer) = match sqltype as u32 {
-            ibase::SQL_TEXT | ibase::SQL_VARYING => {
-                // sqllen + 2 because the two bytes from the varchar length
-                let buffer = vec![0; var.sqllen as usize + 2].into_boxed_slice();
-
-                var.sqltype = Text as i16 + 1;
-
-                (Text, buffer)
-            }
-
-            ibase::SQL_SHORT | ibase::SQL_LONG | ibase::SQL_INT64 => {
-                var.sqllen = mem::size_of::<i64>() as i16;
-
-                let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
-
-                if var.sqlscale == 0 {
-                    var.sqltype = Integer as i16 + 1;
-
-                    (Integer, buffer)
-                } else {
-                    var.sqlscale = 0;
-                    var.sqltype = Float as i16 + 1;
-
-                    (Float, buffer)
-                }
-            }
-
-            ibase::SQL_FLOAT | ibase::SQL_DOUBLE => {
-                var.sqllen = mem::size_of::<i64>() as i16;
-
-                let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
-
-                var.sqltype = Float as i16 + 1;
-
-                (Float, buffer)
-            }
-
-            ibase::SQL_TIMESTAMP | ibase::SQL_TYPE_DATE | ibase::SQL_TYPE_TIME => {
-                var.sqllen = mem::size_of::<ibase::ISC_TIMESTAMP>() as i16;
-
-                let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
-
-                var.sqltype = Timestamp as i16 + 1;
-
-                (Timestamp, buffer)
-            }
-
-            sqltype => {
-                return Err(FbError::Other(format!(
-                    "Unsupported column type ({})",
-                    sqltype
-                )))
-            }
-        };
-
-        var.sqldata = buffer.as_mut_ptr() as _;
-
-        Ok(ColumnBuffer {
-            kind,
-            buffer,
-            nullind,
-        })
-    }
+    pub(crate) buffer: Bytes,
 }
 
 /// Define the conversion from the buffer to a value
@@ -148,22 +72,20 @@ pub trait ColumnToVal<T> {
         Self: std::marker::Sized;
 }
 
-impl ColumnToVal<String> for ColumnBuffer {
+impl ColumnToVal<String> for Option<ColumnBuffer> {
     fn to_val(&self) -> Result<String, FbError> {
-        if *self.nullind < 0 {
-            return err_column_null("String");
-        }
+        let col = self.as_ref().ok_or_else(|| err_column_null("String"))?;
 
-        match self.kind {
-            Text => varchar_to_string(&self.buffer),
+        match col.kind {
+            Text => varchar_to_string(&col.buffer),
 
-            Integer => integer_from_buffer(&self.buffer).map(|i| i.to_string()),
+            Integer => integer_from_buffer(&col.buffer).map(|i| i.to_string()),
 
-            Float => float_from_buffer(&self.buffer).map(|f| f.to_string()),
+            Float => float_from_buffer(&col.buffer).map(|f| f.to_string()),
 
             #[cfg(feature = "date_time")]
             Timestamp => {
-                crate::date_time::timestamp_from_buffer(&self.buffer).map(|d| d.to_string())
+                crate::date_time::timestamp_from_buffer(&col.buffer).map(|d| d.to_string())
             }
 
             #[cfg(not(feature = "date_time"))]
@@ -174,104 +96,96 @@ impl ColumnToVal<String> for ColumnBuffer {
     }
 }
 
-impl ColumnToVal<i64> for ColumnBuffer {
+impl ColumnToVal<i64> for Option<ColumnBuffer> {
     fn to_val(&self) -> Result<i64, FbError> {
-        if *self.nullind < 0 {
-            return err_column_null("i64");
-        }
+        let col = self.as_ref().ok_or_else(|| err_column_null("i64"))?;
 
-        match self.kind {
-            Integer => integer_from_buffer(&self.buffer),
+        match col.kind {
+            Integer => integer_from_buffer(&col.buffer),
 
-            _ => err_type_conv(self.kind, "i64"),
+            _ => err_type_conv(col.kind, "i64"),
         }
     }
 }
 
-impl ColumnToVal<i32> for ColumnBuffer {
+impl ColumnToVal<i32> for Option<ColumnBuffer> {
     fn to_val(&self) -> Result<i32, FbError> {
         ColumnToVal::<i64>::to_val(self).map(|i| i as i32)
     }
 }
 
-impl ColumnToVal<i16> for ColumnBuffer {
+impl ColumnToVal<i16> for Option<ColumnBuffer> {
     fn to_val(&self) -> Result<i16, FbError> {
         ColumnToVal::<i64>::to_val(self).map(|i| i as i16)
     }
 }
 
-impl ColumnToVal<f64> for ColumnBuffer {
+impl ColumnToVal<f64> for Option<ColumnBuffer> {
     fn to_val(&self) -> Result<f64, FbError> {
-        if *self.nullind < 0 {
-            return err_column_null("f64");
-        }
+        let col = self.as_ref().ok_or_else(|| err_column_null("f64"))?;
 
-        match self.kind {
-            Float => float_from_buffer(&self.buffer),
+        match col.kind {
+            Float => float_from_buffer(&col.buffer),
 
-            _ => err_type_conv(self.kind, "f64"),
+            _ => err_type_conv(col.kind, "f64"),
         }
     }
 }
 
-impl ColumnToVal<f32> for ColumnBuffer {
+impl ColumnToVal<f32> for Option<ColumnBuffer> {
     fn to_val(&self) -> Result<f32, FbError> {
         ColumnToVal::<f64>::to_val(self).map(|i| i as f32)
     }
 }
 
 #[cfg(feature = "date_time")]
-impl ColumnToVal<chrono::NaiveDate> for ColumnBuffer {
+impl ColumnToVal<chrono::NaiveDate> for Option<ColumnBuffer> {
     fn to_val(&self) -> Result<chrono::NaiveDate, FbError> {
-        if *self.nullind < 0 {
-            return err_column_null("NaiveDate");
-        }
+        let col = self.as_ref().ok_or_else(|| err_column_null("NaiveDate"))?;
 
-        match self.kind {
-            Timestamp => crate::date_time::timestamp_from_buffer(&self.buffer).map(|ts| ts.date()),
+        match col.kind {
+            Timestamp => crate::date_time::timestamp_from_buffer(&col.buffer).map(|ts| ts.date()),
 
-            _ => err_type_conv(self.kind, "NaiveDate"),
+            _ => err_type_conv(col.kind, "NaiveDate"),
         }
     }
 }
 
 #[cfg(feature = "date_time")]
-impl ColumnToVal<chrono::NaiveTime> for ColumnBuffer {
+impl ColumnToVal<chrono::NaiveTime> for Option<ColumnBuffer> {
     fn to_val(&self) -> Result<chrono::NaiveTime, FbError> {
-        if *self.nullind < 0 {
-            return err_column_null("NaiveTime");
-        }
+        let col = self.as_ref().ok_or_else(|| err_column_null("NaiveTime"))?;
 
-        match self.kind {
-            Timestamp => crate::date_time::timestamp_from_buffer(&self.buffer).map(|ts| ts.time()),
+        match col.kind {
+            Timestamp => crate::date_time::timestamp_from_buffer(&col.buffer).map(|ts| ts.time()),
 
-            _ => err_type_conv(self.kind, "NaiveTime"),
+            _ => err_type_conv(col.kind, "NaiveTime"),
         }
     }
 }
 
 #[cfg(feature = "date_time")]
-impl ColumnToVal<chrono::NaiveDateTime> for ColumnBuffer {
+impl ColumnToVal<chrono::NaiveDateTime> for Option<ColumnBuffer> {
     fn to_val(&self) -> Result<chrono::NaiveDateTime, FbError> {
-        if *self.nullind < 0 {
-            return err_column_null("NaiveDateTime");
-        }
+        let col = self
+            .as_ref()
+            .ok_or_else(|| err_column_null("NaiveDateTime"))?;
 
-        match self.kind {
-            Timestamp => crate::date_time::timestamp_from_buffer(&self.buffer),
+        match col.kind {
+            Timestamp => crate::date_time::timestamp_from_buffer(&col.buffer),
 
-            _ => err_type_conv(self.kind, "NaiveDateTime"),
+            _ => err_type_conv(col.kind, "NaiveDateTime"),
         }
     }
 }
 
 /// Implements for all nullable variants
-impl<T> ColumnToVal<Option<T>> for ColumnBuffer
+impl<T> ColumnToVal<Option<T>> for Option<ColumnBuffer>
 where
-    ColumnBuffer: ColumnToVal<T>,
+    Option<ColumnBuffer>: ColumnToVal<T>,
 {
     fn to_val(&self) -> Result<Option<T>, FbError> {
-        if *self.nullind < 0 {
+        if self.is_none() {
             return Ok(None);
         }
 
@@ -281,19 +195,9 @@ where
 
 /// Converts a varchar in a buffer to a String
 fn varchar_to_string(buffer: &[u8]) -> Result<String, FbError> {
-    if buffer.len() < 2 {
-        return err_buffer_len(2, buffer.len(), "String");
-    }
-
-    let len = i16::from_be_bytes(buffer[0..2].try_into().unwrap()) as usize;
-
-    if len > buffer.len() - 2 {
-        return err_buffer_len(len + 2, buffer.len(), "String");
-    }
-
-    std::str::from_utf8(&buffer[2..(len + 2)])
+    std::str::from_utf8(&buffer)
         .map(|str| str.to_string())
-        .map_err(|_| FbError::Other("Found column with an invalid utf-8 string".to_owned()))
+        .map_err(|_| FbError::Other("Found column with an invalid UTF-8 string".to_owned()))
 }
 
 /// Interprets an integer value from a buffer
@@ -318,14 +222,14 @@ fn float_from_buffer(buffer: &[u8]) -> Result<f64, FbError> {
 
 /// Implemented for types that represents a list of values of columns
 pub trait FromRow {
-    fn try_from(row: &[ColumnBuffer]) -> Result<Self, FbError>
+    fn try_from(row: &[Option<ColumnBuffer>]) -> Result<Self, FbError>
     where
         Self: std::marker::Sized;
 }
 
 /// For no columns
 impl FromRow for () {
-    fn try_from(_row: &[ColumnBuffer]) -> Result<Self, FbError>
+    fn try_from(_row: &[Option<ColumnBuffer>]) -> Result<Self, FbError>
     where
         Self: Sized,
     {
@@ -338,9 +242,9 @@ macro_rules! impl_from_row {
     ($($t: ident),+) => {
         impl<'a, $($t),+> FromRow for ($($t,)+)
         where
-            $( ColumnBuffer: ColumnToVal<$t>, )+
+            $( Option<ColumnBuffer>: ColumnToVal<$t>, )+
         {
-            fn try_from(row: &[ColumnBuffer]) -> Result<Self, FbError> {
+            fn try_from(row: &[Option<ColumnBuffer>]) -> Result<Self, FbError> {
                 let mut iter = row.iter();
 
                 Ok(( $(
@@ -422,6 +326,7 @@ mod test {
     }
 
     #[test]
+    #[allow(clippy::float_cmp, clippy::excessive_precision)]
     fn fixed_points() -> Result<(), FbError> {
         let mut conn = conn();
 
@@ -456,6 +361,7 @@ mod test {
     }
 
     #[test]
+    #[allow(clippy::float_cmp, clippy::excessive_precision)]
     fn float_points() -> Result<(), FbError> {
         let mut conn = conn();
 

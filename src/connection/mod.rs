@@ -8,18 +8,11 @@
 pub mod pool;
 pub mod stmt_cache;
 
-use std::{
-    cell::{Cell, RefCell},
-    marker,
-};
+use std::{cell::RefCell, marker};
 
 use crate::{
-    ibase,
-    params::IntoParams,
-    query::Queryable,
-    row::{ColumnBuffer, FromRow},
-    status::{FbError, Status},
-    Execute, Transaction,
+    ibase, params::IntoParams, query::Queryable, row::FromRow, status::FbError, Execute,
+    Transaction,
 };
 use stmt_cache::{StmtCache, StmtCacheData};
 
@@ -41,10 +34,8 @@ pub struct ConnectionBuilder {
     pass: String,
     dialect: Dialect,
     stmt_cache_size: usize,
-    ibase: ibase::IBase,
 }
 
-#[cfg(not(feature = "dynamic_loading"))]
 impl Default for ConnectionBuilder {
     fn default() -> Self {
         Self {
@@ -55,46 +46,11 @@ impl Default for ConnectionBuilder {
             pass: "masterkey".to_string(),
             dialect: Dialect::D3,
             stmt_cache_size: 20,
-            ibase: ibase::IBase,
         }
     }
 }
 
 impl ConnectionBuilder {
-    #[cfg(feature = "dynamic_loading")]
-    /// Searches for the firebird client at runtime, in the specified path.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use rsfbclient::ConnectionBuilder;
-    ///
-    /// // On windows
-    /// ConnectionBuilder::with_client("fbclient.dll");
-    ///
-    /// // On linux
-    /// ConnectionBuilder::with_client("libfbclient.so");
-    ///
-    /// // Any platform, file located relative to the
-    /// // folder where the executable was run
-    /// ConnectionBuilder::with_client("./fbclient.lib");
-    /// ```
-    pub fn with_client(fbclient: &str) -> Result<Self, FbError> {
-        Ok(Self {
-            host: "localhost".to_string(),
-            port: 3050,
-            db_name: "test.fdb".to_string(),
-            user: "SYSDBA".to_string(),
-            pass: "masterkey".to_string(),
-            dialect: Dialect::D3,
-            stmt_cache_size: 20,
-            ibase: ibase::IBase::new(fbclient).map_err(|e| FbError {
-                code: -1,
-                msg: e.to_string(),
-            })?,
-        })
-    }
-
     /// Hostname or IP address of the server. Default: localhost
     pub fn host<S: Into<String>>(&mut self, host: S) -> &mut Self {
         self.host = host.into();
@@ -146,10 +102,7 @@ impl ConnectionBuilder {
 /// A connection to a firebird database
 pub struct Connection {
     /// Database handler
-    pub(crate) handle: Cell<ibase::isc_db_handle>,
-
-    /// Status for the client calls
-    pub(crate) status: RefCell<Status>,
+    pub(crate) handle: ibase::DbHandle,
 
     /// Firebird dialect for the statements
     pub(crate) dialect: Dialect,
@@ -157,81 +110,31 @@ pub struct Connection {
     /// Cache for the prepared statements
     pub(crate) stmt_cache: RefCell<StmtCache>,
 
-    /// Firebird client functions
-    pub(crate) ibase: ibase::IBase,
+    /// Wire protocol connection
+    pub(crate) wire: RefCell<ibase::WireConnection>,
 }
 
 impl Connection {
     /// Open a new connection to the remote database
     fn open(builder: &ConnectionBuilder) -> Result<Connection, FbError> {
-        let ibase = builder.ibase.clone();
+        let mut wire =
+            ibase::WireConnection::connect(&builder.host, builder.port, &builder.db_name)?;
 
-        let handle = Cell::new(0);
-        let status: RefCell<Status> = Default::default();
+        let handle = wire.attach_database(&builder.db_name, &builder.user, &builder.pass)?;
 
-        let dpb = {
-            let mut dpb: Vec<u8> = Vec::with_capacity(64);
-
-            dpb.extend(&[ibase::isc_dpb_version1 as u8]);
-
-            dpb.extend(&[ibase::isc_dpb_user_name as u8, builder.user.len() as u8]);
-            dpb.extend(builder.user.bytes());
-
-            dpb.extend(&[ibase::isc_dpb_password as u8, builder.pass.len() as u8]);
-            dpb.extend(builder.pass.bytes());
-
-            // Makes the database convert the strings to utf-8, allowing non ascii characters
-            let charset = b"UTF-8";
-
-            dpb.extend(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
-            dpb.extend(charset);
-
-            dpb
-        };
-
-        let conn_string = format!("{}/{}:{}", builder.host, builder.port, builder.db_name);
-
-        unsafe {
-            if ibase.isc_attach_database()(
-                status.borrow_mut().as_mut_ptr(),
-                conn_string.len() as i16,
-                conn_string.as_ptr() as *const _,
-                handle.as_ptr(),
-                dpb.len() as i16,
-                dpb.as_ptr() as *const _,
-            ) != 0
-            {
-                return Err(status.borrow().as_error(&ibase));
-            }
-        }
-
-        // Assert that the handle is valid
-        debug_assert_ne!(handle.get(), 0);
-
-        let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
+        let stmt_cache = StmtCache::new(builder.stmt_cache_size);
 
         Ok(Connection {
             handle,
-            status,
             dialect: builder.dialect,
-            stmt_cache,
-            ibase,
+            stmt_cache: RefCell::new(stmt_cache),
+            wire: RefCell::new(wire),
         })
     }
 
     /// Drop the current database
     pub fn drop_database(self) -> Result<(), FbError> {
-        unsafe {
-            if self.ibase.isc_drop_database()(
-                self.status.borrow_mut().as_mut_ptr(),
-                self.handle.as_ptr(),
-            ) != 0
-            {
-                return Err(self.status.borrow().as_error(&self.ibase));
-            }
-        }
-
-        Ok(())
+        self.wire.borrow_mut().drop_database(self.handle)
     }
 
     /// Run a closure with a transaction, if the closure returns an error
@@ -262,20 +165,7 @@ impl Connection {
     fn __close(&mut self) -> Result<(), FbError> {
         self.stmt_cache.borrow_mut().close_all(self);
 
-        unsafe {
-            // Close the connection, if the handle is valid
-            if self.handle.get() != 0
-                && self.ibase.isc_detach_database()(
-                    self.status.borrow_mut().as_mut_ptr(),
-                    self.handle.as_ptr(),
-                ) != 0
-            {
-                return Err(self.status.borrow().as_error(&self.ibase));
-            }
-        }
-
-        // Assert that the handle is invalid
-        debug_assert_eq!(self.handle.get(), 0);
+        self.wire.borrow_mut().detach_database(self.handle)?;
 
         Ok(())
     }
@@ -291,9 +181,6 @@ impl Drop for Connection {
 pub struct StmtIter<'a, R> {
     /// Statement cache data. Wrapped in option to allow taking the value to send back to the cache
     stmt_cache_data: Option<StmtCacheData>,
-
-    /// Buffers for the column data
-    buffers: Vec<ColumnBuffer>,
 
     /// Transaction needs to be alive for the fetch to work
     tr: Transaction<'a>,
@@ -335,7 +222,7 @@ where
             .as_mut()
             .unwrap()
             .stmt
-            .fetch(&self.tr.conn, &mut self.buffers)
+            .fetch(&self.tr.conn)
             .and_then(|row| row.map(|row| row.get_all()).transpose())
             .transpose()
     }
@@ -363,10 +250,9 @@ where
                 .get_or_prepare(self, &mut tr.data, sql)?;
 
         match stmt_cache_data.stmt.query(self, &mut tr.data, params) {
-            Ok(buffers) => {
+            Ok(_) => {
                 let iter = StmtIter {
                     stmt_cache_data: Some(stmt_cache_data),
-                    buffers,
                     tr,
                     _marker: Default::default(),
                 };
@@ -423,14 +309,7 @@ mod test {
 
     #[test]
     fn remote_connection() {
-        #[cfg(not(feature = "dynamic_loading"))]
-        let mut conn = ConnectionBuilder::default()
-            .connect()
-            .expect("Error on connect the test database");
-
-        #[cfg(feature = "dynamic_loading")]
-        let mut conn = ConnectionBuilder::with_client("./fbclient.lib")
-            .expect("Error finding fbclient lib")
+        let conn = ConnectionBuilder::default()
             .connect()
             .expect("Error on connect the test database");
 

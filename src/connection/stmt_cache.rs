@@ -122,8 +122,10 @@ fn stmt_cache_test() {
     let mk_test_data = |n: usize| StmtCacheData {
         sql: format!("sql {}", n),
         stmt: StatementData {
-            handle: n as _,
+            handle: crate::ibase::StmtHandle(n as u32),
             xsqlda: Default::default(),
+            blr: bytes::Bytes::new(),
+            stmt_type: crate::ibase::StmtType::Select,
         },
     };
 
@@ -141,7 +143,7 @@ fn stmt_cache_test() {
     assert!(cache.insert(sql2).is_none());
 
     let stmt = cache.insert(sql3).expect("sql1 not returned");
-    assert_eq!(stmt.handle, 1);
+    assert_eq!(stmt.handle.0, 1);
 
     assert!(cache.get("sql 1").is_none());
 
@@ -150,20 +152,21 @@ fn stmt_cache_test() {
     assert!(cache.insert(sql2).is_none());
 
     let stmt = cache.insert(sql4).expect("sql3 not returned");
-    assert_eq!(stmt.handle, 3);
+    assert_eq!(stmt.handle.0, 3);
 
     let stmt = cache.insert(sql5).expect("sql2 not returned");
-    assert_eq!(stmt.handle, 2);
+    assert_eq!(stmt.handle.0, 2);
 
     let stmt = cache.insert(sql6).expect("sql4 not returned");
-    assert_eq!(stmt.handle, 4);
+    assert_eq!(stmt.handle.0, 4);
 
     assert_eq!(
         cache
             .get("sql 5")
             .expect("sql5 not in the cache")
             .stmt
-            .handle,
+            .handle
+            .0,
         5
     );
     assert_eq!(
@@ -171,7 +174,8 @@ fn stmt_cache_test() {
             .get("sql 6")
             .expect("sql6 not in the cache")
             .stmt
-            .handle,
+            .handle
+            .0,
         6
     );
 
