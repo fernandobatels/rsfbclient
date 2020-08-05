@@ -139,35 +139,37 @@ impl StatementData {
         let ibase = &conn.ibase;
         let status = &conn.status;
 
-        let mut handle = 0;
+        todo!();
 
-        let mut xsqlda = XSqlDa::new(1);
+        // let mut handle = 0;
 
-        unsafe {
-            if ibase.isc_dsql_allocate_statement()(
-                status.borrow_mut().as_mut_ptr(),
-                conn.handle.as_ptr(),
-                &mut handle,
-            ) != 0
-            {
-                return Err(status.borrow().as_error(ibase));
-            }
+        // let mut xsqlda = XSqlDa::new(1);
 
-            if ibase.isc_dsql_prepare()(
-                status.borrow_mut().as_mut_ptr(),
-                &mut tr.handle,
-                &mut handle,
-                sql.len() as u16,
-                sql.as_ptr() as *const _,
-                conn.dialect as u16,
-                &mut *xsqlda,
-            ) != 0
-            {
-                return Err(status.borrow().as_error(ibase));
-            }
-        }
+        // unsafe {
+        //     if ibase.isc_dsql_allocate_statement()(
+        //         status.borrow_mut().as_mut_ptr(),
+        //         conn.handle.as_ptr(),
+        //         &mut handle,
+        //     ) != 0
+        //     {
+        //         return Err(status.borrow().as_error(ibase));
+        //     }
 
-        Ok(Self { handle, xsqlda })
+        //     if ibase.isc_dsql_prepare()(
+        //         status.borrow_mut().as_mut_ptr(),
+        //         &mut tr.handle,
+        //         &mut handle,
+        //         sql.len() as u16,
+        //         sql.as_ptr() as *const _,
+        //         conn.dialect as u16,
+        //         &mut *xsqlda,
+        //     ) != 0
+        //     {
+        //         return Err(status.borrow().as_error(ibase));
+        //     }
+        // }
+
+        // Ok(Self { handle, xsqlda })
     }
 
     /// Execute the current statement without returnig any row
@@ -185,34 +187,36 @@ impl StatementData {
         let ibase = &conn.ibase;
         let status = &conn.status;
 
-        let params = Params::new(conn, self, params.to_params())?;
+        todo!();
 
-        unsafe {
-            if ibase.isc_dsql_execute()(
-                status.borrow_mut().as_mut_ptr(),
-                &mut tr.handle,
-                &mut self.handle,
-                1,
-                if let Some(xsqlda) = &params.xsqlda {
-                    &**xsqlda
-                } else {
-                    ptr::null()
-                },
-            ) != 0
-            {
-                return Err(status.borrow().as_error(ibase));
-            }
-        }
+        // let params = Params::new(conn, self, params.to_params())?;
 
-        // Just to make sure the params are not dropped too soon
-        drop(params);
+        // unsafe {
+        //     if ibase.isc_dsql_execute()(
+        //         status.borrow_mut().as_mut_ptr(),
+        //         &mut tr.handle,
+        //         &mut self.handle,
+        //         1,
+        //         if let Some(xsqlda) = &params.xsqlda {
+        //             &**xsqlda
+        //         } else {
+        //             ptr::null()
+        //         },
+        //     ) != 0
+        //     {
+        //         return Err(status.borrow().as_error(ibase));
+        //     }
+        // }
 
-        // Close the cursor, as it will not be used
-        // ignoring the error, as if it was not a select statement,
-        // the cursor will already be closed
-        self.close_cursor(conn).ok();
+        // // Just to make sure the params are not dropped too soon
+        // drop(params);
 
-        Ok(())
+        // // Close the cursor, as it will not be used
+        // // ignoring the error, as if it was not a select statement,
+        // // the cursor will already be closed
+        // self.close_cursor(conn).ok();
+
+        // Ok(())
     }
 
     /// Execute the current statement
@@ -231,56 +235,58 @@ impl StatementData {
         let ibase = &conn.ibase;
         let status = &conn.status;
 
-        let row_count = self.xsqlda.sqld;
+        todo!();
 
-        // Need more XSQLVARs
-        if row_count > self.xsqlda.sqln {
-            self.xsqlda = XSqlDa::new(row_count);
-        }
+        // let row_count = self.xsqlda.sqld;
 
-        unsafe {
-            if ibase.isc_dsql_describe()(
-                status.borrow_mut().as_mut_ptr(),
-                &mut self.handle,
-                1,
-                &mut *self.xsqlda,
-            ) != 0
-            {
-                return Err(status.borrow().as_error(ibase));
-            }
-        }
+        // // Need more XSQLVARs
+        // if row_count > self.xsqlda.sqln {
+        //     self.xsqlda = XSqlDa::new(row_count);
+        // }
 
-        let params = Params::new(conn, self, params.to_params())?;
+        // unsafe {
+        //     if ibase.isc_dsql_describe()(
+        //         status.borrow_mut().as_mut_ptr(),
+        //         &mut self.handle,
+        //         1,
+        //         &mut *self.xsqlda,
+        //     ) != 0
+        //     {
+        //         return Err(status.borrow().as_error(ibase));
+        //     }
+        // }
 
-        unsafe {
-            if ibase.isc_dsql_execute()(
-                status.borrow_mut().as_mut_ptr(),
-                &mut tr.handle,
-                &mut self.handle,
-                1,
-                if let Some(xsqlda) = &params.xsqlda {
-                    &**xsqlda
-                } else {
-                    ptr::null()
-                },
-            ) != 0
-            {
-                return Err(status.borrow().as_error(ibase));
-            }
-        }
+        // let params = Params::new(conn, self, params.to_params())?;
 
-        // Just to make sure the params are not dropped too soon
-        drop(params);
+        // unsafe {
+        //     if ibase.isc_dsql_execute()(
+        //         status.borrow_mut().as_mut_ptr(),
+        //         &mut tr.handle,
+        //         &mut self.handle,
+        //         1,
+        //         if let Some(xsqlda) = &params.xsqlda {
+        //             &**xsqlda
+        //         } else {
+        //             ptr::null()
+        //         },
+        //     ) != 0
+        //     {
+        //         return Err(status.borrow().as_error(ibase));
+        //     }
+        // }
 
-        let col_buffers = (0..self.xsqlda.sqln)
-            .map(|col| {
-                let xcol = self.xsqlda.get_xsqlvar_mut(col as usize).unwrap();
+        // // Just to make sure the params are not dropped too soon
+        // drop(params);
 
-                ColumnBuffer::from_xsqlvar(xcol)
-            })
-            .collect::<Result<_, _>>()?;
+        // let col_buffers = (0..self.xsqlda.sqln)
+        //     .map(|col| {
+        //         let xcol = self.xsqlda.get_xsqlvar_mut(col as usize).unwrap();
 
-        Ok(col_buffers)
+        //         ColumnBuffer::from_xsqlvar(xcol)
+        //     })
+        //     .collect::<Result<_, _>>()?;
+
+        // Ok(col_buffers)
     }
 
     /// Fetch for the next row, needs to be called after `query`
@@ -292,26 +298,28 @@ impl StatementData {
         let ibase = &conn.ibase;
         let status = &conn.status;
 
-        let result_fetch = unsafe {
-            ibase.isc_dsql_fetch()(
-                status.borrow_mut().as_mut_ptr(),
-                &mut self.handle,
-                1,
-                &*self.xsqlda,
-            )
-        };
-        // 100 indicates that no more rows: http://docwiki.embarcadero.com/InterBase/2020/en/Isc_dsql_fetch()
-        if result_fetch == 100 {
-            return Ok(None);
-        }
+        todo!();
 
-        if result_fetch != 0 {
-            return Err(status.borrow().as_error(ibase));
-        }
+        // let result_fetch = unsafe {
+        //     ibase.isc_dsql_fetch()(
+        //         status.borrow_mut().as_mut_ptr(),
+        //         &mut self.handle,
+        //         1,
+        //         &*self.xsqlda,
+        //     )
+        // };
+        // // 100 indicates that no more rows: http://docwiki.embarcadero.com/InterBase/2020/en/Isc_dsql_fetch()
+        // if result_fetch == 100 {
+        //     return Ok(None);
+        // }
 
-        let row = Row { buffers };
+        // if result_fetch != 0 {
+        //     return Err(status.borrow().as_error(ibase));
+        // }
 
-        Ok(Some(row))
+        // let row = Row { buffers };
+
+        // Ok(Some(row))
     }
 
     /// Closes the statement cursor, if it was open

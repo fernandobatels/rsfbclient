@@ -1,6 +1,10 @@
 use crate::{ibase, statement::StatementData, xsqlda::XSqlDa, Connection, FbError};
 
+use bytes::{BufMut, Bytes, BytesMut};
 use ParamType::*;
+
+/// Maximum parameter data length
+const MAX_DATA_LENGTH: u16 = 32767;
 
 /// Stores the data needed to send the parameters
 pub struct Params {
@@ -18,79 +22,150 @@ impl Params {
         stmt: &mut StatementData,
         infos: Vec<ParamInfo>,
     ) -> Result<Self, FbError> {
-        let ibase = &conn.ibase;
-        let status = &conn.status;
+        todo!();
 
-        let params = if !infos.is_empty() {
-            let mut xsqlda = XSqlDa::new(infos.len() as i16);
+        // let ibase = &conn.ibase;
+        // let status = &conn.status;
 
-            let ok = unsafe {
-                ibase.isc_dsql_describe_bind()(
-                    status.borrow_mut().as_mut_ptr(),
-                    &mut stmt.handle,
-                    1,
-                    &mut *xsqlda,
-                )
-            };
-            if ok != 0 {
-                return Err(status.borrow().as_error(ibase));
-            }
+        // let params = if !infos.is_empty() {
+        //     let mut xsqlda = XSqlDa::new(infos.len() as i16);
 
-            if xsqlda.sqld != xsqlda.sqln {
-                return Err(FbError::Other(format!(
-                    "Wrong parameter count, you passed {}, but the sql contains needs {} params",
-                    xsqlda.sqln, xsqlda.sqld
-                )));
-            }
+        //     let ok = unsafe {
+        //         ibase.isc_dsql_describe_bind()(
+        //             status.borrow_mut().as_mut_ptr(),
+        //             &mut stmt.handle,
+        //             1,
+        //             &mut *xsqlda,
+        //         )
+        //     };
+        //     if ok != 0 {
+        //         return Err(status.borrow().as_error(ibase));
+        //     }
 
-            let buffers = infos
-                .into_iter()
-                .enumerate()
-                .map(|(col, info)| {
-                    ParamBuffer::from_parameter(info, xsqlda.get_xsqlvar_mut(col).unwrap())
-                })
-                .collect();
+        //     if xsqlda.sqld != xsqlda.sqln {
+        //         return Err(FbError::Other(format!(
+        //             "Wrong parameter count, you passed {}, but the sql contains needs {} params",
+        //             xsqlda.sqln, xsqlda.sqld
+        //         )));
+        //     }
 
-            Self {
-                _buffers: buffers,
-                xsqlda: Some(xsqlda),
-            }
-        } else {
-            Self {
-                _buffers: vec![],
-                xsqlda: None,
-            }
-        };
+        //     let buffers = infos
+        //         .into_iter()
+        //         .enumerate()
+        //         .map(|(col, info)| {
+        //             ParamBuffer::from_parameter(info, xsqlda.get_xsqlvar_mut(col).unwrap())
+        //         })
+        //         .collect();
 
-        Ok(params)
+        //     Self {
+        //         _buffers: buffers,
+        //         xsqlda: Some(xsqlda),
+        //     }
+        // } else {
+        //     Self {
+        //         _buffers: vec![],
+        //         xsqlda: None,
+        //     }
+        // };
+
+        // Ok(params)
     }
 
     /// For use when there is no statement, cant verify the number of parameters ahead of time
     pub fn new_immediate(infos: Vec<ParamInfo>) -> Self {
-        if !infos.is_empty() {
-            let mut xsqlda = XSqlDa::new(infos.len() as i16);
+        todo!();
 
-            xsqlda.sqld = xsqlda.sqln;
+        // if !infos.is_empty() {
+        //     let mut xsqlda = XSqlDa::new(infos.len() as i16);
 
-            let buffers = infos
-                .into_iter()
-                .enumerate()
-                .map(|(col, info)| {
-                    ParamBuffer::from_parameter(info, xsqlda.get_xsqlvar_mut(col).unwrap())
-                })
-                .collect();
+        //     xsqlda.sqld = xsqlda.sqln;
 
-            Self {
-                _buffers: buffers,
-                xsqlda: Some(xsqlda),
+        //     let buffers = infos
+        //         .into_iter()
+        //         .enumerate()
+        //         .map(|(col, info)| {
+        //             ParamBuffer::from_parameter(info, xsqlda.get_xsqlvar_mut(col).unwrap())
+        //         })
+        //         .collect();
+
+        //     Self {
+        //         _buffers: buffers,
+        //         xsqlda: Some(xsqlda),
+        //     }
+        // } else {
+        //     Self {
+        //         _buffers: vec![],
+        //         xsqlda: None,
+        //     }
+        // }
+    }
+}
+
+/// Data for the parameters to send in the wire
+pub struct ParamsBlr {
+    /// Definitions of the data types
+    pub blr: Bytes,
+    /// Actual values of the data
+    pub values: Bytes,
+}
+
+/// Convert the parameters to a blr (binary representation)
+pub fn params_to_blr(params: &[ParamInfo]) -> Result<ParamsBlr, FbError> {
+    let mut blr = BytesMut::with_capacity(256);
+    let mut values = BytesMut::with_capacity(256);
+
+    blr.put_slice(&[
+        ibase::blr::VERSION5,
+        ibase::blr::BEGIN,
+        ibase::blr::MESSAGE,
+        0, // Message index
+    ]);
+    // Message length, * 2 as there is 1 msg for the param type and another for the nullind
+    blr.put_u16_le(params.len() as u16 * 2);
+
+    for p in params {
+        let len = p.buffer.len() as u16;
+        if len > MAX_DATA_LENGTH {
+            return Err("Parameter too big! Not supported yet".into());
+        }
+
+        values.put_slice(&p.buffer);
+        if len % 4 != 0 {
+            values.put_slice(&[0; 4][..4 - (len as usize % 4)])
+        }
+        values.put_i32_le(if p.null { -1 } else { 0 });
+
+        match p.sqltype {
+            ParamType::Text => {
+                blr.put_u8(ibase::blr::TEXT);
+                blr.put_u16_le(len);
             }
-        } else {
-            Self {
-                _buffers: vec![],
-                xsqlda: None,
+
+            ParamType::Integer => blr.put_slice(&[
+                ibase::blr::INT64,
+                0, // Scale
+            ]),
+
+            ParamType::Floating => blr.put_u8(ibase::blr::DOUBLE),
+
+            ParamType::Timestamp => blr.put_u8(ibase::blr::TIMESTAMP),
+
+            ParamType::Null => {
+                // Represent as empty text
+                blr.put_u8(ibase::blr::TEXT);
+                blr.put_u16_le(0);
             }
         }
+        // Nullind
+        blr.put_slice(&[ibase::blr::SHORT, 0]);
     }
+
+    blr.put_slice(&[ibase::blr::END, ibase::blr::EOC]);
+
+    Ok(ParamsBlr {
+        blr: blr.freeze(),
+        values: values.freeze(),
+    })
 }
 
 /// Data for the input XSQLVAR

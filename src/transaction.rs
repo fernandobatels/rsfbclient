@@ -269,7 +269,7 @@ impl TransactionData {
         let ibase = &conn.ibase;
         let status = &conn.status;
 
-        let params = Params::new_immediate(params.to_params());
+        // let params = Params::new_immediate(params.to_params());
 
         unsafe {
             if ibase.isc_dsql_execute_immediate()(
@@ -279,11 +279,11 @@ impl TransactionData {
                 sql.len() as u16,
                 sql.as_ptr() as *const _,
                 conn.dialect as u16,
-                if let Some(xsqlda) = &params.xsqlda {
-                    &**xsqlda
-                } else {
-                    ptr::null()
-                },
+                // if let Some(xsqlda) = &params.xsqlda {
+                //     &**xsqlda
+                // } else {
+                ptr::null(),
+                // },
             ) != 0
             {
                 return Err(status.borrow().as_error(ibase));

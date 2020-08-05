@@ -15,10 +15,11 @@ use std::{
 
 use super::*;
 use crate::{
-    params::IntoParams,
-    row::{ColumnType, FromRow},
+    params::ParamsBlr,
+    row::ColumnType,
     status::SqlError,
-    FbError,
+    xsqlda::{parse_xsqlda, XSqlDa, XSQLDA_DESCRIBE_VARS},
+    Dialect, FbError,
 };
 
 /// Buffer length to use in the connection
@@ -37,7 +38,7 @@ pub struct WireConnection {
 
 impl WireConnection {
     /// Start a connection to the firebird server
-    fn connect(host: &str, port: u16, db_name: &str) -> Result<Self, FbError> {
+    pub fn connect(host: &str, port: u16, db_name: &str) -> Result<Self, FbError> {
         let mut socket = TcpStream::connect((host, port))?;
 
         socket.write_all(&connect(db_name, false))?;
@@ -47,6 +48,10 @@ impl WireConnection {
 
         let len = socket.read(&mut buff)?;
         let mut resp = Bytes::copy_from_slice(&buff[..len]);
+
+        if resp.remaining() < 16 {
+            return err_invalid_response();
+        }
 
         let op_code = resp.get_u32();
         if op_code != WireOp::Accept as u32 {
@@ -69,7 +74,7 @@ impl WireConnection {
     }
 
     /// Connect to a database, returning a database handle
-    fn attach_database(
+    pub fn attach_database(
         &mut self,
         db_name: &str,
         user: &str,
@@ -83,8 +88,21 @@ impl WireConnection {
         Ok(DbHandle(resp.handle))
     }
 
+    /// Disconnect from the database
+    pub fn detach_database(&mut self, db_handle: DbHandle) -> Result<(), FbError> {
+        self.socket.write_all(&detach(db_handle.0))?;
+
+        self.read_response()?;
+
+        Ok(())
+    }
+
     /// Start a new transaction, with the specified transaction parameter buffer
-    fn begin_transaction(&mut self, db_handle: DbHandle, tpb: &[u8]) -> Result<TrHandle, FbError> {
+    pub fn begin_transaction(
+        &mut self,
+        db_handle: DbHandle,
+        tpb: &[u8],
+    ) -> Result<TrHandle, FbError> {
         self.socket
             .write_all(&transaction(db_handle.0, tpb))
             .unwrap();
@@ -94,24 +112,55 @@ impl WireConnection {
         Ok(TrHandle(resp.handle))
     }
 
-    fn prepare_statement(
+    /// Commit / Rollback a transaction
+    pub fn transaction_operation(&mut self, tr_handle: TrHandle, op: TrOp) -> Result<(), FbError> {
+        self.socket
+            .write_all(&transaction_operation(tr_handle.0, op))?;
+
+        self.read_response()?;
+
+        Ok(())
+    }
+
+    pub fn exec_immediate(
+        &mut self,
+        tr_handle: TrHandle,
+        dialect: Dialect,
+        sql: &str,
+    ) -> Result<(), FbError> {
+        self.socket
+            .write_all(&exec_immediate(tr_handle.0, dialect as u32, sql))
+            .unwrap();
+
+        let resp = self.read_response()?;
+
+        Ok(())
+    }
+
+    /// Alloc and prepare a statement
+    ///
+    /// Returns the statement type, handle and xsqlda describing the columns
+    pub fn prepare_statement(
         &mut self,
         db_handle: DbHandle,
         tr_handle: TrHandle,
+        dialect: Dialect,
         sql: &str,
     ) -> Result<(StmtType, StmtHandle, XSqlDa), FbError> {
         // Alloc statement
         self.socket.write_all(&allocate_statement(db_handle.0))?;
 
         // Prepare statement
-        self.socket
-            .write_all(&prepare_statement(tr_handle.0, u32::MAX, 3, sql))?;
+        self.socket.write_all(&prepare_statement(
+            tr_handle.0,
+            u32::MAX,
+            dialect as u32,
+            sql,
+        ))?;
 
-        let len = self.socket.read(&mut self.buff)?;
-        let mut resp = Bytes::copy_from_slice(&self.buff[..len]);
+        let (op_code, mut resp) = self.read_packet()?;
 
         // Alloc resp
-        let op_code = resp.get_u32();
         if op_code != WireOp::Response as u32 {
             return Err(FbError::Other(format!(
                 "Connection rejected with code {}",
@@ -122,7 +171,11 @@ impl WireConnection {
         let stmt_handle = StmtHandle(parse_response(&mut resp)?.handle);
 
         // Prepare resp
+        if resp.remaining() < 4 {
+            return err_invalid_response();
+        }
         let op_code = resp.get_u32();
+
         if op_code != WireOp::Response as u32 {
             return Err(FbError::Other(format!(
                 "Connection rejected with code {}",
@@ -131,18 +184,59 @@ impl WireConnection {
         }
 
         let resp = parse_response(&mut resp)?;
-        let (stmt_type, xsqlda, truncated) = parse_xsqlda(&resp.data)?;
+        let (stmt_type, xsqlda, _truncated) = parse_xsqlda(&resp.data)?;
         // TODO: handle truncated
 
         Ok((stmt_type, stmt_handle, xsqlda))
     }
 
+    /// Execute the prepared statement with parameters
+    pub fn execute(
+        &mut self,
+        tr_handle: TrHandle,
+        stmt_handle: StmtHandle,
+        params: &ParamsBlr,
+    ) -> Result<(), FbError> {
+        self.socket
+            .write_all(&execute(
+                tr_handle.0,
+                stmt_handle.0,
+                &params.blr,
+                &params.values,
+            ))
+            .unwrap();
+
+        self.read_response()?;
+
+        Ok(())
+    }
+
+    /// Fetch rows from the executed statement, coercing the types
+    /// according to the provided blr
+    pub fn fetch(
+        &mut self,
+        stmt_handle: StmtHandle,
+        xsqlda: &XSqlDa,
+        blr: &[u8],
+    ) -> Result<Option<Vec<Option<Bytes>>>, FbError> {
+        self.socket.write_all(&fetch(stmt_handle.0, &blr))?;
+
+        let (op_code, mut resp) = self.read_packet()?;
+
+        if op_code != WireOp::FetchResponse as u32 {
+            return Err(FbError::Other(format!(
+                "Connection rejected with code {}",
+                op_code
+            )));
+        }
+
+        parse_fetch_response(&mut resp, xsqlda)
+    }
+
     /// Read a server response
     fn read_response(&mut self) -> Result<Response, FbError> {
-        let len = self.socket.read(&mut self.buff).unwrap();
-        let mut resp = Bytes::copy_from_slice(&self.buff[..len]);
+        let (op_code, mut resp) = self.read_packet()?;
 
-        let op_code = resp.get_u32();
         if op_code != WireOp::Response as u32 {
             return Err(FbError::Other(format!(
                 "Connection rejected with code {}",
@@ -152,19 +246,37 @@ impl WireConnection {
 
         parse_response(&mut resp)
     }
+
+    /// Reads a packet from the socket
+    fn read_packet(&mut self) -> Result<(u32, Bytes), FbError> {
+        let len = self.socket.read(&mut self.buff)?;
+        let mut resp = Bytes::copy_from_slice(&self.buff[..len]);
+
+        let op_code = loop {
+            if resp.remaining() < 4 {
+                return err_invalid_response();
+            }
+            let op_code = resp.get_u32();
+            if op_code != WireOp::Dummy as u32 {
+                break op_code;
+            }
+        };
+
+        Ok((op_code, resp))
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 /// A database handle
-struct DbHandle(u32);
+pub struct DbHandle(u32);
 
 #[derive(Debug, Clone, Copy)]
 /// A transaction handle
-struct TrHandle(u32);
+pub struct TrHandle(u32);
 
 #[derive(Debug, Clone, Copy)]
 /// A statement handle
-struct StmtHandle(u32);
+pub struct StmtHandle(u32);
 
 #[test]
 fn connection_test() {
@@ -183,18 +295,18 @@ fn connection_test() {
         )
         .unwrap();
 
-    // Prepare
     let (stmt_type, stmt_handle, xsqlda) = conn
         .prepare_statement(
             db_handle,
             tr_handle,
+            Dialect::D3,
             // "SELECT cast(1 as bigint), cast('abcdefghij' as varchar(10)) as tst FROM RDB$DATABASE where 1 = ?",
             "
-            SELECT cast(1 as bigint) FROM RDB$DATABASE UNION ALL
-            SELECT cast(2 as bigint) FROM RDB$DATABASE UNION ALL
-            SELECT cast(3 as bigint) FROM RDB$DATABASE UNION ALL
-            SELECT cast(4 as bigint) FROM RDB$DATABASE UNION ALL
-            SELECT cast(5 as bigint) FROM RDB$DATABASE
+            SELECT cast(1 as bigint), cast('abcdefghij' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
+            SELECT cast(2 as bigint), cast('abcdefgh' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
+            SELECT cast(3 as bigint), cast('abcdef' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
+            SELECT cast(4 as bigint), cast(null as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
+            SELECT cast(null as bigint), cast('abcd' as varchar(10)) as tst FROM RDB$DATABASE
             ",
         )
         .unwrap();
@@ -202,44 +314,23 @@ fn connection_test() {
     println!("{:#?}", xsqlda);
     println!("StmtType: {:?}", stmt_type);
 
-    let params = params_to_blr(&IntoParams::to_params(("1",))).unwrap();
-    let output_blr = xsqlda_to_blr(&xsqlda).unwrap();
+    let params =
+        crate::params::params_to_blr(&crate::params::IntoParams::to_params(("1",))).unwrap();
+    let output_blr = crate::xsqlda::xsqlda_to_blr(&xsqlda).unwrap();
 
-    conn.socket
-        .write_all(&execute(
-            tr_handle.0,
-            stmt_handle.0,
-            &params.blr,
-            &params.values,
-        ))
-        .unwrap();
-
-    let len = conn.socket.read(&mut conn.buff).unwrap();
-    let mut resp = Bytes::copy_from_slice(&conn.buff[..len]);
-
-    assert_eq!(WireOp::Response as u32, resp.get_u32());
-
-    let resp = parse_response(&mut resp).unwrap();
-    println!("Resp: {:#?}", resp);
+    conn.execute(tr_handle, stmt_handle, &params).unwrap();
 
     loop {
-        // Fetch
-        conn.socket
-            .write_all(&fetch(stmt_handle.0, &output_blr))
-            .unwrap();
+        let resp = conn.fetch(stmt_handle, &xsqlda, &output_blr).unwrap();
 
-        let len = conn.socket.read(&mut conn.buff).unwrap();
-        let mut resp = Bytes::copy_from_slice(&conn.buff[..len]);
-
-        assert_eq!(WireOp::FetchResponse as u32, resp.get_u32());
-
-        let fetch_resp = parse_fetch_response(&mut resp, &xsqlda).unwrap();
-        println!("Fetch Resp: {:#?}", fetch_resp);
-
-        if fetch_resp.is_none() {
+        if resp.is_none() {
             break;
         }
+        println!("Fetch Resp: {:?}", resp);
     }
+
+    conn.exec_immediate(tr_handle, Dialect::D3, "SELECT 1 FROM RDB$DATABASE")
+        .unwrap();
 
     std::thread::sleep(std::time::Duration::from_millis(100));
 }
@@ -381,6 +472,16 @@ fn attach(db_name: &str, user: &str, pass: &str, protocol: u32) -> Bytes {
     attach.freeze()
 }
 
+/// Detach from the database request
+fn detach(db_handle: u32) -> Bytes {
+    let mut tr = BytesMut::with_capacity(8);
+
+    tr.put_u32(WireOp::Detach as u32);
+    tr.put_u32(db_handle);
+
+    tr.freeze()
+}
+
 /// Begin transaction request
 fn transaction(db_handle: u32, tpb: &[u8]) -> Bytes {
     let mut tr = BytesMut::with_capacity(12 + tpb.len());
@@ -391,6 +492,32 @@ fn transaction(db_handle: u32, tpb: &[u8]) -> Bytes {
 
     tr.freeze()
 }
+
+/// Commit / Rollback transaction request
+fn transaction_operation(tr_handle: u32, op: TrOp) -> Bytes {
+    let mut tr = BytesMut::with_capacity(8);
+
+    tr.put_u32(op as u32);
+    tr.put_u32(tr_handle);
+
+    tr.freeze()
+}
+
+/// Execute immediate request
+fn exec_immediate(tr_handle: u32, dialect: u32, sql: &str) -> Bytes {
+    let mut req = BytesMut::with_capacity(28 + sql.len());
+
+    req.put_u32(WireOp::ExecImmediate as u32);
+    req.put_u32(tr_handle);
+    req.put_u32(0); // Statement handle, apparently unused
+    req.put_u32(dialect);
+    req.put_wire_bytes(sql.as_bytes());
+    req.put_u32(0); // TODO: parameters
+    req.put_u32(BUFFER_LENGTH);
+
+    req.freeze()
+}
+
 /// Statement allocation request (lazy response)
 fn allocate_statement(db_handle: u32) -> Bytes {
     let mut req = BytesMut::with_capacity(8);
@@ -475,10 +602,10 @@ fn parse_response(resp: &mut Bytes) -> Result<Response, FbError> {
     })
 }
 
-/// Parse a server sql response (`WireOp::SqlResponse`)
+/// Parse a server sql response (`WireOp::FetchResponse`)
 fn parse_fetch_response(
     resp: &mut Bytes,
-    xsqlda: &[XSqlVar],
+    xsqlda: &XSqlDa,
 ) -> Result<Option<Vec<Option<Bytes>>>, FbError> {
     const STATUS_EOS: u32 = 100;
 
@@ -606,10 +733,7 @@ fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
             isc_arg_end => break,
 
             cod => {
-                return Err(FbError::Other(format!(
-                    "Invalid / Unknown status vector item: {}",
-                    cod
-                )));
+                return Err(format!("Invalid / Unknown status vector item: {}", cod).into());
             }
         }
     }
@@ -677,7 +801,5 @@ impl BytesWireExt for Bytes {
 }
 
 fn err_invalid_response<T>() -> Result<T, FbError> {
-    Err(FbError::Other(
-        "Invalid server response, missing bytes".to_string(),
-    ))
+    Err("Invalid server response, missing bytes".into())
 }

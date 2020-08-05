@@ -123,7 +123,7 @@ fn stmt_cache_test() {
         sql: format!("sql {}", n),
         stmt: StatementData {
             handle: n as _,
-            xsqlda: crate::xsqlda::XSqlDa::new(0),
+            xsqlda: Default::default(),
         },
     };
 

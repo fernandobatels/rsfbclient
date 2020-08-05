@@ -116,6 +116,15 @@ pub enum WireOp {
     RollbackRetaining = 86,
 }
 
+#[repr(u8)]
+/// Commit / Rollback operations
+pub enum TrOp {
+    Commit = WireOp::Commit as u8,
+    CommitRetaining = WireOp::CommitRetaining as u8,
+    Rollback = WireOp::Rollback as u8,
+    RollbackRetaining = WireOp::RollbackRetaining as u8,
+}
+
 #[derive(Debug)]
 #[repr(u8)]
 /// User identification data

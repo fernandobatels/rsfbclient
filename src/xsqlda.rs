@@ -1,75 +1,346 @@
-use std::{
-    alloc,
-    ops::{Deref, DerefMut},
-    ptr,
-};
+#![allow(non_upper_case_globals)]
 
-use super::ibase;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use std::{convert::TryFrom, io::Cursor};
 
-pub struct XSqlDa {
-    ptr: ptr::NonNull<ibase::XSQLDA>,
-    len: i16,
+use super::*;
+use crate::{row::ColumnType, FbError};
+
+/// Data for the statement to return
+pub const XSQLDA_DESCRIBE_VARS: [u8; 14] = [
+    ibase::isc_info_sql_stmt_type as u8, // Statement type: StmtType
+    ibase::isc_info_sql_select as u8,    //
+    ibase::isc_info_sql_describe_vars as u8, // Column count
+    ibase::isc_info_sql_sqlda_seq as u8, // Column index
+    ibase::isc_info_sql_type as u8,      // Sql Type code
+    ibase::isc_info_sql_sub_type as u8,  // Blob subtype
+    ibase::isc_info_sql_scale as u8,     // Decimal / Numeric scale
+    ibase::isc_info_sql_length as u8,    // Data length
+    ibase::isc_info_sql_null_ind as u8,  // Null indicator (0 or -1)
+    ibase::isc_info_sql_field as u8,     //
+    ibase::isc_info_sql_relation as u8,  //
+    ibase::isc_info_sql_owner as u8,     //
+    ibase::isc_info_sql_alias as u8,     // Column alias
+    ibase::isc_info_sql_describe_end as u8,
+];
+
+pub type XSqlDa = Vec<XSqlVar>;
+#[derive(Debug, Default)]
+/// Sql query column information
+pub struct XSqlVar {
+    /// Sql type code
+    pub sqltype: i16,
+
+    /// Scale: indicates that the real value is `data * 10.pow(scale)`
+    pub scale: i16,
+
+    /// Blob subtype code
+    pub sqlsubtype: i16,
+
+    /// Length of the column data
+    pub data_length: i16,
+
+    /// Null indicator
+    pub null_ind: bool,
+
+    pub field_name: String,
+
+    pub relation_name: String,
+
+    pub owner_name: String,
+
+    /// Column alias
+    pub alias_name: String,
 }
 
-unsafe impl Send for XSqlDa {}
+impl XSqlVar {
+    pub fn to_column_type(&self) -> Result<ColumnType, FbError> {
+        // Remove nullable type indicator
+        let sqltype = self.sqltype & (!1);
 
-impl XSqlDa {
-    /// Allocates a new XSQLDA of length `len`
-    pub fn new(len: i16) -> Self {
-        #[allow(clippy::cast_ptr_alignment)]
-        let ptr = unsafe { alloc::alloc_zeroed(xsqlda_layout(len)) } as *mut ibase::XSQLDA;
-
-        let ptr = if let Some(ptr) = ptr::NonNull::new(ptr) {
-            ptr
-        } else {
-            alloc::handle_alloc_error(xsqlda_layout(len))
-        };
-
-        let mut xsqlda = Self { ptr, len };
-
-        xsqlda.version = ibase::SQLDA_VERSION1 as i16;
-        xsqlda.sqln = len;
-
-        xsqlda
+        ColumnType::try_from(sqltype as u32).map_err(|_| {
+            FbError::Other(format!(
+                "Conversion from sql type {} not implemented",
+                sqltype
+            ))
+        })
     }
+}
 
-    /// Returns a mutable reference to a XSQLVAR
-    pub fn get_xsqlvar_mut(&mut self, col: usize) -> Option<&mut ibase::XSQLVAR> {
-        if col < self.len as usize {
-            let xsqlvar = unsafe { self.ptr.as_mut().sqlvar.get_unchecked_mut(col as usize) };
+/// Convert the xsqlda a blr (binary representation)
+pub fn xsqlda_to_blr(xsqlda: &XSqlDa) -> Result<Bytes, FbError> {
+    let mut blr = BytesMut::with_capacity(256);
+    blr.put_slice(&[
+        ibase::blr::VERSION5,
+        ibase::blr::BEGIN,
+        ibase::blr::MESSAGE,
+        0, // Message index
+    ]);
+    // Message length, * 2 as there is 1 msg for the param type and another for the nullind
+    blr.put_u16_le(xsqlda.len() as u16 * 2);
 
-            Some(xsqlvar)
-        } else {
-            None
+    for var in xsqlda {
+        let column_type = var.to_column_type()?;
+
+        match column_type {
+            ColumnType::Text => {
+                blr.put_u8(ibase::blr::VARYING);
+                blr.put_i16_le(var.data_length);
+            }
+
+            ColumnType::Integer => blr.put_slice(&[
+                ibase::blr::INT64,
+                0, // Scale
+            ]),
+
+            ColumnType::Float => blr.put_u8(ibase::blr::DOUBLE),
+
+            ColumnType::Timestamp => blr.put_u8(ibase::blr::TIMESTAMP),
         }
+        // Nullind
+        blr.put_slice(&[ibase::blr::SHORT, 0]);
     }
+
+    blr.put_slice(&[ibase::blr::END, ibase::blr::EOC]);
+
+    Ok(blr.freeze())
 }
 
-impl Deref for XSqlDa {
-    type Target = ibase::XSQLDA;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { self.ptr.as_ref() }
+/// Parses the data from the `PrepareStatement` response.
+///
+/// XSqlDa data format: u8 type + optional data preceded by a u16 length.
+/// Returns the statement type, xsqlda and an indicator if the data was truncated (xsqlda not entirely filled)
+pub fn parse_xsqlda(data: &[u8]) -> Result<(ibase::StmtType, XSqlDa, bool), FbError> {
+    // Asserts that the first
+    if data.len() < 7 || data[..3] != [ibase::isc_info_sql_stmt_type as u8, 0x04, 0x00] {
+        return err_invalid_xsqlda();
     }
+    let mut c = Cursor::new(data);
+    c.advance(3);
+
+    let stmt_type =
+        ibase::StmtType::try_from(c.get_u32_le()).map_err(|e| FbError::Other(e.to_string()))?;
+
+    let mut xsqlda = Vec::new();
+
+    let truncated = if c.remaining() >= 4
+        && data[c.position() as usize..c.position() as usize + 2]
+            == [
+                ibase::isc_info_sql_select as u8,
+                ibase::isc_info_sql_describe_vars as u8,
+            ] {
+        c.advance(2);
+
+        let len = c.get_u16_le() as usize;
+        if c.remaining() < len {
+            return err_invalid_xsqlda();
+        }
+
+        let col_len = c.get_uint_le(len) as usize;
+        xsqlda = Vec::with_capacity(col_len);
+
+        parse_select_items(&mut c, &mut xsqlda)?
+    } else {
+        false
+    };
+
+    Ok((stmt_type, xsqlda, truncated))
 }
 
-impl DerefMut for XSqlDa {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.ptr.as_mut() }
+/// Fill the xsqlda with data from the cursor, return `true` if the data was truncated (needs more data to fill the xsqlda)
+fn parse_select_items(c: &mut impl Buf, xsqlda: &mut XSqlDa) -> Result<bool, FbError> {
+    if c.remaining() == 0 {
+        return Ok(false);
     }
+    let mut i = 0;
+
+    let truncated = loop {
+        // Get item code
+        match c.get_u8() as u32 {
+            // Column index
+            ibase::isc_info_sql_sqlda_seq => {
+                if c.remaining() < 6 {
+                    return err_invalid_xsqlda();
+                }
+                // Assume 0x04 0x00
+                c.advance(2);
+                // Index received starts on 1
+                i = c.get_u32_le() as usize - 1;
+
+                xsqlda.push(Default::default());
+                // Must be the same
+                debug_assert_eq!(xsqlda.len() - 1, i);
+            }
+
+            ibase::isc_info_sql_type => {
+                if c.remaining() < 6 {
+                    return err_invalid_xsqlda();
+                }
+                // Assume 0x04 0x00
+                c.advance(2);
+
+                if let Some(var) = xsqlda.get_mut(i) {
+                    var.sqltype = c.get_i32_le() as i16;
+                } else {
+                    return err_invalid_xsqlda();
+                }
+            }
+
+            ibase::isc_info_sql_sub_type => {
+                if c.remaining() < 6 {
+                    return err_invalid_xsqlda();
+                }
+                // Assume 0x04 0x00
+                c.advance(2);
+
+                if let Some(var) = xsqlda.get_mut(i) {
+                    var.sqlsubtype = c.get_i32_le() as i16;
+                } else {
+                    return err_invalid_xsqlda();
+                }
+            }
+
+            ibase::isc_info_sql_scale => {
+                if c.remaining() < 6 {
+                    return err_invalid_xsqlda();
+                }
+                // Assume 0x04 0x00
+                c.advance(2);
+
+                if let Some(var) = xsqlda.get_mut(i) {
+                    var.scale = c.get_i32_le() as i16;
+                } else {
+                    return err_invalid_xsqlda();
+                }
+            }
+
+            ibase::isc_info_sql_length => {
+                if c.remaining() < 6 {
+                    return err_invalid_xsqlda();
+                }
+                // Assume 0x04 0x00
+                c.advance(2);
+
+                if let Some(var) = xsqlda.get_mut(i) {
+                    var.data_length = c.get_i32_le() as i16;
+                } else {
+                    return err_invalid_xsqlda();
+                }
+            }
+
+            ibase::isc_info_sql_null_ind => {
+                if c.remaining() < 6 {
+                    return err_invalid_xsqlda();
+                }
+                // Assume 0x04 0x00
+                c.advance(2);
+
+                if let Some(var) = xsqlda.get_mut(i) {
+                    var.null_ind = c.get_i32_le() != 0;
+                } else {
+                    return err_invalid_xsqlda();
+                }
+            }
+
+            ibase::isc_info_sql_field => {
+                if c.remaining() < 2 {
+                    return err_invalid_xsqlda();
+                }
+                let len = c.get_u16_le() as usize;
+
+                if c.remaining() < len {
+                    return err_invalid_xsqlda();
+                }
+                let mut buff = vec![0; len];
+                c.copy_to_slice(&mut buff);
+
+                if let Some(var) = xsqlda.get_mut(i) {
+                    var.field_name = String::from_utf8(buff).unwrap_or_default();
+                } else {
+                    return err_invalid_xsqlda();
+                }
+            }
+
+            ibase::isc_info_sql_relation => {
+                if c.remaining() < 2 {
+                    return err_invalid_xsqlda();
+                }
+                let len = c.get_u16_le() as usize;
+
+                if c.remaining() < len {
+                    return err_invalid_xsqlda();
+                }
+                let mut buff = vec![0; len];
+                c.copy_to_slice(&mut buff);
+
+                if let Some(var) = xsqlda.get_mut(i) {
+                    var.relation_name = String::from_utf8(buff).unwrap_or_default();
+                } else {
+                    return err_invalid_xsqlda();
+                }
+            }
+
+            ibase::isc_info_sql_owner => {
+                if c.remaining() < 2 {
+                    return err_invalid_xsqlda();
+                }
+                let len = c.get_u16_le() as usize;
+
+                if c.remaining() < len {
+                    return err_invalid_xsqlda();
+                }
+                let mut buff = vec![0; len];
+                c.copy_to_slice(&mut buff);
+
+                if let Some(var) = xsqlda.get_mut(i) {
+                    var.owner_name = String::from_utf8(buff).unwrap_or_default();
+                } else {
+                    return err_invalid_xsqlda();
+                }
+            }
+
+            ibase::isc_info_sql_alias => {
+                if c.remaining() < 2 {
+                    return err_invalid_xsqlda();
+                }
+                let len = c.get_u16_le() as usize;
+
+                if c.remaining() < len {
+                    return err_invalid_xsqlda();
+                }
+                let mut buff = vec![0; len];
+                c.copy_to_slice(&mut buff);
+
+                if let Some(var) = xsqlda.get_mut(i) {
+                    var.alias_name = String::from_utf8(buff).unwrap_or_default();
+                } else {
+                    return err_invalid_xsqlda();
+                }
+            }
+
+            // Data truncated
+            ibase::isc_info_truncated => break true,
+
+            // End of this column
+            ibase::isc_info_sql_describe_end => {}
+
+            // End of the data
+            ibase::isc_info_end => break false,
+
+            item => {
+                return Err(FbError::Other(format!(
+                    "Invalid item received in the xsqlda: {}",
+                    item
+                )))
+            }
+        }
+    };
+
+    Ok(truncated)
 }
 
-impl Drop for XSqlDa {
-    fn drop(&mut self) {
-        unsafe { alloc::dealloc(self.ptr.as_ptr() as *mut u8, xsqlda_layout(self.len)) }
-    }
-}
-
-/// Calculates the memory layout (size and alignment) for a xsqlda
-fn xsqlda_layout(len: i16) -> alloc::Layout {
-    let (xsqlda_layout, _) = alloc::Layout::new::<ibase::XSQLDA>()
-        .extend(alloc::Layout::array::<ibase::XSQLVAR>((len - 1).max(0) as usize).unwrap())
-        .unwrap();
-
-    xsqlda_layout
+fn err_invalid_xsqlda<T>() -> Result<T, FbError> {
+    Err(FbError::Other(
+        "Invalid Xsqlda received from server".to_string(),
+    ))
 }
