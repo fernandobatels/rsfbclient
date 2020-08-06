@@ -16,7 +16,7 @@ use std::{
     net::TcpStream,
 };
 
-use super::{srp::*, *};
+use super::{arc4::*, srp::*, *};
 use crate::{
     params::Params,
     row::{ColumnBuffer, ColumnType},
@@ -43,16 +43,49 @@ lazy_static! {
         g: BigUint::from_bytes_be(&[2]),
     };
 }
+/// Firebird tcp stream, may be encrypted
+enum FbStream {
+    /// Plaintext stream
+    Plain(TcpStream),
+
+    /// Arc4 ecrypted stream
+    Arc4(Arc4Stream<TcpStream>),
+}
+
+impl Read for FbStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            FbStream::Plain(s) => s.read(buf),
+            FbStream::Arc4(s) => s.read(buf),
+        }
+    }
+}
+
+impl Write for FbStream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            FbStream::Plain(s) => s.write(buf),
+            FbStream::Arc4(s) => s.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            FbStream::Plain(s) => s.flush(),
+            FbStream::Arc4(s) => s.flush(),
+        }
+    }
+}
 
 pub struct WireConnection {
     /// Connection socket
-    socket: TcpStream,
+    socket: FbStream,
 
     /// Wire protocol version
     version: ProtocolVersion,
 
     /// Buffer to read the network data
-    buff: Vec<u8>,
+    buff: Box<[u8]>,
 }
 
 impl WireConnection {
@@ -64,7 +97,7 @@ impl WireConnection {
         user: &str,
         pass: &str,
     ) -> Result<Self, FbError> {
-        let mut socket = TcpStream::connect((host, port))?;
+        let socket = TcpStream::connect((host, port))?;
 
         // System username
         let username =
@@ -74,11 +107,13 @@ impl WireConnection {
             .map(|addr| addr.to_string())
             .unwrap_or_default();
 
+        let mut socket = FbStream::Plain(socket);
+
         let (req, srp) = connect(db_name, false, user, &username, &hostname);
         socket.write_all(&req)?;
 
         // May be a bit too much
-        let mut buff = vec![0; BUFFER_LENGTH as usize * 2];
+        let mut buff = vec![0; BUFFER_LENGTH as usize * 2].into_boxed_slice();
 
         let len = socket.read(&mut buff)?;
         let mut resp = Bytes::copy_from_slice(&buff[..len]);
@@ -119,6 +154,15 @@ impl WireConnection {
 
                         // Enable wire encryption
                         socket.write_all(&crypt("Arc4", "Symmetric"))?;
+
+                        socket = FbStream::Arc4(Arc4Stream::new(
+                            match socket {
+                                FbStream::Plain(s) => s,
+                                _ => panic!("Stream was already encrypted"),
+                            },
+                            &verifier.get_key(),
+                            buff.len(),
+                        ));
 
                         read_response(&mut socket, &mut buff)?;
                     } else {
@@ -320,7 +364,7 @@ impl WireConnection {
 }
 
 /// Read a server response
-fn read_response(socket: &mut TcpStream, buff: &mut [u8]) -> Result<Response, FbError> {
+fn read_response(socket: &mut impl Read, buff: &mut [u8]) -> Result<Response, FbError> {
     let (op_code, mut resp) = read_packet(socket, buff)?;
 
     if op_code != WireOp::Response as u32 {
@@ -331,7 +375,7 @@ fn read_response(socket: &mut TcpStream, buff: &mut [u8]) -> Result<Response, Fb
 }
 
 /// Reads a packet from the socket
-fn read_packet(socket: &mut TcpStream, buff: &mut [u8]) -> Result<(u32, Bytes), FbError> {
+fn read_packet(socket: &mut impl Read, buff: &mut [u8]) -> Result<(u32, Bytes), FbError> {
     let len = socket.read(buff)?;
     let mut resp = Bytes::copy_from_slice(&buff[..len]);
 
@@ -460,11 +504,7 @@ fn connect(
     connect.put_u32(protocols.len() as u32);
 
     // Random seed for the srp
-    // let seed: [u8; 32] = rand::random();
-    let seed = [
-        104, 168, 26, 157, 227, 194, 41, 70, 204, 234, 48, 50, 217, 147, 39, 186, 223, 61, 125,
-        154, 223, 9, 54, 220, 163, 109, 222, 183, 78, 242, 217, 218,
-    ];
+    let seed: [u8; 32] = rand::random();
     let srp = SrpClient::<sha1::Sha1>::new(&seed, &SRP_GROUP);
 
     let uid = {
