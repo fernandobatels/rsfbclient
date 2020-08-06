@@ -140,7 +140,7 @@ impl WireConnection {
                             .map_err(|e| FbError::from(format!("Srp error: {}", e)))?;
 
                         // Generate a proof to send to the server so it can verify the password
-                        let proof = hex::encode_upper(verifier.get_proof());
+                        let proof = hex::encode(verifier.get_proof());
 
                         // Send proof data
                         socket.write_all(&cont_auth(
@@ -188,7 +188,7 @@ impl WireConnection {
         pass: &str,
     ) -> Result<DbHandle, FbError> {
         self.socket
-            .write_all(&attach(db_name, user, pass, self.version as u32))?;
+            .write_all(&attach(db_name, user, pass, self.version))?;
 
         let resp = self.read_response()?;
 
@@ -510,7 +510,7 @@ fn connect(
     let uid = {
         let mut uid = BytesMut::new();
 
-        let pubkey = hex::encode_upper(srp.get_a_pub());
+        let pubkey = hex::encode(srp.get_a_pub());
 
         // Database username
         uid.put_u8(Cnct::Login as u8);
@@ -595,7 +595,7 @@ fn crypt(algo: &str, kind: &str) -> Bytes {
 }
 
 /// Attach request
-fn attach(db_name: &str, user: &str, pass: &str, protocol: u32) -> Bytes {
+fn attach(db_name: &str, user: &str, pass: &str, protocol: ProtocolVersion) -> Bytes {
     let dpb = {
         let mut dpb = BytesMut::with_capacity(64);
 
@@ -609,16 +609,25 @@ fn attach(db_name: &str, user: &str, pass: &str, protocol: u32) -> Bytes {
         dpb.put_slice(&[isc_dpb_user_name as u8, user.len() as u8]);
         dpb.put_slice(user.as_bytes());
 
-        if protocol < ProtocolVersion::V11 as u32 {
-            dpb.put_slice(&[isc_dpb_password as u8, pass.len() as u8]);
-            dpb.put_slice(pass.as_bytes());
-        } else {
-            #[allow(deprecated)]
-            let enc_pass = pwhash::unix_crypt::hash_with("9z", pass).unwrap();
-            let enc_pass = &enc_pass[2..];
+        match protocol {
+            // Plaintext password
+            ProtocolVersion::V10 => {
+                dpb.put_slice(&[isc_dpb_password as u8, pass.len() as u8]);
+                dpb.put_slice(pass.as_bytes());
+            }
 
-            dpb.put_slice(&[isc_dpb_password_enc as u8, enc_pass.len() as u8]);
-            dpb.put_slice(enc_pass.as_bytes());
+            // Hashed password
+            ProtocolVersion::V11 | ProtocolVersion::V12 => {
+                #[allow(deprecated)]
+                let enc_pass = pwhash::unix_crypt::hash_with("9z", pass).unwrap();
+                let enc_pass = &enc_pass[2..];
+
+                dpb.put_slice(&[isc_dpb_password_enc as u8, enc_pass.len() as u8]);
+                dpb.put_slice(enc_pass.as_bytes());
+            }
+
+            // Password already verified
+            ProtocolVersion::V13 => {}
         }
 
         dpb.freeze()
@@ -1045,6 +1054,11 @@ fn parse_srp_auth_data(resp: &mut Bytes) -> Result<Option<SrpAuthData>, FbError>
     }
     let mut pub_key = resp.clone();
     pub_key.truncate(len);
+    let mut pub_key = pub_key.to_vec();
+    if len % 2 != 0 {
+        // We need to add a 0 to the start
+        pub_key = [b"0", &pub_key[..]].concat();
+    }
     let pub_key =
         hex::decode(&pub_key).map_err(|_| FbError::from("Invalid hex pub_key in srp data"))?;
     resp.advance(len);
