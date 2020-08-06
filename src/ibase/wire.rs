@@ -7,6 +7,8 @@
 #![allow(non_upper_case_globals)]
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use lazy_static::lazy_static;
+use num_bigint::BigUint;
 use std::{
     convert::TryFrom,
     env,
@@ -14,7 +16,7 @@ use std::{
     net::TcpStream,
 };
 
-use super::*;
+use super::{srp::*, *};
 use crate::{
     params::Params,
     row::{ColumnBuffer, ColumnType},
@@ -25,6 +27,22 @@ use crate::{
 
 /// Buffer length to use in the connection
 const BUFFER_LENGTH: u32 = 1024;
+
+lazy_static! {
+    /// Srp Group used by the firebird server
+    static ref SRP_GROUP: SrpGroup = SrpGroup {
+        n: BigUint::from_bytes_be(&[
+            230, 125, 46, 153, 75, 47, 144, 12, 63, 65, 240, 143, 91, 178, 98, 126, 208, 212, 158,
+            225, 254, 118, 122, 82, 239, 205, 86, 92, 214, 231, 104, 129, 44, 62, 30, 156, 232,
+            240, 168, 190, 166, 203, 19, 205, 41, 221, 235, 247, 169, 109, 74, 147, 181, 93, 72,
+            141, 240, 153, 161, 92, 137, 220, 176, 100, 7, 56, 235, 44, 189, 217, 168, 247, 186,
+            181, 97, 171, 27, 13, 193, 198, 205, 171, 243, 3, 38, 74, 8, 209, 188, 169, 50, 209,
+            241, 238, 66, 139, 97, 157, 151, 15, 52, 42, 186, 154, 101, 121, 59, 139, 47, 4, 26,
+            229, 54, 67, 80, 193, 111, 115, 95, 86, 236, 188, 168, 123, 213, 123, 41, 231,
+        ]),
+        g: BigUint::from_bytes_be(&[2]),
+    };
+}
 
 pub struct WireConnection {
     /// Connection socket
@@ -39,7 +57,13 @@ pub struct WireConnection {
 
 impl WireConnection {
     /// Start a connection to the firebird server
-    pub fn connect(host: &str, port: u16, db_name: &str) -> Result<Self, FbError> {
+    pub fn connect(
+        host: &str,
+        port: u16,
+        db_name: &str,
+        user: &str,
+        pass: &str,
+    ) -> Result<Self, FbError> {
         let mut socket = TcpStream::connect((host, port))?;
 
         // System username
@@ -50,7 +74,8 @@ impl WireConnection {
             .map(|addr| addr.to_string())
             .unwrap_or_default();
 
-        socket.write_all(&connect(db_name, false, &username, &hostname))?;
+        let (req, srp) = connect(db_name, false, user, &username, &hostname);
+        socket.write_all(&req)?;
 
         // May be a bit too much
         let mut buff = vec![0; BUFFER_LENGTH as usize * 2];
@@ -58,23 +83,51 @@ impl WireConnection {
         let len = socket.read(&mut buff)?;
         let mut resp = Bytes::copy_from_slice(&buff[..len]);
 
-        if resp.remaining() < 4 {
-            return err_invalid_response();
-        }
-        let op_code = resp.get_u32();
+        let ConnectionResponse {
+            version,
+            auth_plugin,
+        } = parse_accept(&mut resp)?;
 
-        if op_code != WireOp::Accept as u32 {
-            return err_conn_rejected(op_code);
-        }
+        if let Some(AuthPlugin { kind, data, .. }) = auth_plugin {
+            match kind {
+                plugin @ AuthPluginType::Srp256 | plugin @ AuthPluginType::Srp => {
+                    if let Some(data) = data {
+                        // Generate a private key with the salt received from the server
+                        let private_key = srp_private_key::<sha1::Sha1>(
+                            user.as_bytes(),
+                            pass.as_bytes(),
+                            &data.salt,
+                        );
 
-        if resp.remaining() < 12 {
-            return err_invalid_response();
-        }
+                        // Generate a verified with the private key above and the server public key received
+                        let verifier = srp
+                            .process_reply(user.as_bytes(), &data.salt, &private_key, &data.pub_key)
+                            .map_err(|e| FbError::from(format!("Srp error: {}", e)))?;
 
-        let version =
-            ProtocolVersion::try_from(resp.get_u32()).map_err(|e| FbError::Other(e.to_string()))?;
-        // println!("Arch: {:X}", resp.get_u32());
-        // println!("Type: {:X}", resp.get_u32());
+                        // Generate a proof to send to the server so it can verify the password
+                        let proof = hex::encode_upper(verifier.get_proof());
+
+                        // Send proof data
+                        socket.write_all(&cont_auth(
+                            &proof.as_bytes(),
+                            plugin,
+                            AuthPluginType::plugin_list(),
+                            &[],
+                        ))?;
+
+                        read_response(&mut socket, &mut buff)?;
+
+                        // Enable wire encryption
+                        socket.write_all(&crypt("Arc4", "Symmetric"))?;
+
+                        read_response(&mut socket, &mut buff)?;
+                    } else {
+                        todo!("Not sure what to do")
+                    }
+                }
+                AuthPluginType::Legacy => {}
+            }
+        }
 
         Ok(Self {
             socket,
@@ -257,32 +310,42 @@ impl WireConnection {
 
     /// Read a server response
     fn read_response(&mut self) -> Result<Response, FbError> {
-        let (op_code, mut resp) = self.read_packet()?;
-
-        if op_code != WireOp::Response as u32 {
-            return err_conn_rejected(op_code);
-        }
-
-        parse_response(&mut resp)
+        read_response(&mut self.socket, &mut self.buff)
     }
 
     /// Reads a packet from the socket
     fn read_packet(&mut self) -> Result<(u32, Bytes), FbError> {
-        let len = self.socket.read(&mut self.buff)?;
-        let mut resp = Bytes::copy_from_slice(&self.buff[..len]);
-
-        let op_code = loop {
-            if resp.remaining() < 4 {
-                return err_invalid_response();
-            }
-            let op_code = resp.get_u32();
-            if op_code != WireOp::Dummy as u32 {
-                break op_code;
-            }
-        };
-
-        Ok((op_code, resp))
+        read_packet(&mut self.socket, &mut self.buff)
     }
+}
+
+/// Read a server response
+fn read_response(socket: &mut TcpStream, buff: &mut [u8]) -> Result<Response, FbError> {
+    let (op_code, mut resp) = read_packet(socket, buff)?;
+
+    if op_code != WireOp::Response as u32 {
+        return err_conn_rejected(op_code);
+    }
+
+    parse_response(&mut resp)
+}
+
+/// Reads a packet from the socket
+fn read_packet(socket: &mut TcpStream, buff: &mut [u8]) -> Result<(u32, Bytes), FbError> {
+    let len = socket.read(buff)?;
+    let mut resp = Bytes::copy_from_slice(&buff[..len]);
+
+    let op_code = loop {
+        if resp.remaining() < 4 {
+            return err_invalid_response();
+        }
+        let op_code = resp.get_u32();
+        if op_code != WireOp::Dummy as u32 {
+            break op_code;
+        }
+    };
+
+    Ok((op_code, resp))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -315,7 +378,7 @@ fn connection_test() {
     let user = "SYSDBA";
     let pass = "masterkey";
 
-    let mut conn = WireConnection::connect("127.0.0.1", 3050, db_name).unwrap();
+    let mut conn = WireConnection::connect("127.0.0.1", 3050, db_name, user, pass).unwrap();
 
     let db_handle = conn.attach_database(db_name, user, pass).unwrap();
 
@@ -360,20 +423,23 @@ fn connection_test() {
         println!("Fetch Resp: {:?}", resp);
     }
 
-    conn.exec_immediate(tr_handle, Dialect::D3, "SELECT 1 FROM RDB$DATABASE")
-        .unwrap();
-
     std::thread::sleep(std::time::Duration::from_millis(100));
 }
 
 /// Connection request
-fn connect(db_name: &str, create_db: bool, username: &str, hostname: &str) -> Bytes {
+fn connect(
+    db_name: &str,
+    create_db: bool,
+    user: &str,
+    username: &str,
+    hostname: &str,
+) -> (Bytes, SrpClient<'static, sha1::Sha1>) {
     let protocols = [
         // PROTOCOL_VERSION, Arch type (Generic=1), min, max, weight
         [ProtocolVersion::V10 as u32, 1, 0, 5, 2],
         [ProtocolVersion::V11 as u32, 1, 0, 5, 4],
         [ProtocolVersion::V12 as u32, 1, 0, 5, 6],
-        // [ProtocolVersion::V13 as u32, 1, 0, 5, 8],
+        [ProtocolVersion::V13 as u32, 1, 0, 5, 8],
     ];
 
     let mut connect = BytesMut::with_capacity(256);
@@ -393,48 +459,50 @@ fn connect(db_name: &str, create_db: bool, username: &str, hostname: &str) -> By
     // Protocol versions understood
     connect.put_u32(protocols.len() as u32);
 
+    // Random seed for the srp
+    // let seed: [u8; 32] = rand::random();
+    let seed = [
+        104, 168, 26, 157, 227, 194, 41, 70, 204, 234, 48, 50, 217, 147, 39, 186, 223, 61, 125,
+        154, 223, 9, 54, 220, 163, 109, 222, 183, 78, 242, 217, 218,
+    ];
+    let srp = SrpClient::<sha1::Sha1>::new(&seed, &SRP_GROUP);
+
     let uid = {
         let mut uid = BytesMut::new();
 
-        // User identification with SRP, TODO: Wire protocol 13
+        let pubkey = hex::encode_upper(srp.get_a_pub());
 
-        // let key: [u8; 16] = rand::random();
-        // let srp = SrpClient::<sha1::Sha1>::new(&key, &groups::G_1024);
-        // let pubkey = srp
-        //     .get_a_pub()
-        //     .into_iter()
-        //     .map(|b| format!("{:02X}", b))
-        //     .fold(String::new(), |acc, b| acc + &b);
+        // Database username
+        uid.put_u8(Cnct::Login as u8);
+        uid.put_u8(user.len() as u8);
+        uid.put(user.as_bytes());
 
-        // uid.put_u8(Cnct::Login as u8);
-        // uid.put_u8(user.len() as u8);
-        // uid.put(user.as_bytes());
+        let plugin = AuthPluginType::Srp.name();
 
-        // let plugin = "Srp";
+        uid.put_u8(Cnct::PluginName as u8);
+        uid.put_u8(plugin.len() as u8);
+        uid.put(plugin.as_bytes());
 
-        // uid.put_u8(Cnct::PluginName as u8);
-        // uid.put_u8(plugin.len() as u8);
-        // uid.put(plugin.as_bytes());
+        let plugin_list = AuthPluginType::plugin_list();
 
-        // let plugin_list = "Srp, Srp256, Legacy_Auth";
+        uid.put_u8(Cnct::PluginList as u8);
+        uid.put_u8(plugin_list.len() as u8);
+        uid.put(plugin_list.as_bytes());
 
-        // uid.put_u8(Cnct::PluginList as u8);
-        // uid.put_u8(plugin_list.len() as u8);
-        // uid.put(plugin_list.as_bytes());
+        for (i, pk_chunk) in pubkey.as_bytes().chunks(254).enumerate() {
+            uid.put_u8(Cnct::SpecificData as u8);
+            uid.put_u8(pk_chunk.len() as u8 + 1);
+            uid.put_u8(i as u8);
+            uid.put(pk_chunk);
+        }
 
-        // for (i, pk_chunk) in pubkey.as_bytes().chunks(254).enumerate() {
-        //     uid.put_u8(Cnct::SpecificData as u8);
-        //     uid.put_u8(pk_chunk.len() as u8 + 1);
-        //     uid.put_u8(i as u8);
-        //     uid.put(pk_chunk);
-        // }
+        let wire_crypt = "\x01\x00\x00\x00";
 
-        // let wire_crypt = "\x01\x00\x00\x00";
+        uid.put_u8(Cnct::ClientCrypt as u8);
+        uid.put_u8(wire_crypt.len() as u8);
+        uid.put(wire_crypt.as_bytes());
 
-        // uid.put_u8(Cnct::ClientCrypt as u8);
-        // uid.put_u8(wire_crypt.len() as u8);
-        // uid.put(wire_crypt.as_bytes());
-
+        // System username
         uid.put_u8(Cnct::User as u8);
         uid.put_u8(username.len() as u8);
         uid.put(username.as_bytes());
@@ -455,7 +523,35 @@ fn connect(db_name: &str, create_db: bool, username: &str, hostname: &str) -> By
         connect.put_u32(*i);
     }
 
-    connect.freeze()
+    (connect.freeze(), srp)
+}
+
+/// Continue authentication request
+fn cont_auth(data: &[u8], plugin: AuthPluginType, plugin_list: String, keys: &[u8]) -> Bytes {
+    let mut req = BytesMut::with_capacity(
+        20 + data.len() + plugin.name().len() + plugin_list.len() + keys.len(),
+    );
+
+    req.put_u32(WireOp::ContAuth as u32);
+    req.put_wire_bytes(data);
+    req.put_wire_bytes(plugin.name().as_bytes());
+    req.put_wire_bytes(plugin_list.as_bytes());
+    req.put_wire_bytes(keys);
+
+    req.freeze()
+}
+
+/// Wire encryption request
+fn crypt(algo: &str, kind: &str) -> Bytes {
+    let mut req = BytesMut::with_capacity(12 + algo.len() + kind.len());
+
+    req.put_u32(WireOp::Crypt as u32);
+    // Encryption algorithm
+    req.put_wire_bytes(algo.as_bytes());
+    // Encryption type
+    req.put_wire_bytes(kind.as_bytes());
+
+    req.freeze()
 }
 
 /// Attach request
@@ -801,6 +897,124 @@ fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
     }
 }
 
+#[derive(Debug)]
+/// Data from the response of a connection request
+struct ConnectionResponse {
+    version: ProtocolVersion,
+    auth_plugin: Option<AuthPlugin>,
+}
+
+#[derive(Debug)]
+struct AuthPlugin {
+    kind: AuthPluginType,
+    data: Option<SrpAuthData>,
+    keys: Bytes,
+}
+
+/// Parse the connect response response (`WireOp::Accept`, `WireOp::AcceptData`, `WireOp::CondAccept` )
+fn parse_accept(resp: &mut Bytes) -> Result<ConnectionResponse, FbError> {
+    if resp.remaining() < 4 {
+        return err_invalid_response();
+    }
+    let op_code = resp.get_u32();
+
+    if op_code == WireOp::Response as u32 {
+        // Returned an error
+        parse_response(resp)?;
+    }
+
+    if op_code != WireOp::Accept as u32
+        && op_code != WireOp::AcceptData as u32
+        && op_code != WireOp::CondAccept as u32
+    {
+        return err_conn_rejected(op_code);
+    }
+
+    if resp.remaining() < 12 {
+        return err_invalid_response();
+    }
+
+    let version =
+        ProtocolVersion::try_from(resp.get_u32()).map_err(|e| FbError::Other(e.to_string()))?;
+    resp.get_u32(); // Arch
+    resp.get_u32(); // Type
+
+    let auth_plugin =
+        if op_code == WireOp::AcceptData as u32 || op_code == WireOp::CondAccept as u32 {
+            let auth_data = parse_srp_auth_data(&mut resp.get_wire_bytes()?)?;
+
+            let plugin = AuthPluginType::parse(&resp.get_wire_bytes()?)?;
+
+            if resp.remaining() < 4 {
+                return err_invalid_response();
+            }
+            let authenticated = resp.get_u32() != 0;
+
+            let keys = resp.get_wire_bytes()?;
+
+            if authenticated {
+                None
+            } else {
+                Some(AuthPlugin {
+                    kind: plugin,
+                    data: auth_data,
+                    keys,
+                })
+            }
+        } else {
+            None
+        };
+
+    Ok(ConnectionResponse {
+        version,
+        auth_plugin,
+    })
+}
+
+#[derive(Debug)]
+struct SrpAuthData {
+    salt: Box<[u8]>,
+    pub_key: Box<[u8]>,
+}
+
+/// Parse the auth data from the Srp / Srp256 plugin
+fn parse_srp_auth_data(resp: &mut Bytes) -> Result<Option<SrpAuthData>, FbError> {
+    if resp.is_empty() {
+        return Ok(None);
+    }
+
+    if resp.remaining() < 2 {
+        return err_invalid_response();
+    }
+    let len = resp.get_u16_le() as usize;
+    if resp.remaining() < len {
+        return err_invalid_response();
+    }
+    let mut salt = resp.clone();
+    salt.truncate(len);
+    // * DO NOT PARSE AS HEXADECIMAL *
+    let salt = salt.to_vec();
+    resp.advance(len);
+
+    if resp.remaining() < 2 {
+        return err_invalid_response();
+    }
+    let len = resp.get_u16_le() as usize;
+    if resp.remaining() < len {
+        return err_invalid_response();
+    }
+    let mut pub_key = resp.clone();
+    pub_key.truncate(len);
+    let pub_key =
+        hex::decode(&pub_key).map_err(|_| FbError::from("Invalid hex pub_key in srp data"))?;
+    resp.advance(len);
+
+    Ok(Some(SrpAuthData {
+        salt: salt.into_boxed_slice(),
+        pub_key: pub_key.into_boxed_slice(),
+    }))
+}
+
 trait BufMutWireExt: BufMut {
     /// Put a u32 with the bytes length and the byte data
     /// with padding to align for 4 bytes
@@ -851,4 +1065,80 @@ impl BytesWireExt for Bytes {
 
 fn err_invalid_response<T>() -> Result<T, FbError> {
     Err("Invalid server response, missing bytes".into())
+}
+
+#[cfg(test)]
+mod test {
+    use super::SRP_GROUP;
+    use crate::ibase::srp::{srp_private_key, SrpClient};
+    use num_bigint::BigUint;
+    use sha1::Sha1;
+
+    #[test]
+    fn srp_group_k_test() {
+        use sha1::Digest;
+
+        let k = {
+            let n = SRP_GROUP.n.to_bytes_be();
+            let g_bytes = SRP_GROUP.g.to_bytes_be();
+            let mut buf = vec![0u8; n.len()];
+            let l = n.len() - g_bytes.len();
+            buf[l..].copy_from_slice(&g_bytes);
+
+            BigUint::from_bytes_be(&sha1::Sha1::new().chain(&n).chain(&buf).finalize())
+        };
+
+        assert_eq!(
+            "1277432915985975349439481660349303019122249719989",
+            &k.to_string()
+        );
+    }
+
+    #[test]
+    fn srp_vals_test() {
+        let user = b"sysdba";
+        let password = b"masterkey";
+
+        // Real one randomly generated
+        let seed = [
+            104, 168, 26, 157, 227, 194, 41, 70, 204, 234, 48, 50, 217, 147, 39, 186, 223, 61, 125,
+            154, 223, 9, 54, 220, 163, 109, 222, 183, 78, 242, 217, 218,
+        ];
+
+        let cli = SrpClient::<Sha1>::new(&seed, &SRP_GROUP);
+
+        assert_eq!(
+            cli.get_a_pub(),
+            BigUint::parse_bytes(
+                b"140881421499567234926370707691929201584335514055692587180102084646282810733160001237892692305806957785292091467614922078328787082920091583399296847456481914076730273969778307678896596634071762017513173403243965936903761580099023780256639030075360658492420403842461445358536578442895018174380364815053686107255"
+                , 10
+            ).unwrap().to_bytes_be()
+        );
+
+        // Real ones are received from server
+        let salt = b"9\xe0\xee\x06\xa9]\xbe\xa7\xe4V\x08\xb1g\xa1\x93\x19\xf6\x11\xcb@\t\xeb\x9c\xf8\xe5K_;\xd1\xeb\x0f\xde";
+        let serv_pub = BigUint::parse_bytes(
+            b"9664511961170061978805668776377548609867359536792555459451373100540811860853826881772164535593386333263225393199902079347793807335504376938377762257920751005873533468177562614066508611409115917792525726727162676806787115902775303095022305576987173568527110065130456437265884455358297687922316181717357090556", 
+            10
+        ).unwrap().to_bytes_be();
+
+        let cli_priv = srp_private_key::<Sha1>(user, password, salt);
+
+        assert_eq!(
+            b"\xe7\xd1>*\xaag\x9a\xa9\"w\x17&>\xca\xff\x86+ '\xdc",
+            &cli_priv[..]
+        );
+
+        let verifier = cli.process_reply(user, salt, &cli_priv, &serv_pub).unwrap();
+
+        assert_eq!(
+            b"C~\xe6\xad\xe1\x97d\xed\xbf\x16D7\xb1C\xbf\xb1\xc9\x92\xc4@",
+            &verifier.get_proof()[..]
+        );
+
+        assert_eq!(
+            b"\xd5,\xe6(\xf6\x04\xec\xdb\xf2\xa2J\xc8zw\xb0\x9a\x87O\xe8\xf7",
+            &verifier.get_key()[..]
+        );
+    }
 }

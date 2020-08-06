@@ -6,6 +6,7 @@
 
 mod common;
 mod consts;
+pub mod srp;
 mod wire;
 
 pub use common::*;

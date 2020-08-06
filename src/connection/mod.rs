@@ -117,8 +117,13 @@ pub struct Connection {
 impl Connection {
     /// Open a new connection to the remote database
     fn open(builder: &ConnectionBuilder) -> Result<Connection, FbError> {
-        let mut wire =
-            ibase::WireConnection::connect(&builder.host, builder.port, &builder.db_name)?;
+        let mut wire = ibase::WireConnection::connect(
+            &builder.host,
+            builder.port,
+            &builder.db_name,
+            &builder.user,
+            &builder.pass,
+        )?;
 
         let handle = wire.attach_database(&builder.db_name, &builder.user, &builder.pass)?;
 

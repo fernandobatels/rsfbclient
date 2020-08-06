@@ -8,16 +8,16 @@
 
 use num_enum::TryFromPrimitive;
 
-#[derive(Debug, Clone, Copy, TryFromPrimitive)]
+#[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u32)]
 pub enum ProtocolVersion {
     V10 = 0x0000000A,
     V11 = 0xFFFF800B,
     V12 = 0xFFFF800C,
-    // V13 = 0xFFFF800D,
+    V13 = 0xFFFF800D,
 }
 
-#[derive(Debug)]
+#[derive(Debug, TryFromPrimitive)]
 #[repr(u8)]
 /// Wire protocol operation
 pub enum WireOp {
@@ -114,6 +114,28 @@ pub enum WireOp {
     ServiceStart = 85,
     /// Rollback transaction, allowing to reuse it
     RollbackRetaining = 86,
+
+    /// packet is not complete - delay processing
+    Partial = 89,
+    TrustedAuth = 90,
+    Cancel = 91,
+
+    /// Continue authentication
+    ContAuth = 92,
+
+    Ping = 93,
+
+    /// Server accepts connection and returns some data to client
+    AcceptData = 94,
+
+    /// Async operation - stop waiting for async connection to arrive
+    AbortAuxConnection = 95,
+    Crypt = 96,
+    CryptKeyCallback = 97,
+
+    /// Server accepts connection, returns some data to client
+    /// and asks client to continue authentication before attach call
+    CondAccept = 98,
 }
 
 #[repr(u8)]
@@ -160,6 +182,44 @@ pub enum Cnct {
     PluginList = 10,
     /// Client encyption level (DISABLED / ENABLED / REQUIRED)
     ClientCrypt = 11,
+}
+
+#[derive(Debug)]
+pub enum AuthPluginType {
+    Srp256,
+    Srp,
+    Legacy,
+}
+
+impl AuthPluginType {
+    /// Plugin name
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Srp256 => "Srp256",
+            Self::Srp => "Srp",
+            Self::Legacy => "Legacy_Auth",
+        }
+    }
+
+    /// List with the plugins
+    pub fn plugin_list() -> String {
+        [
+            AuthPluginType::Srp.name(),
+            AuthPluginType::Srp256.name(),
+            AuthPluginType::Legacy.name(),
+        ]
+        .join(",")
+    }
+
+    pub fn parse(name: &[u8]) -> Result<Self, crate::FbError> {
+        match name {
+            b"Srp256" => Ok(Self::Srp256),
+            b"Srp" => Ok(Self::Srp),
+            b"Legacy_Auth" => Ok(Self::Legacy),
+
+            name => Err(format!("Invalid auth plugin: {}", String::from_utf8_lossy(name)).into()),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, TryFromPrimitive)]
