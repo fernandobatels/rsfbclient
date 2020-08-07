@@ -39,7 +39,7 @@ jobs:
           args: --verbose
 
       - name: Setup FirebirdSQL 3.0 for tests
-      - uses: juarezr/firebirdsql-github-action@v1.0.0
+        uses: juarezr/firebirdsql-github-action@v1.0.0
         with:
           version: 'latest'
           firebird_database: './fbclient.lib' # TODO: replace this in tests
