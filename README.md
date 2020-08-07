@@ -1,5 +1,6 @@
 # Rust Firebird Client 
 
+![Build](https://github.com/fernandobatels/rsfbclient/workflows/testing_changes/badge.svg)
 [![Crate](https://img.shields.io/crates/v/rsfbclient.svg)](https://crates.io/crates/rsfbclient)
 [![API](https://docs.rs/rsfbclient/badge.svg)](https://docs.rs/rsfbclient)
 
