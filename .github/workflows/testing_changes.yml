@@ -32,6 +32,11 @@ jobs:
           override: true
           components: rustfmt, clippy
 
+      - name: Install cli and development library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev
+
       - name: Run cargo build
         uses: actions-rs/cargo@v1
         with:
@@ -42,10 +47,14 @@ jobs:
         uses: juarezr/firebirdsql-github-action@v1.0.0
         with:
           version: 'latest'
-          firebird_database: './fbclient.lib' # TODO: replace this in tests
+          firebird_database: 'test.fdb' # TODO: replace this in tests
           firebird_user: 'test_user'
           firebird_password: 'test_password'
           isc_password: 'masterkey'
+
+      - name: Testing Connection and Query
+        run: |
+          echo 'select * from rdb$database;' | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:test.fdb'
 
       - name: Run cargo test
         uses: actions-rs/cargo@v1
