@@ -1,0 +1,81 @@
+# Based on:
+#   - https://github.com/actions-rs/example/blob/master/.github/workflows/quickstart.yml
+#
+# Using:
+#   - https://github.com/actions-rs/toolchain   -> https://github.com/marketplace/actions/rust-toolchain
+#   - https://github.com/actions-rs/cargo       -> https://github.com/marketplace/actions/rust-cargo
+#
+# for simplicity we are checking compilation and testing everything on the Ubuntu environment only.
+# TODO:
+#   - Run for FirebirdSQL versions 2.5-ss 3.0 4.0
+#   - Run in windows
+#   - Run in arm little-endian architecture
+
+on: [push, pull_request]
+
+name: testing_changes
+
+jobs:
+  ci:
+    name: ci-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: default
+          toolchain: stable
+          default: true
+          override: true
+          components: rustfmt, clippy
+
+      - name: Run cargo build
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --verbose
+
+      - name: Setup FirebirdSQL 3.0 for tests
+      - uses: juarezr/firebirdsql-github-action@v1.0.0
+        with:
+          version: 'latest'
+          firebird_database: './fbclient.lib' # TODO: replace this in tests
+          firebird_user: 'test_user'
+          firebird_password: 'test_password'
+          isc_password: 'masterkey'
+
+      - name: Run cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test 
+
+      - name: Run cargo clippy
+        uses: actions-rs/clippy-check@v1
+        continue-on-error: true   # show all errors
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features
+
+      - name: Run cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+
+      - name: Run cargo-tarpaulin
+        uses: actions-rs/tarpaulin@v0.1
+        with:
+          version: 'latest'
+          run-types: 'Tests'
+          args: '-v --out Lcov'
+
+      - name: Coveralls
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: './lcov.info'
+
+# end of file
