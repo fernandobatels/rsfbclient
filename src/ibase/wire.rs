@@ -277,14 +277,26 @@ impl WireConnection {
             return err_conn_rejected(op_code);
         }
 
+        let mut xsqlda = Vec::new();
+
         let mut resp = parse_response(&mut resp)?;
         let PrepareInfo {
             stmt_type,
-            xsqlda,
-            param_count,
-            ..
-        } = parse_xsqlda(&mut resp.data)?;
-        // TODO: handle truncated
+            mut param_count,
+            mut truncated,
+        } = parse_xsqlda(&mut resp.data, &mut xsqlda)?;
+
+        while truncated {
+            // Get more info on the types
+            self.socket
+                .write_all(&info_sql(stmt_handle.0, xsqlda.len()))?;
+
+            let mut data = self.read_response()?.data;
+
+            let parse_resp = parse_xsqlda(&mut data, &mut xsqlda)?;
+            truncated = parse_resp.truncated;
+            param_count = parse_resp.param_count;
+        }
 
         Ok((stmt_type, stmt_handle, xsqlda, param_count))
     }
@@ -335,6 +347,11 @@ impl WireConnection {
         self.socket.write_all(&fetch(stmt_handle.0, &blr))?;
 
         let (op_code, mut resp) = self.read_packet()?;
+
+        if op_code == WireOp::Response as u32 {
+            // An error ocurred
+            parse_response(&mut resp)?;
+        }
 
         if op_code != WireOp::FetchResponse as u32 {
             return err_conn_rejected(op_code);
@@ -658,8 +675,34 @@ fn prepare_statement(tr_handle: u32, stmt_handle: u32, dialect: u32, query: &str
     req.put_u32(stmt_handle);
     req.put_u32(dialect);
     req.put_wire_bytes(query.as_bytes());
-    req.put_wire_bytes(&XSQLDA_DESCRIBE_VARS);
+    req.put_wire_bytes(&XSQLDA_DESCRIBE_VARS); // Data to be returned
 
+    req.put_u32(BUFFER_LENGTH);
+
+    req.freeze()
+}
+
+/// Statement information request, to continue a truncated prepare statement xsqlda response
+fn info_sql(stmt_handle: u32, next_index: usize) -> Bytes {
+    let mut req = BytesMut::with_capacity(24 + XSQLDA_DESCRIBE_VARS.len());
+
+    let next_index = (next_index as u16).to_le_bytes();
+
+    req.put_u32(WireOp::InfoSql as u32);
+    req.put_u32(stmt_handle);
+    req.put_u32(0); // Incarnation of object
+    req.put_wire_bytes(
+        &[
+            &[
+                isc_info_sql_sqlda_start as u8, // Describe a xsqlda
+                2,
+                next_index[0], // Index, first byte
+                next_index[1], // Index, second byte
+            ],
+            &XSQLDA_DESCRIBE_VARS[..], // Data to be returned
+        ]
+        .concat(),
+    );
     req.put_u32(BUFFER_LENGTH);
 
     req.freeze()
@@ -1106,24 +1149,32 @@ fn connection_test() {
         )
         .unwrap();
 
-    let (stmt_type, stmt_handle, xsqlda, param_count) = conn
+    let (stmt_type, stmt_handle, mut xsqlda, param_count) = conn
         .prepare_statement(
             db_handle,
             tr_handle,
             Dialect::D3,
-            // "SELECT cast(1 as bigint), cast('abcdefghij' as varchar(10)) as tst FROM RDB$DATABASE where 1 = ?",
             "
-            SELECT cast(1 as bigint), cast('abcdefghij' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
-            SELECT cast(2 as bigint), cast('abcdefgh' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
-            SELECT cast(3 as bigint), cast('abcdef' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
-            SELECT cast(4 as bigint), cast(null as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
-            SELECT cast(null as bigint), cast('abcd' as varchar(10)) as tst FROM RDB$DATABASE
+            SELECT
+                1, 'abcdefghij' as tst, rand(), CURRENT_DATE, CURRENT_TIME, CURRENT_TIMESTAMP, -1, -2, -3, -4, -5, 1, 2, 3, 4, 5, 0 as last
+            FROM RDB$DATABASE where 1 = ?
             ",
+            // "
+            // SELECT cast(1 as bigint), cast('abcdefghij' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
+            // SELECT cast(2 as bigint), cast('abcdefgh' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
+            // SELECT cast(3 as bigint), cast('abcdef' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
+            // SELECT cast(4 as bigint), cast(null as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
+            // SELECT cast(null as bigint), cast('abcd' as varchar(10)) as tst FROM RDB$DATABASE
+            // ",
         )
         .unwrap();
 
-    println!("{:#?}", xsqlda);
+    println!("XSqlDa: {:#?}", xsqlda);
     println!("StmtType: {:?}", stmt_type);
+    for var in &mut xsqlda {
+        var.coerce().unwrap();
+    }
+    println!("Coerced XSqlDa: {:#?}", xsqlda);
 
     let params = crate::params::IntoParams::to_params(("1",));
     let output_blr = crate::xsqlda::xsqlda_to_blr(&xsqlda).unwrap();
