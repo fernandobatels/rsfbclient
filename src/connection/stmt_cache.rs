@@ -126,6 +126,7 @@ fn stmt_cache_test() {
             xsqlda: Default::default(),
             blr: bytes::Bytes::new(),
             stmt_type: crate::ibase::StmtType::Select,
+            param_count: 0,
         },
     };
 

@@ -127,6 +127,7 @@ pub struct StatementData {
     pub(crate) xsqlda: Vec<XSqlVar>,
     pub(crate) blr: Bytes,
     pub(crate) stmt_type: ibase::StmtType,
+    pub(crate) param_count: usize,
 }
 
 impl StatementData {
@@ -136,10 +137,10 @@ impl StatementData {
         tr: &mut TransactionData,
         sql: &str,
     ) -> Result<Self, FbError> {
-        let (stmt_type, handle, mut xsqlda) =
-            conn.wire
-                .borrow_mut()
-                .prepare_statement(conn.handle, tr.handle, conn.dialect, sql)?;
+        let (stmt_type, handle, mut xsqlda, param_count) = conn
+            .wire
+            .borrow_mut()
+            .prepare_statement(conn.handle, tr.handle, conn.dialect, sql)?;
 
         for var in xsqlda.iter_mut() {
             var.coerce()?;
@@ -151,6 +152,7 @@ impl StatementData {
             xsqlda,
             blr,
             stmt_type,
+            param_count,
         })
     }
 
@@ -168,6 +170,15 @@ impl StatementData {
     {
         let params = params.to_params();
 
+        if params.len() != self.param_count {
+            return Err(format!(
+                "{} parameters received, but the sql has {}",
+                params.len(),
+                self.param_count
+            )
+            .into());
+        }
+
         conn.wire
             .borrow_mut()
             .execute(tr.handle, self.handle, &params)?;
@@ -180,7 +191,6 @@ impl StatementData {
         Ok(())
     }
 
-    // TODO: Remove if not necessary anymore
     /// Execute the current statement
     /// and returns the column buffer
     ///
@@ -195,6 +205,15 @@ impl StatementData {
         T: IntoParams,
     {
         let params = params.to_params();
+
+        if params.len() != self.param_count {
+            return Err(format!(
+                "{} parameters received, but the sql has {}",
+                params.len(),
+                self.param_count
+            )
+            .into());
+        }
 
         conn.wire
             .borrow_mut()

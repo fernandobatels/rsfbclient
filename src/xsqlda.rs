@@ -1,7 +1,7 @@
 #![allow(non_upper_case_globals)]
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use std::{convert::TryFrom, io::Cursor, mem};
+use std::{convert::TryFrom, mem};
 
 use crate::{
     ibase::{self, consts},
@@ -10,9 +10,9 @@ use crate::{
 };
 
 /// Data for the statement to return
-pub const XSQLDA_DESCRIBE_VARS: [u8; 14] = [
+pub const XSQLDA_DESCRIBE_VARS: [u8; 18] = [
     ibase::isc_info_sql_stmt_type as u8, // Statement type: StmtType
-    ibase::isc_info_sql_select as u8,    //
+    ibase::isc_info_sql_select as u8,    // Select columns
     ibase::isc_info_sql_describe_vars as u8, // Column count
     ibase::isc_info_sql_sqlda_seq as u8, // Column index
     ibase::isc_info_sql_type as u8,      // Sql Type code
@@ -24,7 +24,11 @@ pub const XSQLDA_DESCRIBE_VARS: [u8; 14] = [
     ibase::isc_info_sql_relation as u8,  //
     ibase::isc_info_sql_owner as u8,     //
     ibase::isc_info_sql_alias as u8,     // Column alias
-    ibase::isc_info_sql_describe_end as u8,
+    ibase::isc_info_sql_describe_end as u8, // End of column data
+    ibase::isc_info_sql_bind as u8,      // Select params
+    ibase::isc_info_sql_describe_vars as u8, // Param count
+    ibase::isc_info_sql_sqlda_seq as u8, // Param index
+    ibase::isc_info_sql_describe_end as u8, // End of param data
 ];
 
 #[derive(Debug, Default)]
@@ -152,155 +156,214 @@ pub fn xsqlda_to_blr(xsqlda: &[XSqlVar]) -> Result<Bytes, FbError> {
     Ok(blr.freeze())
 }
 
+/// Data returned for a prepare statement
+pub struct PrepareInfo {
+    pub stmt_type: ibase::StmtType,
+    pub xsqlda: Vec<XSqlVar>,
+    pub param_count: usize,
+    pub truncated: bool,
+}
+
 /// Parses the data from the `PrepareStatement` response.
 ///
 /// XSqlDa data format: u8 type + optional data preceded by a u16 length.
 /// Returns the statement type, xsqlda and an indicator if the data was truncated (xsqlda not entirely filled)
-pub fn parse_xsqlda(data: &[u8]) -> Result<(ibase::StmtType, Vec<XSqlVar>, bool), FbError> {
+pub fn parse_xsqlda(resp: &mut Bytes) -> Result<PrepareInfo, FbError> {
     // Asserts that the first
-    if data.len() < 7 || data[..3] != [ibase::isc_info_sql_stmt_type as u8, 0x04, 0x00] {
+    if resp.remaining() < 7 || resp[..3] != [ibase::isc_info_sql_stmt_type as u8, 0x04, 0x00] {
         return err_invalid_xsqlda();
     }
-    let mut c = Cursor::new(data);
-    c.advance(3);
+    resp.advance(3);
 
     let stmt_type =
-        ibase::StmtType::try_from(c.get_u32_le()).map_err(|e| FbError::Other(e.to_string()))?;
+        ibase::StmtType::try_from(resp.get_u32_le()).map_err(|e| FbError::Other(e.to_string()))?;
 
     let mut xsqlda = Vec::new();
 
-    let truncated = if c.remaining() >= 4
-        && data[c.position() as usize..c.position() as usize + 2]
+    let (truncated, param_count) = if resp.remaining() >= 4
+        && resp.bytes()[..2]
             == [
                 ibase::isc_info_sql_select as u8,
                 ibase::isc_info_sql_describe_vars as u8,
             ] {
-        c.advance(2);
+        resp.advance(2);
 
-        let len = c.get_u16_le() as usize;
-        if c.remaining() < len {
+        let len = resp.get_u16_le() as usize;
+        if resp.remaining() < len {
             return err_invalid_xsqlda();
         }
 
-        let col_len = c.get_uint_le(len) as usize;
+        let col_len = resp.get_uint_le(len) as usize;
         xsqlda = Vec::with_capacity(col_len);
 
-        parse_select_items(&mut c, &mut xsqlda)?
+        parse_select_items(resp, &mut xsqlda)?
     } else {
-        false
+        (false, 0)
     };
 
-    Ok((stmt_type, xsqlda, truncated))
+    Ok(PrepareInfo {
+        stmt_type,
+        xsqlda,
+        param_count,
+        truncated,
+    })
 }
 
 /// Fill the xsqlda with data from the cursor, return `true` if the data was truncated (needs more data to fill the xsqlda)
-fn parse_select_items(c: &mut impl Buf, xsqlda: &mut Vec<XSqlVar>) -> Result<bool, FbError> {
-    if c.remaining() == 0 {
-        return Ok(false);
+/// and the number of parameters
+fn parse_select_items(
+    resp: &mut Bytes,
+    xsqlda: &mut Vec<XSqlVar>,
+) -> Result<(bool, usize), FbError> {
+    if resp.remaining() == 0 {
+        return Ok((false, 0));
     }
-    let mut i = 0;
+
+    /// What data are we reading?
+    #[derive(Debug, Copy, Clone)]
+    enum Reading {
+        Column,
+        Param,
+    };
+    let mut kind = Reading::Column;
+
+    let mut col_index = 0;
+    let mut param_index = 0;
+    let mut param_count = 0;
 
     let truncated = loop {
+        if resp.remaining() == 0 {
+            return err_invalid_xsqlda();
+        }
         // Get item code
-        match c.get_u8() as u32 {
-            // Column index
-            ibase::isc_info_sql_sqlda_seq => {
-                if c.remaining() < 6 {
+        match resp.get_u8() as u32 {
+            // Column data to follow
+            ibase::isc_info_sql_select => kind = Reading::Column,
+
+            // Parameter data to follow
+            ibase::isc_info_sql_bind => kind = Reading::Param,
+
+            // Start describing the columns / params
+            ibase::isc_info_sql_describe_vars => {
+                if resp.remaining() < 6 {
                     return err_invalid_xsqlda();
                 }
                 // Assume 0x04 0x00
-                c.advance(2);
-                // Index received starts on 1
-                i = c.get_u32_le() as usize - 1;
+                resp.advance(2);
+                let count = resp.get_u32_le();
 
-                xsqlda.push(Default::default());
-                // Must be the same
-                debug_assert_eq!(xsqlda.len() - 1, i);
+                if let Reading::Param = kind {
+                    param_count = count;
+                }
+            }
+
+            // Column / Param index
+            ibase::isc_info_sql_sqlda_seq => {
+                if resp.remaining() < 6 {
+                    return err_invalid_xsqlda();
+                }
+                // Assume 0x04 0x00
+                resp.advance(2);
+
+                match kind {
+                    Reading::Column => {
+                        // Index received starts on 1
+                        col_index = resp.get_u32_le() as usize - 1;
+
+                        xsqlda.push(Default::default());
+                        // Must be the same
+                        debug_assert_eq!(xsqlda.len() - 1, col_index);
+                    }
+                    Reading::Param => {
+                        // Index received starts on 1
+                        param_index = resp.get_u32_le() as usize - 1;
+                    }
+                }
             }
 
             ibase::isc_info_sql_type => {
-                if c.remaining() < 6 {
+                if resp.remaining() < 6 {
                     return err_invalid_xsqlda();
                 }
                 // Assume 0x04 0x00
-                c.advance(2);
+                resp.advance(2);
 
-                if let Some(var) = xsqlda.get_mut(i) {
-                    var.sqltype = c.get_i32_le() as i16;
+                if let Some(var) = xsqlda.get_mut(col_index) {
+                    var.sqltype = resp.get_i32_le() as i16;
                 } else {
                     return err_invalid_xsqlda();
                 }
             }
 
             ibase::isc_info_sql_sub_type => {
-                if c.remaining() < 6 {
+                if resp.remaining() < 6 {
                     return err_invalid_xsqlda();
                 }
                 // Assume 0x04 0x00
-                c.advance(2);
+                resp.advance(2);
 
-                if let Some(var) = xsqlda.get_mut(i) {
-                    var.sqlsubtype = c.get_i32_le() as i16;
+                if let Some(var) = xsqlda.get_mut(col_index) {
+                    var.sqlsubtype = resp.get_i32_le() as i16;
                 } else {
                     return err_invalid_xsqlda();
                 }
             }
 
             ibase::isc_info_sql_scale => {
-                if c.remaining() < 6 {
+                if resp.remaining() < 6 {
                     return err_invalid_xsqlda();
                 }
                 // Assume 0x04 0x00
-                c.advance(2);
+                resp.advance(2);
 
-                if let Some(var) = xsqlda.get_mut(i) {
-                    var.scale = c.get_i32_le() as i16;
+                if let Some(var) = xsqlda.get_mut(col_index) {
+                    var.scale = resp.get_i32_le() as i16;
                 } else {
                     return err_invalid_xsqlda();
                 }
             }
 
             ibase::isc_info_sql_length => {
-                if c.remaining() < 6 {
+                if resp.remaining() < 6 {
                     return err_invalid_xsqlda();
                 }
                 // Assume 0x04 0x00
-                c.advance(2);
+                resp.advance(2);
 
-                if let Some(var) = xsqlda.get_mut(i) {
-                    var.data_length = c.get_i32_le() as i16;
+                if let Some(var) = xsqlda.get_mut(col_index) {
+                    var.data_length = resp.get_i32_le() as i16;
                 } else {
                     return err_invalid_xsqlda();
                 }
             }
 
             ibase::isc_info_sql_null_ind => {
-                if c.remaining() < 6 {
+                if resp.remaining() < 6 {
                     return err_invalid_xsqlda();
                 }
                 // Assume 0x04 0x00
-                c.advance(2);
+                resp.advance(2);
 
-                if let Some(var) = xsqlda.get_mut(i) {
-                    var.null_ind = c.get_i32_le() != 0;
+                if let Some(var) = xsqlda.get_mut(col_index) {
+                    var.null_ind = resp.get_i32_le() != 0;
                 } else {
                     return err_invalid_xsqlda();
                 }
             }
 
             ibase::isc_info_sql_field => {
-                if c.remaining() < 2 {
+                if resp.remaining() < 2 {
                     return err_invalid_xsqlda();
                 }
-                let len = c.get_u16_le() as usize;
+                let len = resp.get_u16_le() as usize;
 
-                if c.remaining() < len {
+                if resp.remaining() < len {
                     return err_invalid_xsqlda();
                 }
                 let mut buff = vec![0; len];
-                c.copy_to_slice(&mut buff);
+                resp.copy_to_slice(&mut buff);
 
-                if let Some(var) = xsqlda.get_mut(i) {
+                if let Some(var) = xsqlda.get_mut(col_index) {
                     var.field_name = String::from_utf8(buff).unwrap_or_default();
                 } else {
                     return err_invalid_xsqlda();
@@ -308,18 +371,18 @@ fn parse_select_items(c: &mut impl Buf, xsqlda: &mut Vec<XSqlVar>) -> Result<boo
             }
 
             ibase::isc_info_sql_relation => {
-                if c.remaining() < 2 {
+                if resp.remaining() < 2 {
                     return err_invalid_xsqlda();
                 }
-                let len = c.get_u16_le() as usize;
+                let len = resp.get_u16_le() as usize;
 
-                if c.remaining() < len {
+                if resp.remaining() < len {
                     return err_invalid_xsqlda();
                 }
                 let mut buff = vec![0; len];
-                c.copy_to_slice(&mut buff);
+                resp.copy_to_slice(&mut buff);
 
-                if let Some(var) = xsqlda.get_mut(i) {
+                if let Some(var) = xsqlda.get_mut(col_index) {
                     var.relation_name = String::from_utf8(buff).unwrap_or_default();
                 } else {
                     return err_invalid_xsqlda();
@@ -327,18 +390,18 @@ fn parse_select_items(c: &mut impl Buf, xsqlda: &mut Vec<XSqlVar>) -> Result<boo
             }
 
             ibase::isc_info_sql_owner => {
-                if c.remaining() < 2 {
+                if resp.remaining() < 2 {
                     return err_invalid_xsqlda();
                 }
-                let len = c.get_u16_le() as usize;
+                let len = resp.get_u16_le() as usize;
 
-                if c.remaining() < len {
+                if resp.remaining() < len {
                     return err_invalid_xsqlda();
                 }
                 let mut buff = vec![0; len];
-                c.copy_to_slice(&mut buff);
+                resp.copy_to_slice(&mut buff);
 
-                if let Some(var) = xsqlda.get_mut(i) {
+                if let Some(var) = xsqlda.get_mut(col_index) {
                     var.owner_name = String::from_utf8(buff).unwrap_or_default();
                 } else {
                     return err_invalid_xsqlda();
@@ -346,18 +409,18 @@ fn parse_select_items(c: &mut impl Buf, xsqlda: &mut Vec<XSqlVar>) -> Result<boo
             }
 
             ibase::isc_info_sql_alias => {
-                if c.remaining() < 2 {
+                if resp.remaining() < 2 {
                     return err_invalid_xsqlda();
                 }
-                let len = c.get_u16_le() as usize;
+                let len = resp.get_u16_le() as usize;
 
-                if c.remaining() < len {
+                if resp.remaining() < len {
                     return err_invalid_xsqlda();
                 }
                 let mut buff = vec![0; len];
-                c.copy_to_slice(&mut buff);
+                resp.copy_to_slice(&mut buff);
 
-                if let Some(var) = xsqlda.get_mut(i) {
+                if let Some(var) = xsqlda.get_mut(col_index) {
                     var.alias_name = String::from_utf8(buff).unwrap_or_default();
                 } else {
                     return err_invalid_xsqlda();
@@ -367,7 +430,7 @@ fn parse_select_items(c: &mut impl Buf, xsqlda: &mut Vec<XSqlVar>) -> Result<boo
             // Data truncated
             ibase::isc_info_truncated => break true,
 
-            // End of this column
+            // End of this column / param
             ibase::isc_info_sql_describe_end => {}
 
             // End of the data
@@ -377,12 +440,12 @@ fn parse_select_items(c: &mut impl Buf, xsqlda: &mut Vec<XSqlVar>) -> Result<boo
                 return Err(FbError::Other(format!(
                     "Invalid item received in the xsqlda: {}",
                     item
-                )))
+                )));
             }
         }
     };
 
-    Ok(truncated)
+    Ok((truncated, param_count as usize))
 }
 
 fn err_invalid_xsqlda<T>() -> Result<T, FbError> {

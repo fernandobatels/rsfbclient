@@ -19,7 +19,7 @@ use crate::{
     params::ParamInfo,
     row::{ColumnBuffer, ColumnType},
     status::SqlError,
-    xsqlda::{parse_xsqlda, XSqlVar, XSQLDA_DESCRIBE_VARS},
+    xsqlda::{parse_xsqlda, PrepareInfo, XSqlVar, XSQLDA_DESCRIBE_VARS},
     Dialect, FbError,
 };
 
@@ -246,7 +246,7 @@ impl WireConnection {
         tr_handle: TrHandle,
         dialect: Dialect,
         sql: &str,
-    ) -> Result<(StmtType, StmtHandle, Vec<XSqlVar>), FbError> {
+    ) -> Result<(StmtType, StmtHandle, Vec<XSqlVar>, usize), FbError> {
         // Alloc statement
         self.socket.write_all(&allocate_statement(db_handle.0))?;
 
@@ -277,11 +277,16 @@ impl WireConnection {
             return err_conn_rejected(op_code);
         }
 
-        let resp = parse_response(&mut resp)?;
-        let (stmt_type, xsqlda, _truncated) = parse_xsqlda(&resp.data)?;
+        let mut resp = parse_response(&mut resp)?;
+        let PrepareInfo {
+            stmt_type,
+            xsqlda,
+            param_count,
+            ..
+        } = parse_xsqlda(&mut resp.data)?;
         // TODO: handle truncated
 
-        Ok((stmt_type, stmt_handle, xsqlda))
+        Ok((stmt_type, stmt_handle, xsqlda, param_count))
     }
 
     /// Closes or drops a statement
@@ -763,8 +768,7 @@ fn parse_fetch_response(
         if resp.remaining() < len {
             return err_invalid_response();
         }
-        let mut null_map = resp.clone();
-        null_map.truncate(len);
+        let null_map = resp.slice(..len);
         resp.advance(len);
 
         Some(null_map)
@@ -814,8 +818,7 @@ fn parse_fetch_response(
                     return err_invalid_response();
                 }
 
-                let mut d = resp.clone();
-                d.truncate(len);
+                let d = resp.slice(..len);
                 resp.advance(len);
 
                 let null = read_null(resp, i)?;
@@ -1008,8 +1011,7 @@ fn parse_srp_auth_data(resp: &mut Bytes) -> Result<Option<SrpAuthData>, FbError>
     if resp.remaining() < len {
         return err_invalid_response();
     }
-    let mut salt = resp.clone();
-    salt.truncate(len);
+    let salt = resp.slice(..len);
     // * DO NOT PARSE AS HEXADECIMAL *
     let salt = salt.to_vec();
     resp.advance(len);
@@ -1021,9 +1023,7 @@ fn parse_srp_auth_data(resp: &mut Bytes) -> Result<Option<SrpAuthData>, FbError>
     if resp.remaining() < len {
         return err_invalid_response();
     }
-    let mut pub_key = resp.clone();
-    pub_key.truncate(len);
-    let mut pub_key = pub_key.to_vec();
+    let mut pub_key = resp.slice(..len).to_vec();
     if len % 2 != 0 {
         // We need to add a 0 to the start
         pub_key = [b"0", &pub_key[..]].concat();
@@ -1074,8 +1074,7 @@ impl BytesWireExt for Bytes {
         if self.remaining() < len {
             return err_invalid_response();
         }
-        let mut bytes = self.clone();
-        bytes.truncate(len);
+        let bytes = self.slice(..len);
 
         self.advance(len);
         if len % 4 != 0 {
@@ -1107,7 +1106,7 @@ fn connection_test() {
         )
         .unwrap();
 
-    let (stmt_type, stmt_handle, xsqlda) = conn
+    let (stmt_type, stmt_handle, xsqlda, param_count) = conn
         .prepare_statement(
             db_handle,
             tr_handle,
