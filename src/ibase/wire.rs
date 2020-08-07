@@ -7,8 +7,6 @@
 #![allow(non_upper_case_globals)]
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use lazy_static::lazy_static;
-use num_bigint::BigUint;
 use std::{
     convert::TryFrom,
     env,
@@ -28,21 +26,6 @@ use crate::{
 /// Buffer length to use in the connection
 const BUFFER_LENGTH: u32 = 1024;
 
-lazy_static! {
-    /// Srp Group used by the firebird server
-    static ref SRP_GROUP: SrpGroup = SrpGroup {
-        n: BigUint::from_bytes_be(&[
-            230, 125, 46, 153, 75, 47, 144, 12, 63, 65, 240, 143, 91, 178, 98, 126, 208, 212, 158,
-            225, 254, 118, 122, 82, 239, 205, 86, 92, 214, 231, 104, 129, 44, 62, 30, 156, 232,
-            240, 168, 190, 166, 203, 19, 205, 41, 221, 235, 247, 169, 109, 74, 147, 181, 93, 72,
-            141, 240, 153, 161, 92, 137, 220, 176, 100, 7, 56, 235, 44, 189, 217, 168, 247, 186,
-            181, 97, 171, 27, 13, 193, 198, 205, 171, 243, 3, 38, 74, 8, 209, 188, 169, 50, 209,
-            241, 238, 66, 139, 97, 157, 151, 15, 52, 42, 186, 154, 101, 121, 59, 139, 47, 4, 26,
-            229, 54, 67, 80, 193, 111, 115, 95, 86, 236, 188, 168, 123, 213, 123, 41, 231,
-        ]),
-        g: BigUint::from_bytes_be(&[2]),
-    };
-}
 /// Firebird tcp stream, may be encrypted
 enum FbStream {
     /// Plaintext stream
@@ -352,7 +335,7 @@ impl WireConnection {
             return err_conn_rejected(op_code);
         }
 
-        parse_fetch_response(&mut resp, xsqlda)
+        parse_fetch_response(&mut resp, xsqlda, self.version)
     }
 
     /// Read a server response
@@ -417,59 +400,6 @@ fn err_conn_rejected<T>(op_code: u32) -> Result<T, FbError> {
             .unwrap_or_default()
     )
     .into())
-}
-
-#[test]
-fn connection_test() {
-    let db_name = "test.fdb";
-    let user = "SYSDBA";
-    let pass = "masterkey";
-
-    let mut conn = WireConnection::connect("127.0.0.1", 3050, db_name, user, pass).unwrap();
-
-    let db_handle = conn.attach_database(db_name, user, pass).unwrap();
-
-    let tr_handle = conn
-        .begin_transaction(
-            db_handle,
-            &[isc_tpb_version3 as u8, isc_tpb_read_committed as u8],
-        )
-        .unwrap();
-
-    let (stmt_type, stmt_handle, xsqlda) = conn
-        .prepare_statement(
-            db_handle,
-            tr_handle,
-            Dialect::D3,
-            // "SELECT cast(1 as bigint), cast('abcdefghij' as varchar(10)) as tst FROM RDB$DATABASE where 1 = ?",
-            "
-            SELECT cast(1 as bigint), cast('abcdefghij' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
-            SELECT cast(2 as bigint), cast('abcdefgh' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
-            SELECT cast(3 as bigint), cast('abcdef' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
-            SELECT cast(4 as bigint), cast(null as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
-            SELECT cast(null as bigint), cast('abcd' as varchar(10)) as tst FROM RDB$DATABASE
-            ",
-        )
-        .unwrap();
-
-    println!("{:#?}", xsqlda);
-    println!("StmtType: {:?}", stmt_type);
-
-    let params = crate::params::IntoParams::to_params(("1",));
-    let output_blr = crate::xsqlda::xsqlda_to_blr(&xsqlda).unwrap();
-
-    conn.execute(tr_handle, stmt_handle, &params).unwrap();
-
-    loop {
-        let resp = conn.fetch(stmt_handle, &xsqlda, &output_blr).unwrap();
-
-        if resp.is_none() {
-            break;
-        }
-        println!("Fetch Resp: {:?}", resp);
-    }
-
-    std::thread::sleep(std::time::Duration::from_millis(100));
 }
 
 /// Connection request
@@ -802,6 +732,7 @@ fn parse_response(resp: &mut Bytes) -> Result<Response, FbError> {
 fn parse_fetch_response(
     resp: &mut Bytes,
     xsqlda: &[XSqlVar],
+    version: ProtocolVersion,
 ) -> Result<Option<Vec<Option<ColumnBuffer>>>, FbError> {
     const END_OF_STREAM: u32 = 100;
 
@@ -820,20 +751,56 @@ fn parse_fetch_response(
         return Ok(None);
     }
 
+    let null_map = if version >= ProtocolVersion::V13 {
+        // Read the null bitmap, 8 columns per byte
+        let mut len = xsqlda.len() / 8;
+        len += if xsqlda.len() % 8 == 0 { 0 } else { 1 };
+        if len % 4 != 0 {
+            // Align to 4 bytes
+            len += 4 - (len % 4);
+        }
+
+        if resp.remaining() < len {
+            return err_invalid_response();
+        }
+        let mut null_map = resp.clone();
+        null_map.truncate(len);
+        resp.advance(len);
+
+        Some(null_map)
+    } else {
+        None
+    };
+
+    let read_null = |resp: &mut Bytes, i: usize| {
+        if version >= ProtocolVersion::V13 {
+            // read from the null bitmap
+            Ok((null_map.as_ref().unwrap()[i / 8] >> (i % 8)) & 1 != 0)
+        } else {
+            // read from the response
+            if resp.remaining() < 4 {
+                return err_invalid_response();
+            }
+            Ok(resp.get_u32() != 0)
+        }
+    };
+
     let mut data = Vec::with_capacity(xsqlda.len());
 
-    for var in xsqlda {
+    for (i, var) in xsqlda.iter().enumerate() {
         let column_type = var.to_column_type()?;
+
+        if version >= ProtocolVersion::V13 && read_null(resp, i)? {
+            // There is no data in protocol 13 if null, so just continue
+            data.push(None);
+            continue;
+        }
 
         match column_type {
             t @ ColumnType::Text => {
                 let d = resp.get_wire_bytes()?;
 
-                if resp.remaining() < 4 {
-                    return err_invalid_response();
-                }
-
-                let null = resp.get_u32() != 0;
+                let null = read_null(resp, i)?;
                 if null {
                     data.push(None)
                 } else {
@@ -851,7 +818,7 @@ fn parse_fetch_response(
                 d.truncate(len);
                 resp.advance(len);
 
-                let null = resp.get_u32() != 0;
+                let null = read_null(resp, i)?;
                 if null {
                     data.push(None)
                 } else {
@@ -1123,78 +1090,55 @@ fn err_invalid_response<T>() -> Result<T, FbError> {
     Err("Invalid server response, missing bytes".into())
 }
 
-#[cfg(test)]
-mod test {
-    use super::SRP_GROUP;
-    use crate::ibase::srp::{srp_private_key, SrpClient};
-    use num_bigint::BigUint;
-    use sha1::Sha1;
+#[test]
+fn connection_test() {
+    let db_name = "test.fdb";
+    let user = "SYSDBA";
+    let pass = "masterkey";
 
-    #[test]
-    fn srp_group_k_test() {
-        use sha1::Digest;
+    let mut conn = WireConnection::connect("127.0.0.1", 3050, db_name, user, pass).unwrap();
 
-        let k = {
-            let n = SRP_GROUP.n.to_bytes_be();
-            let g_bytes = SRP_GROUP.g.to_bytes_be();
-            let mut buf = vec![0u8; n.len()];
-            let l = n.len() - g_bytes.len();
-            buf[l..].copy_from_slice(&g_bytes);
+    let db_handle = conn.attach_database(db_name, user, pass).unwrap();
 
-            BigUint::from_bytes_be(&sha1::Sha1::new().chain(&n).chain(&buf).finalize())
-        };
+    let tr_handle = conn
+        .begin_transaction(
+            db_handle,
+            &[isc_tpb_version3 as u8, isc_tpb_read_committed as u8],
+        )
+        .unwrap();
 
-        assert_eq!(
-            "1277432915985975349439481660349303019122249719989",
-            &k.to_string()
-        );
+    let (stmt_type, stmt_handle, xsqlda) = conn
+        .prepare_statement(
+            db_handle,
+            tr_handle,
+            Dialect::D3,
+            // "SELECT cast(1 as bigint), cast('abcdefghij' as varchar(10)) as tst FROM RDB$DATABASE where 1 = ?",
+            "
+            SELECT cast(1 as bigint), cast('abcdefghij' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
+            SELECT cast(2 as bigint), cast('abcdefgh' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
+            SELECT cast(3 as bigint), cast('abcdef' as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
+            SELECT cast(4 as bigint), cast(null as varchar(10)) as tst FROM RDB$DATABASE UNION ALL
+            SELECT cast(null as bigint), cast('abcd' as varchar(10)) as tst FROM RDB$DATABASE
+            ",
+        )
+        .unwrap();
+
+    println!("{:#?}", xsqlda);
+    println!("StmtType: {:?}", stmt_type);
+
+    let params = crate::params::IntoParams::to_params(("1",));
+    let output_blr = crate::xsqlda::xsqlda_to_blr(&xsqlda).unwrap();
+
+    conn.execute(tr_handle, stmt_handle, &params).unwrap();
+
+    loop {
+        let resp = conn.fetch(stmt_handle, &xsqlda, &output_blr).unwrap();
+
+        if resp.is_none() {
+            break;
+        }
+        println!("Fetch Resp: {:?}", resp);
     }
 
-    #[test]
-    fn srp_vals_test() {
-        let user = b"sysdba";
-        let password = b"masterkey";
-
-        // Real one randomly generated
-        let seed = [
-            104, 168, 26, 157, 227, 194, 41, 70, 204, 234, 48, 50, 217, 147, 39, 186, 223, 61, 125,
-            154, 223, 9, 54, 220, 163, 109, 222, 183, 78, 242, 217, 218,
-        ];
-
-        let cli = SrpClient::<Sha1>::new(&seed, &SRP_GROUP);
-
-        assert_eq!(
-            cli.get_a_pub(),
-            BigUint::parse_bytes(
-                b"140881421499567234926370707691929201584335514055692587180102084646282810733160001237892692305806957785292091467614922078328787082920091583399296847456481914076730273969778307678896596634071762017513173403243965936903761580099023780256639030075360658492420403842461445358536578442895018174380364815053686107255"
-                , 10
-            ).unwrap().to_bytes_be()
-        );
-
-        // Real ones are received from server
-        let salt = b"9\xe0\xee\x06\xa9]\xbe\xa7\xe4V\x08\xb1g\xa1\x93\x19\xf6\x11\xcb@\t\xeb\x9c\xf8\xe5K_;\xd1\xeb\x0f\xde";
-        let serv_pub = BigUint::parse_bytes(
-            b"9664511961170061978805668776377548609867359536792555459451373100540811860853826881772164535593386333263225393199902079347793807335504376938377762257920751005873533468177562614066508611409115917792525726727162676806787115902775303095022305576987173568527110065130456437265884455358297687922316181717357090556", 
-            10
-        ).unwrap().to_bytes_be();
-
-        let cli_priv = srp_private_key::<Sha1>(user, password, salt);
-
-        assert_eq!(
-            b"\xe7\xd1>*\xaag\x9a\xa9\"w\x17&>\xca\xff\x86+ '\xdc",
-            &cli_priv[..]
-        );
-
-        let verifier = cli.process_reply(user, salt, &cli_priv, &serv_pub).unwrap();
-
-        assert_eq!(
-            b"C~\xe6\xad\xe1\x97d\xed\xbf\x16D7\xb1C\xbf\xb1\xc9\x92\xc4@",
-            &verifier.get_proof()[..]
-        );
-
-        assert_eq!(
-            b"\xd5,\xe6(\xf6\x04\xec\xdb\xf2\xa2J\xc8zw\xb0\x9a\x87O\xe8\xf7",
-            &verifier.get_key()[..]
-        );
-    }
+    std::thread::sleep(std::time::Duration::from_millis(100));
 }
