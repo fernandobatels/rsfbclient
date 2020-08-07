@@ -5,8 +5,9 @@
 //!
 
 pub mod arc4;
+mod blr;
 mod common;
-mod consts;
+pub mod consts;
 pub mod srp;
 mod wire;
 

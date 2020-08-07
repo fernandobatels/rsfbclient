@@ -3,8 +3,11 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::{convert::TryFrom, io::Cursor, mem};
 
-use super::*;
-use crate::{row::ColumnType, FbError};
+use crate::{
+    ibase::{self, consts},
+    row::ColumnType,
+    FbError,
+};
 
 /// Data for the statement to return
 pub const XSQLDA_DESCRIBE_VARS: [u8; 14] = [
@@ -114,9 +117,9 @@ impl XSqlVar {
 pub fn xsqlda_to_blr(xsqlda: &[XSqlVar]) -> Result<Bytes, FbError> {
     let mut blr = BytesMut::with_capacity(256);
     blr.put_slice(&[
-        ibase::blr::VERSION5,
-        ibase::blr::BEGIN,
-        ibase::blr::MESSAGE,
+        consts::blr::VERSION5,
+        consts::blr::BEGIN,
+        consts::blr::MESSAGE,
         0, // Message index
     ]);
     // Message length, * 2 as there is 1 msg for the param type and another for the nullind
@@ -127,24 +130,24 @@ pub fn xsqlda_to_blr(xsqlda: &[XSqlVar]) -> Result<Bytes, FbError> {
 
         match column_type {
             ColumnType::Text => {
-                blr.put_u8(ibase::blr::VARYING);
+                blr.put_u8(consts::blr::VARYING);
                 blr.put_i16_le(var.data_length);
             }
 
             ColumnType::Integer => blr.put_slice(&[
-                ibase::blr::INT64,
+                consts::blr::INT64,
                 0, // Scale
             ]),
 
-            ColumnType::Float => blr.put_u8(ibase::blr::DOUBLE),
+            ColumnType::Float => blr.put_u8(consts::blr::DOUBLE),
 
-            ColumnType::Timestamp => blr.put_u8(ibase::blr::TIMESTAMP),
+            ColumnType::Timestamp => blr.put_u8(consts::blr::TIMESTAMP),
         }
         // Nullind
-        blr.put_slice(&[ibase::blr::SHORT, 0]);
+        blr.put_slice(&[consts::blr::SHORT, 0]);
     }
 
-    blr.put_slice(&[ibase::blr::END, ibase::blr::EOC]);
+    blr.put_slice(&[consts::blr::END, consts::blr::EOC]);
 
     Ok(blr.freeze())
 }

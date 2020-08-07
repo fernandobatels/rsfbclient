@@ -6,7 +6,7 @@
 
 use crate::{
     ibase,
-    params::{IntoParams, Params},
+    params::IntoParams,
     row::{FromRow, Row},
     status::FbError,
     transaction::{Transaction, TransactionData},
@@ -166,7 +166,7 @@ impl StatementData {
     where
         T: IntoParams,
     {
-        let params = Params::new(conn, self, params.to_params())?;
+        let params = params.to_params();
 
         conn.wire
             .borrow_mut()
@@ -194,7 +194,7 @@ impl StatementData {
     where
         T: IntoParams,
     {
-        let params = Params::new(conn, self, params.to_params())?;
+        let params = params.to_params();
 
         conn.wire
             .borrow_mut()

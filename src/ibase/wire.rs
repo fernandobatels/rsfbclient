@@ -18,7 +18,7 @@ use std::{
 
 use super::{arc4::*, srp::*, *};
 use crate::{
-    params::Params,
+    params::ParamInfo,
     row::{ColumnBuffer, ColumnType},
     status::SqlError,
     xsqlda::{parse_xsqlda, XSqlVar, XSQLDA_DESCRIBE_VARS},
@@ -158,7 +158,7 @@ impl WireConnection {
                         socket = FbStream::Arc4(Arc4Stream::new(
                             match socket {
                                 FbStream::Plain(s) => s,
-                                _ => panic!("Stream was already encrypted"),
+                                _ => unreachable!("Stream was already encrypted!"),
                             },
                             &verifier.get_key(),
                             buff.len(),
@@ -317,8 +317,11 @@ impl WireConnection {
         &mut self,
         tr_handle: TrHandle,
         stmt_handle: StmtHandle,
-        params: &Params,
+        params: &[ParamInfo],
     ) -> Result<(), FbError> {
+        // TODO: Verify if parameter length match the sql
+        let params = blr::params_to_blr(params, self.version)?;
+
         self.socket
             .write_all(&execute(
                 tr_handle.0,
@@ -452,8 +455,7 @@ fn connection_test() {
     println!("{:#?}", xsqlda);
     println!("StmtType: {:?}", stmt_type);
 
-    let params =
-        crate::params::params_to_blr(&crate::params::IntoParams::to_params(("1",))).unwrap();
+    let params = crate::params::IntoParams::to_params(("1",));
     let output_blr = crate::xsqlda::xsqlda_to_blr(&xsqlda).unwrap();
 
     conn.execute(tr_handle, stmt_handle, &params).unwrap();
@@ -801,7 +803,7 @@ fn parse_fetch_response(
     resp: &mut Bytes,
     xsqlda: &[XSqlVar],
 ) -> Result<Option<Vec<Option<ColumnBuffer>>>, FbError> {
-    const STATUS_EOS: u32 = 100;
+    const END_OF_STREAM: u32 = 100;
 
     if resp.remaining() < 8 {
         return err_invalid_response();
@@ -810,11 +812,11 @@ fn parse_fetch_response(
     let status = resp.get_u32();
 
     let has_row = resp.get_u32() != 0;
-    if !has_row && status != STATUS_EOS {
+    if !has_row && status != END_OF_STREAM {
         return Err("Fetch returned no columns".into());
     }
 
-    if status == STATUS_EOS {
+    if status == END_OF_STREAM {
         return Ok(None);
     }
 
