@@ -6,7 +6,7 @@
 
 #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]
 
-use super::common::*;
+use super::*;
 
 #[cfg(not(feature = "dynamic_loading"))]
 #[derive(Debug, Clone)]

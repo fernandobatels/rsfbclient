@@ -4,9 +4,11 @@
 //! Status of connetions, transactions...
 //!
 
-use std::fmt::{Display, Write};
+use std::fmt::Write;
 
 use crate::{ibase, row::SqlType};
+
+pub use rsfbclient_core::FbError;
 
 pub struct Status(Box<ibase::ISC_STATUS_ARRAY>);
 
@@ -65,20 +67,6 @@ impl Status {
         self.0.as_mut_ptr()
     }
 }
-
-#[derive(Debug)]
-pub struct FbError {
-    pub msg: String,
-    pub code: i32,
-}
-
-impl Display for FbError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.code, self.msg)
-    }
-}
-
-impl std::error::Error for FbError {}
 
 pub fn err_idx_not_exist<T>() -> Result<T, FbError> {
     Err(FbError {

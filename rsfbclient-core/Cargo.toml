@@ -1,0 +1,12 @@
+[package]
+name = "rsfbclient-core"
+version = "0.1.0"
+authors = ["jairinhohw <jairinhowiethan@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+chrono = { version = "0.4", optional = true }
+
+[features]
+default = ["date_time"]
+date_time = ["chrono"]

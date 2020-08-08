@@ -2,10 +2,8 @@ use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use std::{convert::TryInto, mem};
 
 use crate::{
-    ibase,
-    params::{ParamInfo, ToParam},
-    status::err_buffer_len,
-    FbError,
+    error::{err_column_null, err_type_conv},
+    ibase, Column, ColumnToVal, ColumnType, FbError, Param, ToParam,
 };
 
 const FRACTION_TO_NANOS: u32 = 1e9 as u32 / ibase::ISC_TIME_SECONDS_PRECISION;
@@ -114,46 +112,57 @@ pub fn encode_timestamp(dt: NaiveDateTime) -> ibase::ISC_TIMESTAMP {
 }
 
 impl ToParam for NaiveDateTime {
-    fn to_info(self) -> ParamInfo {
-        let mut buffer = Vec::with_capacity(mem::size_of::<ibase::ISC_TIMESTAMP>());
-        let timestamp = encode_timestamp(self);
-
-        buffer.extend(&timestamp.timestamp_date.to_le_bytes());
-        buffer.extend(&timestamp.timestamp_time.to_le_bytes());
-
-        ParamInfo {
-            sqltype: ibase::SQL_TIMESTAMP as i16 + 1,
-            buffer: buffer.into_boxed_slice(),
-            null: false,
-        }
+    fn to_param(self) -> Param {
+        Param::Timestamp(encode_timestamp(self))
     }
-}
-
-/// Interprets a timestamp value from a buffer
-pub fn timestamp_from_buffer(buffer: &[u8]) -> Result<chrono::NaiveDateTime, FbError> {
-    let len = mem::size_of::<ibase::ISC_TIMESTAMP>();
-    if buffer.len() < len {
-        return err_buffer_len(len, buffer.len(), "NaiveDateTime");
-    }
-
-    let date = ibase::ISC_TIMESTAMP {
-        timestamp_date: ibase::ISC_DATE::from_le_bytes(buffer[0..4].try_into().unwrap()),
-        timestamp_time: ibase::ISC_TIME::from_le_bytes(buffer[4..8].try_into().unwrap()),
-    };
-
-    Ok(decode_timestamp(date))
 }
 
 impl ToParam for NaiveDate {
-    fn to_info(self) -> ParamInfo {
+    fn to_param(self) -> Param {
         // Mimics firebird conversion
-        self.and_time(NaiveTime::from_hms(0, 0, 0)).to_info()
+        self.and_time(NaiveTime::from_hms(0, 0, 0)).to_param()
     }
 }
 
 impl ToParam for NaiveTime {
-    fn to_info(self) -> ParamInfo {
+    fn to_param(self) -> Param {
         // Mimics firebird conversion
-        chrono::Utc::today().naive_utc().and_time(self).to_info()
+        chrono::Utc::today().naive_utc().and_time(self).to_param()
+    }
+}
+
+impl ColumnToVal<chrono::NaiveDate> for Column {
+    fn to_val(self) -> Result<chrono::NaiveDate, FbError> {
+        let col = self.0.ok_or_else(|| err_column_null("NaiveDate"))?;
+
+        match col {
+            ColumnType::Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts).date()),
+
+            _ => err_type_conv(col, "NaiveDate"),
+        }
+    }
+}
+
+impl ColumnToVal<chrono::NaiveTime> for Column {
+    fn to_val(self) -> Result<chrono::NaiveTime, FbError> {
+        let col = self.0.ok_or_else(|| err_column_null("NaiveTime"))?;
+
+        match col {
+            ColumnType::Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts).time()),
+
+            _ => err_type_conv(col, "NaiveTime"),
+        }
+    }
+}
+
+impl ColumnToVal<chrono::NaiveDateTime> for Column {
+    fn to_val(self) -> Result<chrono::NaiveDateTime, FbError> {
+        let col = self.0.ok_or_else(|| err_column_null("NaiveDateTime"))?;
+
+        match col {
+            ColumnType::Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts)),
+
+            _ => err_type_conv(col, "NaiveDateTime"),
+        }
     }
 }

@@ -4,8 +4,7 @@
 //! fbclient functions and constants
 //!
 
-mod common;
 mod functions;
 
-pub use common::*;
 pub use functions::*;
+pub use rsfbclient_core::ibase::*;
