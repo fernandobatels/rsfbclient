@@ -426,6 +426,7 @@ mod test {
     }
 
     #[test]
+    #[allow(clippy::float_cmp, clippy::excessive_precision)]
     fn fixed_points() -> Result<(), FbError> {
         let mut conn = conn();
 
@@ -460,6 +461,7 @@ mod test {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn float_points() -> Result<(), FbError> {
         let mut conn = conn();
 

@@ -219,11 +219,17 @@ impl TransactionData {
 
         let mut handle = 0;
 
+        // Transaction parameter buffer
+        let tpb = [
+            ibase::isc_tpb_version3 as u8,
+            ibase::isc_tpb_read_committed as u8,
+        ];
+
         #[repr(C)]
         struct IscTeb {
             db_handle: *mut ibase::isc_db_handle,
             tpb_len: usize,
-            tpb_ptr: *mut u8,
+            tpb_ptr: *const u8,
         }
 
         unsafe {
@@ -233,8 +239,8 @@ impl TransactionData {
                 1,
                 &mut IscTeb {
                     db_handle: conn.handle.as_ptr(),
-                    tpb_len: 0,
-                    tpb_ptr: ptr::null_mut(),
+                    tpb_len: tpb.len(),
+                    tpb_ptr: &tpb[0],
                 } as *mut _ as _,
             ) != 0
             {
