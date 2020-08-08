@@ -4,8 +4,6 @@ use std::{
     ptr,
 };
 
-use super::ibase;
-
 pub struct XSqlDa {
     ptr: ptr::NonNull<ibase::XSQLDA>,
     len: i16,

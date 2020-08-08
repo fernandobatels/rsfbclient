@@ -1,12 +1,6 @@
-//!
-//! Rust Firebird Client
-//!
-//! fbclient functions
-//!
+//! Constants, structs and functions from the native fbclient
 
-#![allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]
-
-use super::*;
+pub use rsfbclient_core::ibase::*;
 
 #[cfg(not(feature = "dynamic_loading"))]
 #[derive(Debug, Clone)]
@@ -202,9 +196,9 @@ parse_functions! {
     extern "C" {
         pub fn isc_commit_retaining(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
     }
-    // extern "C" {
-    //     pub fn isc_commit_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
-    // }
+    extern "C" {
+        pub fn isc_commit_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_create_blob(
     //         arg1: *mut ISC_STATUS,

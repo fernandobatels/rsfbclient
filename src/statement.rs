@@ -5,22 +5,21 @@
 //!
 
 use crate::{
-    ibase,
     params::{IntoParams, Params},
     row::{ColumnBuffer, FromRow, Row},
-    status::FbError,
     transaction::{Transaction, TransactionData},
     xsqlda::XSqlDa,
     Connection,
 };
+use rsfbclient_core::{FbError, FirebirdClient};
 use std::ptr;
 
-pub struct Statement<'c> {
-    pub(crate) data: StatementData,
-    pub(crate) conn: &'c Connection,
+pub struct Statement<'c, C: FirebirdClient> {
+    pub(crate) data: StatementData<C::StmtHandle>,
+    pub(crate) conn: &'c Connection<C>,
 }
 
-impl<'c> Statement<'c> {
+impl<'c, C> Statement<'c, C> {
     /// Prepare the statement that will be executed
     pub fn prepare(tr: &mut Transaction<'c>, sql: &str) -> Result<Self, FbError> {
         let data = StatementData::prepare(tr.conn, &mut tr.data, sql)?;
@@ -49,7 +48,7 @@ impl<'c> Statement<'c> {
         &'s mut self,
         tr: &'s mut Transaction,
         params: T,
-    ) -> Result<StatementFetch<'s>, FbError>
+    ) -> Result<StatementFetch<'s, C>, FbError>
     where
         T: IntoParams,
     {
@@ -64,27 +63,27 @@ impl<'c> Statement<'c> {
     }
 }
 
-impl Drop for Statement<'_> {
+impl<C> Drop for Statement<'_, C> {
     fn drop(&mut self) {
         self.data.close(self.conn).ok();
     }
 }
 /// Cursor to fetch the results of a statement
-pub struct StatementFetch<'s> {
-    pub(crate) stmt: &'s mut StatementData,
+pub struct StatementFetch<'s, C: FirebirdClient> {
+    pub(crate) stmt: &'s mut StatementData<C::StmtHandle>,
     pub(crate) buffers: Vec<ColumnBuffer>,
     /// Transaction needs to be alive for the fetch to work
     pub(crate) _tr: &'s Transaction<'s>,
-    pub(crate) conn: &'s Connection,
+    pub(crate) conn: &'s Connection<C>,
 }
 
-impl<'s> StatementFetch<'s> {
+impl<'s, C> StatementFetch<'s, C> {
     /// Fetch for the next row
     pub fn fetch(&mut self) -> Result<Option<Row>, FbError> {
         self.stmt.fetch(self.conn, &mut self.buffers)
     }
 
-    pub fn into_iter<T>(self) -> StatementIter<'s, T>
+    pub fn into_iter<T>(self) -> StatementIter<'s, T, C>
     where
         T: FromRow,
     {
@@ -95,19 +94,19 @@ impl<'s> StatementFetch<'s> {
     }
 }
 
-impl Drop for StatementFetch<'_> {
+impl<C> Drop for StatementFetch<'_, C> {
     fn drop(&mut self) {
         self.stmt.close_cursor(&self.conn).ok();
     }
 }
 
 /// Iterator for the statement results
-pub struct StatementIter<'s, T> {
-    stmt_ft: StatementFetch<'s>,
+pub struct StatementIter<'s, T, C> {
+    stmt_ft: StatementFetch<'s, C>,
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<T> Iterator for StatementIter<'_, T>
+impl<T, C> Iterator for StatementIter<'_, T, C>
 where
     T: FromRow,
 {
@@ -124,15 +123,18 @@ where
 /// Low level statement handler.
 ///
 /// Needs to be closed calling `close` before dropping.
-pub struct StatementData {
-    pub(crate) handle: ibase::isc_stmt_handle,
+pub struct StatementData<H> {
+    pub(crate) handle: H,
     pub(crate) xsqlda: XSqlDa,
 }
 
-impl StatementData {
+impl<H, C> StatementData<H>
+where
+    C: FirebirdClient<StmtHandle = H>,
+{
     /// Prepare the statement that will be executed
     pub fn prepare(
-        conn: &Connection,
+        conn: &Connection<C>,
         tr: &mut TransactionData,
         sql: &str,
     ) -> Result<Self, FbError> {
@@ -175,7 +177,7 @@ impl StatementData {
     /// Use `()` for no parameters or a tuple of parameters
     pub fn execute<T>(
         &mut self,
-        conn: &Connection,
+        conn: &Connection<C>,
         tr: &mut TransactionData,
         params: T,
     ) -> Result<(), FbError>
@@ -221,7 +223,7 @@ impl StatementData {
     /// Use `()` for no parameters or a tuple of parameters
     pub fn query<'s, T>(
         &'s mut self,
-        conn: &'s Connection,
+        conn: &'s Connection<C>,
         tr: &mut TransactionData,
         params: T,
     ) -> Result<Vec<ColumnBuffer>, FbError>
@@ -286,7 +288,7 @@ impl StatementData {
     /// Fetch for the next row, needs to be called after `query`
     pub fn fetch<'a>(
         &mut self,
-        conn: &Connection,
+        conn: &Connection<C>,
         buffers: &'a mut Vec<ColumnBuffer>,
     ) -> Result<Option<Row<'a>>, FbError> {
         let ibase = &conn.ibase;
@@ -315,7 +317,7 @@ impl StatementData {
     }
 
     /// Closes the statement cursor, if it was open
-    pub fn close_cursor(&mut self, conn: &Connection) -> Result<(), FbError> {
+    pub fn close_cursor(&mut self, conn: &Connection<C>) -> Result<(), FbError> {
         let ibase = &conn.ibase;
         let status = &conn.status;
 
@@ -335,7 +337,7 @@ impl StatementData {
     }
 
     /// Closes the statement
-    pub fn close(&mut self, conn: &Connection) -> Result<(), FbError> {
+    pub fn close(&mut self, conn: &Connection<C>) -> Result<(), FbError> {
         let ibase = &conn.ibase;
         let status = &conn.status;
 

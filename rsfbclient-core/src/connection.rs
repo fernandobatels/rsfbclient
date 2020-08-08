@@ -2,7 +2,7 @@
 
 use crate::*;
 
-pub trait FirebirdConnection {
+pub trait FirebirdClient {
     /// A database handle
     type DbHandle;
     /// A transaction handle
@@ -28,7 +28,7 @@ pub trait FirebirdConnection {
     fn begin_transaction(
         &mut self,
         db_handle: Self::DbHandle,
-        tpb: &[u8],
+        isolation_level: TrIsolationLevel,
     ) -> Result<Self::TrHandle, FbError>;
 
     /// Commit / Rollback a transaction
@@ -78,12 +78,29 @@ pub trait FirebirdConnection {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[repr(u16)]
+#[repr(u8)]
 /// Firebird sql dialect
 pub enum Dialect {
     D1 = 1,
     D2 = 2,
     D3 = 3,
+}
+
+#[repr(u8)]
+/// Transaction isolation level
+pub enum TrIsolationLevel {
+    /// Transactions can't see alterations commited after they started
+    Concurrency = ibase::isc_tpb_concurrency as u8,
+    /// Table locking
+    Concistency = ibase::isc_tpb_consistency as u8,
+    /// Transactions can see alterations commited after they started
+    ReadCommited = ibase::isc_tpb_read_committed as u8,
+}
+
+impl Default for TrIsolationLevel {
+    fn default() -> Self {
+        Self::ReadCommited
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -95,17 +112,19 @@ pub enum TrOp {
     RollbackRetaining,
 }
 
+#[repr(u8)]
 /// Drop / Close statement
 pub enum FreeStmtOp {
-    Close,
-    Drop,
+    Close = ibase::DSQL_close as u8,
+    Drop = ibase::DSQL_drop as u8,
 }
 
+#[repr(u8)]
 /// Statement type
 pub enum StmtType {
-    Select,
-    Insert,
-    Update,
-    Delete,
-    DDL,
+    Select = ibase::isc_info_sql_stmt_select as u8,
+    Insert = ibase::isc_info_sql_stmt_insert as u8,
+    Update = ibase::isc_info_sql_stmt_update as u8,
+    Delete = ibase::isc_info_sql_stmt_delete as u8,
+    DDL = ibase::isc_info_sql_stmt_ddl as u8,
 }

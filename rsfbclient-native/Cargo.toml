@@ -1,15 +1,16 @@
 [package]
-name = "rsfbclient-core"
+name = "rsfbclient-native"
 version = "0.1.0"
 authors = ["Luis Fernando Batels <luisfbatels@gmail.com>", "Jairo H Wiethan <jairinhowiethan@gmail.com>"]
 edition = "2018"
 repository = "https://github.com/fernandobatels/rsfbclient"
-keywords = ["firebird", "fbclient", "database"]
+keywords = ["firebird", "fbclient", "database", "ffi"]
 categories = ["database"]
 license = "MIT"
 
 [dependencies]
-chrono = { version = "0.4.13", optional = true }
+rsfbclient-core = { version = "0.1.0", path = "../rsfbclient-core" }
+libloading = { version = "0.6", optional = true }
 
 [features]
-date_time = ["chrono"]
+dynamic_loading = ["libloading"]

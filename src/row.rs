@@ -6,10 +6,8 @@
 
 use std::{convert::TryInto, mem, result::Result};
 
-use super::{
-    ibase,
-    status::{err_buffer_len, err_column_null, err_idx_not_exist, err_type_conv, FbError},
-};
+use super::status::{err_buffer_len, err_column_null, err_idx_not_exist, err_type_conv};
+use rsfbclient_core::FbError;
 use SqlType::*;
 
 /// A database row

@@ -8,21 +8,22 @@ use lru_cache::LruCache;
 use std::collections::HashSet;
 
 use crate::{statement::StatementData, transaction::TransactionData, Connection, FbError};
+use rsfbclient_core::FirebirdClient;
 
 /// Cache of prepared statements.
 ///
 /// Must be emptied by calling `close_all` before dropping.
-pub struct StmtCache {
-    cache: LruCache<String, StatementData>,
+pub struct StmtCache<T> {
+    cache: LruCache<String, StatementData<T>>,
     sqls: HashSet<String>,
 }
 
-pub struct StmtCacheData {
+pub struct StmtCacheData<T> {
     pub(crate) sql: String,
-    pub(crate) stmt: StatementData,
+    pub(crate) stmt: T,
 }
 
-impl StmtCache {
+impl<T> StmtCache<T> {
     pub fn new(capacity: usize) -> Self {
         Self {
             cache: LruCache::new(capacity),
@@ -30,50 +31,8 @@ impl StmtCache {
         }
     }
 
-    /// Get a prepared statement from the cache, or prepare one
-    pub fn get_or_prepare(
-        &mut self,
-        conn: &Connection,
-        tr: &mut TransactionData,
-        sql: &str,
-    ) -> Result<StmtCacheData, FbError> {
-        if let Some(data) = self.get(sql) {
-            Ok(data)
-        } else {
-            Ok(StmtCacheData {
-                sql: sql.to_string(),
-                stmt: StatementData::prepare(conn, tr, sql)?,
-            })
-        }
-    }
-
-    /// Adds a prepared statement to the cache, closing the previous one for this sql
-    /// or another if the cache is full
-    pub fn insert_and_close(
-        &mut self,
-        conn: &Connection,
-        data: StmtCacheData,
-    ) -> Result<(), FbError> {
-        self.sqls.insert(data.sql.clone());
-
-        // Insert the new one and close the old if exists
-        if let Some(mut stmt) = self.insert(data) {
-            stmt.close(conn)?;
-        }
-
-        Ok(())
-    }
-
-    /// Closes all statements in the cache.
-    /// Needs to be called before dropping the cache.
-    pub fn close_all(&mut self, conn: &Connection) {
-        for (_, stmt) in self.cache.iter_mut() {
-            stmt.close(conn).ok();
-        }
-    }
-
     /// Get a prepared statement from the cache
-    fn get(&mut self, sql: &str) -> Option<StmtCacheData> {
+    fn get(&mut self, sql: &str) -> Option<StmtCacheData<T>> {
         if let Some(stmt) = self.cache.remove(sql) {
             let sql = self.sqls.take(sql).unwrap();
 
@@ -85,7 +44,7 @@ impl StmtCache {
 
     /// Adds a prepared statement to the cache, returning the previous one for this sql
     /// or another if the cache is full
-    fn insert(&mut self, data: StmtCacheData) -> Option<StatementData> {
+    fn insert(&mut self, data: StmtCacheData<T>) -> Option<StatementData<T>> {
         if self.sqls.contains(&data.sql) {
             // Insert the new one and return the old
             self.cache.insert(data.sql, data.stmt)
@@ -115,16 +74,60 @@ impl StmtCache {
     }
 }
 
+impl<T, C> StmtCache<T>
+where
+    C: FirebirdClient<StmtHandle = T>,
+{
+    /// Get a prepared statement from the cache, or prepare one
+    pub fn get_or_prepare(
+        &mut self,
+        conn: &Connection<C>,
+        tr: &mut TransactionData<C::TrHandle>,
+        sql: &str,
+    ) -> Result<StmtCacheData<T>, FbError> {
+        if let Some(data) = self.get(sql) {
+            Ok(data)
+        } else {
+            Ok(StmtCacheData {
+                sql: sql.to_string(),
+                stmt: StatementData::prepare(conn, tr, sql)?,
+            })
+        }
+    }
+
+    /// Adds a prepared statement to the cache, closing the previous one for this sql
+    /// or another if the cache is full
+    pub fn insert_and_close(
+        &mut self,
+        conn: &Connection<C>,
+        data: StmtCacheData<T>,
+    ) -> Result<(), FbError> {
+        self.sqls.insert(data.sql.clone());
+
+        // Insert the new one and close the old if exists
+        if let Some(mut stmt) = self.insert(data) {
+            stmt.close(conn)?;
+        }
+
+        Ok(())
+    }
+
+    /// Closes all statements in the cache.
+    /// Needs to be called before dropping the cache.
+    pub fn close_all(&mut self, conn: &Connection<C>) {
+        for (_, stmt) in self.cache.iter_mut() {
+            stmt.close(conn).ok();
+        }
+    }
+}
+
 #[test]
 fn stmt_cache_test() {
     let mut cache = StmtCache::new(2);
 
     let mk_test_data = |n: usize| StmtCacheData {
         sql: format!("sql {}", n),
-        stmt: StatementData {
-            handle: n as _,
-            xsqlda: crate::xsqlda::XSqlDa::new(0),
-        },
+        stmt: n,
     };
 
     let sql1 = mk_test_data(1);

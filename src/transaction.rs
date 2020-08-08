@@ -4,13 +4,10 @@
 //! Transaction functions
 //!
 
+use rsfbclient_core::{FbError, FirebirdClient, TrIsolationLevel, TrOp};
 use std::{marker, ptr};
 
-use super::connection::Connection;
-use super::ibase;
-use super::params::IntoParams;
-use super::statement::Statement;
-use super::status::FbError;
+use super::{connection::Connection, params::IntoParams, statement::Statement};
 use crate::{
     connection::stmt_cache::StmtCacheData,
     params::Params,
@@ -18,14 +15,17 @@ use crate::{
     Execute, Queryable,
 };
 
-pub struct Transaction<'c> {
-    pub(crate) data: TransactionData,
-    pub(crate) conn: &'c Connection,
+pub struct Transaction<'c, C>
+where
+    C: FirebirdClient,
+{
+    pub(crate) data: TransactionData<C::TrHandle>,
+    pub(crate) conn: &'c Connection<C>,
 }
 
-impl<'c> Transaction<'c> {
+impl<'c, C> Transaction<'c, C> {
     /// Start a new transaction
-    pub fn new(conn: &Connection) -> Result<Transaction, FbError> {
+    pub fn new(conn: &Connection<C>) -> Result<Self, FbError> {
         let data = TransactionData::new(conn)?;
 
         Ok(Transaction { data, conn })
@@ -62,32 +62,35 @@ impl<'c> Transaction<'c> {
     }
 
     /// Prepare a new statement for execute
-    pub fn prepare(&mut self, sql: &str) -> Result<Statement<'c>, FbError> {
+    pub fn prepare(&mut self, sql: &str) -> Result<Statement<'c, C>, FbError> {
         Statement::prepare(self, sql)
     }
 }
 
-impl<'c> Drop for Transaction<'c> {
+impl<'c, C> Drop for Transaction<'c, C> {
     fn drop(&mut self) {
         self.data.rollback(self.conn).ok();
     }
 }
 
 /// Variant of the `StatementIter` that uses the statement cache
-pub struct StmtIter<'a, R> {
+pub struct StmtIter<'a, R, C>
+where
+    C: FirebirdClient,
+{
     /// Statement cache data. Wrapped in option to allow taking the value to send back to the cache
-    stmt_cache_data: Option<StmtCacheData>,
+    stmt_cache_data: Option<StmtCacheData<C::StmtHandle>>,
 
     /// Buffers for the column data
     buffers: Vec<ColumnBuffer>,
 
     /// Transaction needs to be alive for the fetch to work
-    tr: &'a Transaction<'a>,
+    tr: &'a Transaction<'a, C>,
 
     _marker: marker::PhantomData<R>,
 }
 
-impl<R> Drop for StmtIter<'_, R> {
+impl<R, C> Drop for StmtIter<'_, R, C> {
     fn drop(&mut self) {
         // Close the cursor
         self.stmt_cache_data
@@ -107,7 +110,7 @@ impl<R> Drop for StmtIter<'_, R> {
     }
 }
 
-impl<R> Iterator for StmtIter<'_, R>
+impl<R, C> Iterator for StmtIter<'_, R, C>
 where
     R: FromRow,
 {
@@ -124,11 +127,11 @@ where
     }
 }
 
-impl<'a, R> Queryable<'a, R> for Transaction<'a>
+impl<'a, R, C> Queryable<'a, R> for Transaction<'a, C>
 where
     R: FromRow + 'a,
 {
-    type Iter = StmtIter<'a, R>;
+    type Iter = StmtIter<'a, R, C>;
 
     /// Prepare, execute and return the rows of the sql query
     ///
@@ -171,7 +174,7 @@ where
     }
 }
 
-impl Execute for Transaction<'_> {
+impl<C> Execute for Transaction<'_, C> {
     /// Prepare and execute the sql query
     ///
     /// Use `()` for no parameters or a tuple of parameters
@@ -207,51 +210,19 @@ impl Execute for Transaction<'_> {
 /// Low level transaction handler.
 ///
 /// Needs to be closed calling `rollback` before dropping.
-pub struct TransactionData {
-    pub(crate) handle: ibase::isc_tr_handle,
+pub struct TransactionData<H> {
+    pub(crate) handle: H,
 }
 
-impl TransactionData {
+impl<H, C> TransactionData<H>
+where
+    C: FirebirdClient<TrHandle = H>,
+{
     /// Start a new transaction
-    fn new(conn: &Connection) -> Result<Self, FbError> {
-        let ibase = &conn.ibase;
-        let status = &conn.status;
-
-        let mut handle = 0;
-
-        // Transaction parameter buffer
-        let tpb = [
-            ibase::isc_tpb_version3 as u8,
-            ibase::isc_tpb_read_committed as u8,
-        ];
-
-        #[repr(C)]
-        struct IscTeb {
-            db_handle: *mut ibase::isc_db_handle,
-            tpb_len: usize,
-            tpb_ptr: *const u8,
-        }
-
-        unsafe {
-            if ibase.isc_start_multiple()(
-                status.borrow_mut().as_mut_ptr(),
-                &mut handle,
-                1,
-                &mut IscTeb {
-                    db_handle: conn.handle.as_ptr(),
-                    tpb_len: tpb.len(),
-                    tpb_ptr: &tpb[0],
-                } as *mut _ as _,
-            ) != 0
-            {
-                return Err(status.borrow().as_error(ibase));
-            }
-        }
-
-        // Assert that the handle is valid
-        debug_assert_ne!(handle, 0);
-
-        Ok(Self { handle })
+    fn new(conn: &Connection<C>) -> Result<Self, FbError> {
+        conn.cli
+            .borrow_mut()
+            .begin_transaction(conn.handle, TrIsolationLevel::ReadCommited)
     }
 
     /// Execute the statement without returning any row
@@ -259,7 +230,7 @@ impl TransactionData {
     /// Use `()` for no parameters or a tuple of parameters
     fn execute_immediate<T>(
         &mut self,
-        conn: &Connection,
+        conn: &Connection<C>,
         sql: &str,
         params: T,
     ) -> Result<(), FbError>
@@ -296,53 +267,26 @@ impl TransactionData {
     }
 
     /// Commit the current transaction changes, but allowing to reuse the transaction
-    pub fn commit_retaining(&mut self, conn: &Connection) -> Result<(), FbError> {
-        let ibase = &conn.ibase;
-        let status = &conn.status;
-
-        unsafe {
-            if ibase.isc_commit_retaining()(status.borrow_mut().as_mut_ptr(), &mut self.handle) != 0
-            {
-                return Err(status.borrow().as_error(ibase));
-            }
-        }
-
+    pub fn commit_retaining(&mut self, conn: &Connection<C>) -> Result<(), FbError> {
+        conn.cli
+            .borrow_mut()
+            .transaction_operation(self.handle, TrOp::CommitRetaining);
         Ok(())
     }
 
     /// Rollback the current transaction changes, but allowing to reuse the transaction
-    pub fn rollback_retaining(&mut self, conn: &Connection) -> Result<(), FbError> {
-        let ibase = &conn.ibase;
-        let status = &conn.status;
-
-        unsafe {
-            if ibase.isc_rollback_retaining()(status.borrow_mut().as_mut_ptr(), &mut self.handle)
-                != 0
-            {
-                return Err(status.borrow().as_error(ibase));
-            }
-        }
-
+    pub fn rollback_retaining(&mut self, conn: &Connection<C>) -> Result<(), FbError> {
+        conn.cli
+            .borrow_mut()
+            .transaction_operation(self.handle, TrOp::RollbackRetaining);
         Ok(())
     }
 
     /// Rollback the transaction, invalidating it
-    pub fn rollback(&mut self, conn: &Connection) -> Result<(), FbError> {
-        let ibase = &conn.ibase;
-        let status = &conn.status;
-
-        // Rollback the transaction, if the handle is valid
-        if self.handle != 0
-            && unsafe {
-                ibase.isc_rollback_transaction()(status.borrow_mut().as_mut_ptr(), &mut self.handle)
-            } != 0
-        {
-            return Err(status.borrow().as_error(ibase));
-        }
-
-        // Assert that the handle is invalid
-        debug_assert_eq!(self.handle, 0);
-
+    pub fn rollback(&mut self, conn: &Connection<C>) -> Result<(), FbError> {
+        conn.cli
+            .borrow_mut()
+            .transaction_operation(self.handle, TrOp::Rollback);
         Ok(())
     }
 }

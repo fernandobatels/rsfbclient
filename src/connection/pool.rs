@@ -17,7 +17,7 @@ impl FirebirdConnectionManager {
 }
 
 impl r2d2::ManageConnection for FirebirdConnectionManager {
-    type Connection = Connection;
+    type Connection = Connection<rsfbclient_native::NativeFbClient>; //TODO: Fix
     type Error = FbError;
 
     fn connect(&self) -> Result<Self::Connection, Self::Error> {

@@ -1,3 +1,6 @@
+//! Types, traits and constants to abstract over the different
+//! implementations of the firebird client
+
 mod column;
 mod connection;
 #[cfg(feature = "date_time")]

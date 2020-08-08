@@ -1,5 +1,4 @@
 use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
-use std::{convert::TryInto, mem};
 
 use crate::{
     error::{err_column_null, err_type_conv},

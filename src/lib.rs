@@ -7,7 +7,6 @@ pub mod prelude {
 }
 
 mod connection;
-mod ibase;
 mod params;
 mod query;
 mod row;
@@ -21,9 +20,9 @@ pub use crate::{
     query::{Execute, Queryable},
     row::Row,
     statement::Statement,
-    status::FbError,
     transaction::Transaction,
 };
+pub use rsfbclient_core::FbError;
 
 #[cfg(feature = "pool")]
 pub use crate::connection::pool::FirebirdConnectionManager;
