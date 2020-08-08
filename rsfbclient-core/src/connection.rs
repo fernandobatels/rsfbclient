@@ -1,14 +1,16 @@
 //! Connection trait to abstract over the client implementations
 
+use num_enum::TryFromPrimitive;
+
 use crate::*;
 
 pub trait FirebirdClient {
     /// A database handle
-    type DbHandle;
+    type DbHandle: Clone + Copy;
     /// A transaction handle
-    type TrHandle;
+    type TrHandle: Clone + Copy;
     /// A statement handle
-    type StmtHandle;
+    type StmtHandle: Clone + Copy;
 
     /// Connect to a database, returning a database handle
     fn attach_database(
@@ -38,6 +40,7 @@ pub trait FirebirdClient {
     /// Execute a sql immediately, without returning rows
     fn exec_immediate(
         &mut self,
+        db_handle: Self::DbHandle,
         tr_handle: Self::TrHandle,
         dialect: Dialect,
         sql: &str,
@@ -66,18 +69,15 @@ pub trait FirebirdClient {
         &mut self,
         tr_handle: Self::TrHandle,
         stmt_handle: Self::StmtHandle,
-        params: &[Param],
+        params: Vec<Param>,
     ) -> Result<(), FbError>;
 
     /// Fetch rows from the executed statement, coercing the types
     /// according to the provided blr
-    fn fetch(
-        &mut self,
-        stmt_handle: Self::StmtHandle,
-    ) -> Result<Option<Vec<Option<Column>>>, FbError>;
+    fn fetch(&mut self, stmt_handle: Self::StmtHandle) -> Result<Option<Vec<Column>>, FbError>;
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[repr(u8)]
 /// Firebird sql dialect
 pub enum Dialect {
@@ -103,7 +103,7 @@ impl Default for TrIsolationLevel {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 /// Commit / Rollback operations
 pub enum TrOp {
     Commit,
@@ -113,6 +113,7 @@ pub enum TrOp {
 }
 
 #[repr(u8)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 /// Drop / Close statement
 pub enum FreeStmtOp {
     Close = ibase::DSQL_close as u8,
@@ -120,6 +121,7 @@ pub enum FreeStmtOp {
 }
 
 #[repr(u8)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, TryFromPrimitive)]
 /// Statement type
 pub enum StmtType {
     Select = ibase::isc_info_sql_stmt_select as u8,
@@ -127,4 +129,13 @@ pub enum StmtType {
     Update = ibase::isc_info_sql_stmt_update as u8,
     Delete = ibase::isc_info_sql_stmt_delete as u8,
     DDL = ibase::isc_info_sql_stmt_ddl as u8,
+    GetSegment = ibase::isc_info_sql_stmt_get_segment as u8,
+    PutSegment = ibase::isc_info_sql_stmt_put_segment as u8,
+    ExecProcedure = ibase::isc_info_sql_stmt_exec_procedure as u8,
+    StartTrans = ibase::isc_info_sql_stmt_start_trans as u8,
+    Commit = ibase::isc_info_sql_stmt_commit as u8,
+    Rollback = ibase::isc_info_sql_stmt_rollback as u8,
+    SelectForUpd = ibase::isc_info_sql_stmt_select_for_upd as u8,
+    SetGenerator = ibase::isc_info_sql_stmt_set_generator as u8,
+    Savepoint = ibase::isc_info_sql_stmt_savepoint as u8,
 }

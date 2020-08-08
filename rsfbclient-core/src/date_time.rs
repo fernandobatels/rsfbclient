@@ -2,7 +2,7 @@ use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 
 use crate::{
     error::{err_column_null, err_type_conv},
-    ibase, Column, ColumnToVal, ColumnType, FbError, Param, ToParam,
+    ibase, Column, ColumnToVal, ColumnType, FbError, IntoParam, Param,
 };
 
 const FRACTION_TO_NANOS: u32 = 1e9 as u32 / ibase::ISC_TIME_SECONDS_PRECISION;
@@ -110,23 +110,23 @@ pub fn encode_timestamp(dt: NaiveDateTime) -> ibase::ISC_TIMESTAMP {
     }
 }
 
-impl ToParam for NaiveDateTime {
-    fn to_param(self) -> Param {
+impl IntoParam for NaiveDateTime {
+    fn into_param(self) -> Param {
         Param::Timestamp(encode_timestamp(self))
     }
 }
 
-impl ToParam for NaiveDate {
-    fn to_param(self) -> Param {
+impl IntoParam for NaiveDate {
+    fn into_param(self) -> Param {
         // Mimics firebird conversion
-        self.and_time(NaiveTime::from_hms(0, 0, 0)).to_param()
+        self.and_time(NaiveTime::from_hms(0, 0, 0)).into_param()
     }
 }
 
-impl ToParam for NaiveTime {
-    fn to_param(self) -> Param {
+impl IntoParam for NaiveTime {
+    fn into_param(self) -> Param {
         // Mimics firebird conversion
-        chrono::Utc::today().naive_utc().and_time(self).to_param()
+        chrono::Utc::today().naive_utc().and_time(self).into_param()
     }
 }
 

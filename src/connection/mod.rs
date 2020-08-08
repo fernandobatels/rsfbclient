@@ -8,24 +8,11 @@
 pub mod pool;
 pub mod stmt_cache;
 
-use rsfbclient_core::{FbError, FirebirdClient};
+use rsfbclient_core::{Dialect, FbError, FirebirdClient, FromRow, IntoParams};
 use std::{cell::RefCell, marker};
 
-use crate::{
-    params::IntoParams,
-    query::Queryable,
-    row::{ColumnBuffer, FromRow},
-    Execute, Transaction,
-};
+use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
-
-#[derive(Debug, Clone, Copy)]
-#[repr(u16)]
-pub enum Dialect {
-    D1 = 1,
-    D2 = 2,
-    D3 = 3,
-}
 
 #[derive(Debug, Clone)]
 /// Builder for creating database connections
@@ -135,7 +122,7 @@ impl ConnectionBuilder {
     pub fn connect(&self) -> Result<Connection<rsfbclient_native::NativeFbClient>, FbError> {
         Connection::open(
             self,
-            rsfbclient_native::NativeFbClient::new(self.host.clone(), self.port.clone()),
+            rsfbclient_native::NativeFbClient::new(self.host.clone(), self.port),
         )
     }
 }
@@ -152,15 +139,18 @@ where
     pub(crate) dialect: Dialect,
 
     /// Cache for the prepared statements
-    pub(crate) stmt_cache: RefCell<StmtCache<C>>,
+    pub(crate) stmt_cache: RefCell<StmtCache<StatementData<C::StmtHandle>>>,
 
     /// Firebird client
     pub(crate) cli: RefCell<C>,
 }
 
-impl<C> Connection<C> {
+impl<C> Connection<C>
+where
+    C: FirebirdClient,
+{
     /// Open a new connection to the remote database
-    fn open(builder: &ConnectionBuilder, cli: C) -> Result<Connection<C>, FbError> {
+    fn open(builder: &ConnectionBuilder, mut cli: C) -> Result<Connection<C>, FbError> {
         let handle = cli.attach_database(&builder.db_name, &builder.user, &builder.pass)?;
 
         let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
@@ -169,7 +159,7 @@ impl<C> Connection<C> {
             handle,
             dialect: builder.dialect,
             stmt_cache,
-            cli,
+            cli: RefCell::new(cli),
         })
     }
 
@@ -206,30 +196,27 @@ impl<C> Connection<C> {
 
     /// Close the current connection. With an `&mut self` to be used in the drop code too
     fn __close(&mut self) -> Result<(), FbError> {
-        self.stmt_cache.get_mut().close_all(self);
+        self.stmt_cache.borrow_mut().close_all(self);
 
         self.cli.get_mut().detach_database(self.handle)?;
-
-        // Assert that the handle is invalid
-        debug_assert_eq!(self.handle.get(), 0);
 
         Ok(())
     }
 }
 
-impl<C> Drop for Connection<C> {
+impl<C> Drop for Connection<C>
+where
+    C: FirebirdClient,
+{
     fn drop(&mut self) {
         self.__close().ok();
     }
 }
 
 /// Variant of the `StatementIter` that owns the `Transaction` and uses the statement cache
-pub struct StmtIter<'a, R, C> {
+pub struct StmtIter<'a, R, C: FirebirdClient> {
     /// Statement cache data. Wrapped in option to allow taking the value to send back to the cache
-    stmt_cache_data: Option<StmtCacheData<C>>,
-
-    /// Buffers for the column data
-    buffers: Vec<ColumnBuffer>,
+    stmt_cache_data: Option<StmtCacheData<StatementData<C::StmtHandle>>>,
 
     /// Transaction needs to be alive for the fetch to work
     tr: Transaction<'a, C>,
@@ -237,7 +224,10 @@ pub struct StmtIter<'a, R, C> {
     _marker: marker::PhantomData<R>,
 }
 
-impl<R, C> Drop for StmtIter<'_, R, C> {
+impl<R, C> Drop for StmtIter<'_, R, C>
+where
+    C: FirebirdClient,
+{
     fn drop(&mut self) {
         // Close the cursor
         self.stmt_cache_data
@@ -263,6 +253,7 @@ impl<R, C> Drop for StmtIter<'_, R, C> {
 impl<R, C> Iterator for StmtIter<'_, R, C>
 where
     R: FromRow,
+    C: FirebirdClient,
 {
     type Item = Result<R, FbError>;
 
@@ -271,8 +262,8 @@ where
             .as_mut()
             .unwrap()
             .stmt
-            .fetch(&self.tr.conn, &mut self.buffers)
-            .and_then(|row| row.map(|row| row.get_all()).transpose())
+            .fetch(&self.tr.conn)
+            .and_then(|row| row.map(FromRow::try_from).transpose())
             .transpose()
     }
 }
@@ -280,6 +271,7 @@ where
 impl<'a, R, C> Queryable<'a, R> for Connection<C>
 where
     R: FromRow + 'a,
+    C: FirebirdClient + 'a,
 {
     type Iter = StmtIter<'a, R, C>;
 
@@ -299,10 +291,9 @@ where
                 .get_or_prepare(self, &mut tr.data, sql)?;
 
         match stmt_cache_data.stmt.query(self, &mut tr.data, params) {
-            Ok(buffers) => {
+            Ok(_) => {
                 let iter = StmtIter {
                     stmt_cache_data: Some(stmt_cache_data),
-                    buffers,
                     tr,
                     _marker: Default::default(),
                 };
@@ -321,7 +312,10 @@ where
     }
 }
 
-impl<C> Execute for Connection<C> {
+impl<C> Execute for Connection<C>
+where
+    C: FirebirdClient,
+{
     /// Prepare, execute and commit the sql query
     ///
     /// Use `()` for no parameters or a tuple of parameters
@@ -393,6 +387,7 @@ mod test {
         assert_eq!(rows, 1);
     }
 
+    // TODO: Fix
     fn setup() -> Connection<rsfbclient_native::NativeFbClient> {
         #[cfg(not(feature = "dynamic_loading"))]
         let conn = ConnectionBuilder::default()

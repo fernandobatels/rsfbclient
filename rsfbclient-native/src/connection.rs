@@ -2,7 +2,8 @@
 
 use rsfbclient_core::*;
 
-use crate::{ibase::IBase, status::Status};
+use crate::{ibase::IBase, params::Params, row::ColumnBuffer, status::Status, xsqlda::XSqlDa};
+use std::{collections::HashMap, convert::TryFrom, ptr};
 
 /// Client that wraps the native fbclient library
 pub struct NativeFbClient {
@@ -10,6 +11,8 @@ pub struct NativeFbClient {
     port: u16,
     ibase: IBase,
     status: Status,
+    /// Output xsqldas and column buffers for the prepared statements
+    stmt_data_map: HashMap<ibase::isc_tr_handle, (XSqlDa, Vec<ColumnBuffer>)>,
 }
 
 impl NativeFbClient {
@@ -20,6 +23,7 @@ impl NativeFbClient {
             port,
             ibase: IBase,
             status: Default::default(),
+            stmt_data_map: Default::default(),
         }
     }
 
@@ -33,6 +37,7 @@ impl NativeFbClient {
                 msg: e.to_string(),
             })?,
             status: Default::default(),
+            xsqlda_map: Default::default(),
         }
     }
 }
@@ -181,42 +186,206 @@ impl FirebirdClient for NativeFbClient {
         }
         Ok(())
     }
+
     fn exec_immediate(
         &mut self,
-        tr_handle: Self::TrHandle,
+        mut db_handle: Self::DbHandle,
+        mut tr_handle: Self::TrHandle,
         dialect: Dialect,
         sql: &str,
     ) -> Result<(), FbError> {
-        todo!()
+        unsafe {
+            if self.ibase.isc_dsql_execute_immediate()(
+                &mut self.status[0],
+                &mut db_handle,
+                &mut tr_handle,
+                sql.len() as u16,
+                sql.as_ptr() as *const _,
+                dialect as u16,
+                ptr::null(),
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+        Ok(())
     }
+
     fn prepare_statement(
         &mut self,
-        db_handle: Self::DbHandle,
-        tr_handle: Self::TrHandle,
+        mut db_handle: Self::DbHandle,
+        mut tr_handle: Self::TrHandle,
         dialect: Dialect,
         sql: &str,
     ) -> Result<(StmtType, Self::StmtHandle), FbError> {
-        todo!()
+        let mut handle = 0;
+
+        let mut xsqlda = XSqlDa::new(1);
+
+        let mut stmt_type = 0;
+
+        unsafe {
+            if self.ibase.isc_dsql_allocate_statement()(
+                &mut self.status[0],
+                &mut db_handle,
+                &mut handle,
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+
+            if self.ibase.isc_dsql_prepare()(
+                &mut self.status[0],
+                &mut tr_handle,
+                &mut handle,
+                sql.len() as u16,
+                sql.as_ptr() as *const _,
+                dialect as u16,
+                &mut *xsqlda,
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+
+            let row_count = xsqlda.sqld;
+
+            if row_count > xsqlda.sqln {
+                // Need more XSQLVARs
+                xsqlda = XSqlDa::new(row_count);
+
+                if self.ibase.isc_dsql_describe()(&mut self.status[0], &mut handle, 1, &mut *xsqlda)
+                    != 0
+                {
+                    return Err(self.status.as_error(&self.ibase));
+                }
+            }
+
+            // Get the statement type
+            let info_req = [ibase::isc_info_sql_stmt_type as i8];
+            let mut info_buf = [0; 10];
+
+            if self.ibase.isc_dsql_sql_info()(
+                &mut self.status[0],
+                &mut handle,
+                info_req.len() as i16,
+                &info_req[0],
+                info_buf.len() as i16,
+                &mut info_buf[0],
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+
+            for &v in &info_buf[3..] {
+                // Search for the data
+                if v != 0 {
+                    stmt_type = v;
+                    break;
+                }
+            }
+        }
+
+        let stmt_type = StmtType::try_from(stmt_type as u8).map_err(|_| FbError {
+            code: -1,
+            msg: format!("Invalid statement type: {}", stmt_type),
+        })?;
+
+        // Create the column buffers and set the xsqlda conercions
+        let col_buffers = (0..xsqlda.sqld)
+            .map(|col| {
+                let xcol = xsqlda.get_xsqlvar_mut(col as usize).unwrap();
+
+                ColumnBuffer::from_xsqlvar(xcol)
+            })
+            .collect::<Result<_, _>>()?;
+
+        self.stmt_data_map.insert(handle, (xsqlda, col_buffers));
+
+        Ok((stmt_type, handle))
     }
+
     fn free_statement(
         &mut self,
-        stmt_handle: Self::StmtHandle,
+        mut stmt_handle: Self::StmtHandle,
         op: FreeStmtOp,
     ) -> Result<(), FbError> {
-        todo!()
+        unsafe {
+            if self.ibase.isc_dsql_free_statement()(
+                &mut self.status[0],
+                &mut stmt_handle,
+                op as u16,
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+
+        if op == FreeStmtOp::Drop {
+            self.stmt_data_map.remove(&stmt_handle);
+        }
+
+        Ok(())
     }
+
     fn execute(
         &mut self,
-        tr_handle: Self::TrHandle,
-        stmt_handle: Self::StmtHandle,
-        params: &[Param],
+        mut tr_handle: Self::TrHandle,
+        mut stmt_handle: Self::StmtHandle,
+        params: Vec<Param>,
     ) -> Result<(), FbError> {
-        todo!()
+        let params = Params::new(&self.ibase, &mut self.status, &mut stmt_handle, params)?;
+
+        unsafe {
+            if self.ibase.isc_dsql_execute()(
+                &mut self.status[0],
+                &mut tr_handle,
+                &mut stmt_handle,
+                1,
+                if let Some(xsqlda) = &params.xsqlda {
+                    &**xsqlda
+                } else {
+                    ptr::null()
+                },
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+
+        // Just to make sure the params are not dropped too soon
+        drop(params);
+
+        Ok(())
     }
-    fn fetch(
-        &mut self,
-        stmt_handle: Self::StmtHandle,
-    ) -> Result<Option<Vec<Option<Column>>>, FbError> {
-        todo!()
+
+    fn fetch(&mut self, mut stmt_handle: Self::StmtHandle) -> Result<Option<Vec<Column>>, FbError> {
+        let (xsqlda, col_buf) = self
+            .stmt_data_map
+            .get(&stmt_handle)
+            .ok_or_else(|| FbError {
+                code: -1,
+                msg: "Tried to fetch a dropped statement".into(),
+            })?;
+
+        unsafe {
+            let fetch_status =
+                self.ibase.isc_dsql_fetch()(&mut self.status[0], &mut stmt_handle, 1, &**xsqlda);
+
+            // 100 indicates that no more rows: http://docwiki.embarcadero.com/InterBase/2020/en/Isc_dsql_fetch()
+            if fetch_status == 100 {
+                return Ok(None);
+            }
+
+            if fetch_status != 0 {
+                return Err(self.status.as_error(&self.ibase));
+            };
+        }
+
+        let cols = col_buf
+            .iter()
+            .map(|cb| cb.to_column())
+            .collect::<Result<_, _>>()?;
+
+        Ok(Some(cols))
     }
 }

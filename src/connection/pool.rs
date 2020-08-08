@@ -25,10 +25,8 @@ impl r2d2::ManageConnection for FirebirdConnectionManager {
     }
 
     fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
-        let mut tr = Transaction::new(&conn)?;
-        let mut stmt = tr.prepare("SELECT 1 FROM RDB$DATABASE")?;
-        stmt.query(&mut tr, ())?;
-
+        // If it can start a transaction, we are ok
+        Transaction::new(&conn)?;
         Ok(())
     }
 

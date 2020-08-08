@@ -8,6 +8,36 @@ use crate::{
 use std::ops::Deref;
 use ColumnType::*;
 
+/// A database row
+pub struct Row {
+    pub cols: Vec<Column>,
+}
+
+impl Row {
+    /// Get the column value by the index
+    pub fn get<T>(&self, idx: usize) -> Result<T, FbError>
+    where
+        Column: ColumnToVal<T>,
+    {
+        if let Some(col) = self.cols.get(idx) {
+            col.clone().to_val()
+        } else {
+            Err(FbError {
+                code: -1,
+                msg: "This index doesn't exists".to_string(),
+            })
+        }
+    }
+
+    /// Get the values for all columns
+    pub fn get_all<T>(self) -> Result<T, FbError>
+    where
+        T: FromRow,
+    {
+        T::try_from(self.cols)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Column(pub Option<ColumnType>);
 
@@ -127,12 +157,12 @@ pub trait FromRow {
 
 /// Allow use of a vector instead of tuples, for when the number of columns are unknow at compile time
 /// or more columns are needed than what can be used with the tuples
-impl FromRow for Vec<Column> {
+impl FromRow for Row {
     fn try_from(row: Vec<Column>) -> Result<Self, FbError>
     where
         Self: Sized,
     {
-        Ok(row)
+        Ok(Row { cols: row })
     }
 }
 

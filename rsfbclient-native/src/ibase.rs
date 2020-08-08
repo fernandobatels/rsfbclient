@@ -375,16 +375,16 @@ parse_functions! {
     //         arg4: ::std::os::raw::c_ushort,
     //     ) -> ISC_STATUS;
     // }
-    // extern "C" {
-    //     pub fn isc_dsql_sql_info(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_stmt_handle,
-    //         arg3: ::std::os::raw::c_short,
-    //         arg4: *const ISC_SCHAR,
-    //         arg5: ::std::os::raw::c_short,
-    //         arg6: *mut ISC_SCHAR,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "C" {
+        pub fn isc_dsql_sql_info(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_stmt_handle,
+            arg3: ::std::os::raw::c_short,
+            arg4: *const ISC_SCHAR,
+            arg5: ::std::os::raw::c_short,
+            arg6: *mut ISC_SCHAR,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_encode_date(arg1: *const ::std::os::raw::c_void, arg2: *mut ISC_QUAD);
     // }

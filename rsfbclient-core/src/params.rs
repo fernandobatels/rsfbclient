@@ -17,19 +17,32 @@ pub enum Param {
     Null,
 }
 
-/// Implemented for types that can be sent as parameters
-pub trait ToParam {
-    fn to_param(self) -> Param;
+impl Param {
+    /// Return the sql type to coerce the data
+    pub fn sql_type(&self) -> u32 {
+        match self {
+            Text(_) => ibase::SQL_TEXT + 1,
+            Integer(_) => ibase::SQL_INT64 + 1,
+            Floating(_) => ibase::SQL_DOUBLE + 1,
+            Timestamp(_) => ibase::SQL_TIMESTAMP + 1,
+            Null => ibase::SQL_TEXT + 1,
+        }
+    }
 }
 
-impl ToParam for String {
-    fn to_param(self) -> Param {
+/// Implemented for types that can be sent as parameters
+pub trait IntoParam {
+    fn into_param(self) -> Param;
+}
+
+impl IntoParam for String {
+    fn into_param(self) -> Param {
         Text(self)
     }
 }
 
-impl ToParam for i64 {
-    fn to_param(self) -> Param {
+impl IntoParam for i64 {
+    fn into_param(self) -> Param {
         Integer(self)
     }
 }
@@ -38,9 +51,9 @@ impl ToParam for i64 {
 macro_rules! impl_param_int {
     ( $( $t: ident ),+ ) => {
         $(
-            impl ToParam for $t {
-                fn to_param(self) -> Param {
-                    (self as i64).to_param()
+            impl IntoParam for $t {
+                fn into_param(self) -> Param {
+                    (self as i64).into_param()
                 }
             }
         )+
@@ -49,26 +62,26 @@ macro_rules! impl_param_int {
 
 impl_param_int!(i32, u32, i16, u16, i8, u8);
 
-impl ToParam for f64 {
-    fn to_param(self) -> Param {
+impl IntoParam for f64 {
+    fn into_param(self) -> Param {
         Floating(self)
     }
 }
 
-impl ToParam for f32 {
-    fn to_param(self) -> Param {
-        (self as f64).to_param()
+impl IntoParam for f32 {
+    fn into_param(self) -> Param {
+        (self as f64).into_param()
     }
 }
 
 /// Implements for all nullable variants
-impl<T> ToParam for Option<T>
+impl<T> IntoParam for Option<T>
 where
-    T: ToParam,
+    T: IntoParam,
 {
-    fn to_param(self) -> Param {
+    fn into_param(self) -> Param {
         if let Some(v) = self {
-            v.to_param()
+            v.into_param()
         } else {
             Null
         }
@@ -76,23 +89,23 @@ where
 }
 
 /// Implements for all borrowed variants (&str, Cow and etc)
-impl<T, B> ToParam for &B
+impl<T, B> IntoParam for &B
 where
     B: ToOwned<Owned = T> + ?Sized,
-    T: core::borrow::Borrow<B> + ToParam,
+    T: core::borrow::Borrow<B> + IntoParam,
 {
-    fn to_param(self) -> Param {
-        self.to_owned().to_param()
+    fn into_param(self) -> Param {
+        self.to_owned().into_param()
     }
 }
 
 /// Implement From / Into conversions
 impl<T> From<T> for Param
 where
-    T: ToParam,
+    T: IntoParam,
 {
     fn from(param: T) -> Self {
-        param.to_param()
+        param.into_param()
     }
 }
 
@@ -121,13 +134,13 @@ macro_rules! impl_into_params {
     ($([$t: ident, $v: ident]),+) => {
         impl<$($t),+> IntoParams for ($($t,)+)
         where
-            $( $t: ToParam, )+
+            $( $t: IntoParam, )+
         {
             fn to_params(self) -> Vec<Param> {
                 let ( $($v,)+ ) = self;
 
                 vec![ $(
-                    $v.to_param(),
+                    $v.into_param(),
                 )+ ]
             }
         }

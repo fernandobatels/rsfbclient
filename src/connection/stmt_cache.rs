@@ -14,7 +14,7 @@ use rsfbclient_core::FirebirdClient;
 ///
 /// Must be emptied by calling `close_all` before dropping.
 pub struct StmtCache<T> {
-    cache: LruCache<String, StatementData<T>>,
+    cache: LruCache<String, T>,
     sqls: HashSet<String>,
 }
 
@@ -23,6 +23,7 @@ pub struct StmtCacheData<T> {
     pub(crate) stmt: T,
 }
 
+/// General functions
 impl<T> StmtCache<T> {
     pub fn new(capacity: usize) -> Self {
         Self {
@@ -44,7 +45,7 @@ impl<T> StmtCache<T> {
 
     /// Adds a prepared statement to the cache, returning the previous one for this sql
     /// or another if the cache is full
-    fn insert(&mut self, data: StmtCacheData<T>) -> Option<StatementData<T>> {
+    fn insert(&mut self, data: StmtCacheData<T>) -> Option<T> {
         if self.sqls.contains(&data.sql) {
             // Insert the new one and return the old
             self.cache.insert(data.sql, data.stmt)
@@ -74,17 +75,21 @@ impl<T> StmtCache<T> {
     }
 }
 
-impl<T, C> StmtCache<T>
+/// Functions specific for when the data is a `StatementData`
+impl<H> StmtCache<StatementData<H>>
 where
-    C: FirebirdClient<StmtHandle = T>,
+    H: Clone + Copy,
 {
     /// Get a prepared statement from the cache, or prepare one
-    pub fn get_or_prepare(
+    pub fn get_or_prepare<C>(
         &mut self,
         conn: &Connection<C>,
         tr: &mut TransactionData<C::TrHandle>,
         sql: &str,
-    ) -> Result<StmtCacheData<T>, FbError> {
+    ) -> Result<StmtCacheData<StatementData<H>>, FbError>
+    where
+        C: FirebirdClient<StmtHandle = H>,
+    {
         if let Some(data) = self.get(sql) {
             Ok(data)
         } else {
@@ -97,11 +102,14 @@ where
 
     /// Adds a prepared statement to the cache, closing the previous one for this sql
     /// or another if the cache is full
-    pub fn insert_and_close(
+    pub fn insert_and_close<C>(
         &mut self,
         conn: &Connection<C>,
-        data: StmtCacheData<T>,
-    ) -> Result<(), FbError> {
+        data: StmtCacheData<StatementData<H>>,
+    ) -> Result<(), FbError>
+    where
+        C: FirebirdClient<StmtHandle = H>,
+    {
         self.sqls.insert(data.sql.clone());
 
         // Insert the new one and close the old if exists
@@ -114,7 +122,10 @@ where
 
     /// Closes all statements in the cache.
     /// Needs to be called before dropping the cache.
-    pub fn close_all(&mut self, conn: &Connection<C>) {
+    pub fn close_all<C>(&mut self, conn: &Connection<C>)
+    where
+        C: FirebirdClient<StmtHandle = H>,
+    {
         for (_, stmt) in self.cache.iter_mut() {
             stmt.close(conn).ok();
         }
@@ -144,7 +155,7 @@ fn stmt_cache_test() {
     assert!(cache.insert(sql2).is_none());
 
     let stmt = cache.insert(sql3).expect("sql1 not returned");
-    assert_eq!(stmt.handle, 1);
+    assert_eq!(stmt, 1);
 
     assert!(cache.get("sql 1").is_none());
 
@@ -153,30 +164,16 @@ fn stmt_cache_test() {
     assert!(cache.insert(sql2).is_none());
 
     let stmt = cache.insert(sql4).expect("sql3 not returned");
-    assert_eq!(stmt.handle, 3);
+    assert_eq!(stmt, 3);
 
     let stmt = cache.insert(sql5).expect("sql2 not returned");
-    assert_eq!(stmt.handle, 2);
+    assert_eq!(stmt, 2);
 
     let stmt = cache.insert(sql6).expect("sql4 not returned");
-    assert_eq!(stmt.handle, 4);
+    assert_eq!(stmt, 4);
 
-    assert_eq!(
-        cache
-            .get("sql 5")
-            .expect("sql5 not in the cache")
-            .stmt
-            .handle,
-        5
-    );
-    assert_eq!(
-        cache
-            .get("sql 6")
-            .expect("sql6 not in the cache")
-            .stmt
-            .handle,
-        6
-    );
+    assert_eq!(cache.get("sql 5").expect("sql5 not in the cache").stmt, 5);
+    assert_eq!(cache.get("sql 6").expect("sql6 not in the cache").stmt, 6);
 
     assert!(cache.cache.is_empty());
     assert!(cache.sqls.is_empty());

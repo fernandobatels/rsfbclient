@@ -4,6 +4,8 @@ use std::{
     ptr,
 };
 
+use crate::ibase;
+
 pub struct XSqlDa {
     ptr: ptr::NonNull<ibase::XSQLDA>,
     len: i16,
