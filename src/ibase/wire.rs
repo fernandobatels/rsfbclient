@@ -94,6 +94,7 @@ impl WireConnection {
 
         let (req, srp) = connect(db_name, false, user, &username, &hostname);
         socket.write_all(&req)?;
+        socket.flush()?;
 
         // May be a bit too much
         let mut buff = vec![0; BUFFER_LENGTH as usize * 2].into_boxed_slice();
@@ -132,11 +133,13 @@ impl WireConnection {
                             AuthPluginType::plugin_list(),
                             &[],
                         ))?;
+                        socket.flush()?;
 
                         read_response(&mut socket, &mut buff)?;
 
                         // Enable wire encryption
                         socket.write_all(&crypt("Arc4", "Symmetric"))?;
+                        socket.flush()?;
 
                         socket = FbStream::Arc4(Arc4Stream::new(
                             match socket {
@@ -172,6 +175,7 @@ impl WireConnection {
     ) -> Result<DbHandle, FbError> {
         self.socket
             .write_all(&attach(db_name, user, pass, self.version))?;
+        self.socket.flush()?;
 
         let resp = self.read_response()?;
 
@@ -181,6 +185,7 @@ impl WireConnection {
     /// Disconnect from the database
     pub fn detach_database(&mut self, db_handle: DbHandle) -> Result<(), FbError> {
         self.socket.write_all(&detach(db_handle.0))?;
+        self.socket.flush()?;
 
         self.read_response()?;
 
@@ -190,6 +195,7 @@ impl WireConnection {
     /// Drop the database
     pub fn drop_database(&mut self, db_handle: DbHandle) -> Result<(), FbError> {
         self.socket.write_all(&drop_database(db_handle.0))?;
+        self.socket.flush()?;
 
         self.read_response()?;
 
@@ -205,6 +211,7 @@ impl WireConnection {
         self.socket
             .write_all(&transaction(db_handle.0, tpb))
             .unwrap();
+        self.socket.flush()?;
 
         let resp = self.read_response()?;
 
@@ -215,6 +222,7 @@ impl WireConnection {
     pub fn transaction_operation(&mut self, tr_handle: TrHandle, op: TrOp) -> Result<(), FbError> {
         self.socket
             .write_all(&transaction_operation(tr_handle.0, op))?;
+        self.socket.flush()?;
 
         self.read_response()?;
 
@@ -231,6 +239,7 @@ impl WireConnection {
         self.socket
             .write_all(&exec_immediate(tr_handle.0, dialect as u32, sql))
             .unwrap();
+        self.socket.flush()?;
 
         self.read_response()?;
 
@@ -249,7 +258,6 @@ impl WireConnection {
     ) -> Result<(StmtType, StmtHandle, Vec<XSqlVar>, usize), FbError> {
         // Alloc statement
         self.socket.write_all(&allocate_statement(db_handle.0))?;
-
         // Prepare statement
         self.socket.write_all(&prepare_statement(
             tr_handle.0,
@@ -257,6 +265,7 @@ impl WireConnection {
             dialect as u32,
             sql,
         ))?;
+        self.socket.flush()?;
 
         let (op_code, mut resp) = self.read_packet()?;
 
@@ -290,6 +299,7 @@ impl WireConnection {
             // Get more info on the types
             self.socket
                 .write_all(&info_sql(stmt_handle.0, xsqlda.len()))?;
+            self.socket.flush()?;
 
             let mut data = self.read_response()?.data;
 
@@ -308,6 +318,7 @@ impl WireConnection {
         op: FreeStmtOp,
     ) -> Result<(), FbError> {
         self.socket.write_all(&free_statement(stmt_handle.0, op))?;
+        self.socket.flush()?;
         // Obs.: Lazy response
         Ok(())
     }
@@ -330,6 +341,7 @@ impl WireConnection {
                 &params.values,
             ))
             .unwrap();
+        self.socket.flush()?;
 
         self.read_response()?;
 
@@ -345,6 +357,7 @@ impl WireConnection {
         blr: &[u8],
     ) -> Result<Option<Vec<Option<ColumnBuffer>>>, FbError> {
         self.socket.write_all(&fetch(stmt_handle.0, &blr))?;
+        self.socket.flush()?;
 
         let (op_code, mut resp) = self.read_packet()?;
 
