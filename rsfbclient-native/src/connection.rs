@@ -7,8 +7,6 @@ use std::{collections::HashMap, convert::TryFrom, ptr};
 
 /// Client that wraps the native fbclient library
 pub struct NativeFbClient {
-    host: String,
-    port: u16,
     ibase: IBase,
     status: Status,
     /// Output xsqldas and column buffers for the prepared statements
@@ -19,83 +17,23 @@ pub struct NativeFbClient {
 /// Arguments to instantiate the client
 pub enum Args {
     #[cfg(feature = "linking")]
-    /// Linking needs host and port only
-    Linking { host: String, port: u16 },
+    Linking,
 
     #[cfg(feature = "dynamic_loading")]
-    /// Dynamic Loading needs host, port and path to the client
+    /// Dynamic Loading needs the path to the client
     DynamicLoading {
-        host: String,
-        port: u16,
         lib_path: String,
     },
 }
 
-impl Args {
-    pub fn set_host(&mut self, new_host: String) {
-        match self {
-            #[cfg(feature = "linking")]
-            Args::Linking { host, .. } => *host = new_host,
-            #[cfg(feature = "dynamic_loading")]
-            Args::DynamicLoading { host, .. } => *host = new_host,
-        }
-    }
-
-    pub fn set_port(&mut self, new_port: u16) {
-        match self {
-            #[cfg(feature = "linking")]
-            Args::Linking { port, .. } => *port = new_port,
-            #[cfg(feature = "dynamic_loading")]
-            Args::DynamicLoading { port, .. } => *port = new_port,
-        }
-    }
-}
-
-impl FirebirdClient for NativeFbClient {
-    type DbHandle = ibase::isc_db_handle;
-    type TrHandle = ibase::isc_tr_handle;
-    type StmtHandle = ibase::isc_stmt_handle;
-
-    type Args = Args;
-
-    fn new(args: Self::Args) -> Result<Self, FbError> {
-        match args {
-            #[cfg(feature = "linking")]
-            Args::Linking { host, port } => Ok(Self {
-                host,
-                port,
-                ibase: IBase::Linking,
-                status: Default::default(),
-                stmt_data_map: Default::default(),
-            }),
-
-            #[cfg(feature = "dynamic_loading")]
-            Args::DynamicLoading {
-                host,
-                port,
-                lib_path,
-            } => Ok(Self {
-                host,
-                port,
-                ibase: IBase::with_client(lib_path).map_err(|e| FbError {
-                    code: -1,
-                    msg: e.to_string(),
-                })?,
-                status: Default::default(),
-                stmt_data_map: Default::default(),
-            }),
-        }
-    }
+impl FirebirdClientEmbeddedAttach<NativeFbClient> for NativeFbClient {
 
     fn attach_database(
         &mut self,
         db_name: &str,
         user: &str,
-        pass: &str,
-    ) -> Result<Self::DbHandle, FbError> {
+    ) -> Result<<NativeFbClient as FirebirdClient>::DbHandle, FbError> {
         let mut handle = 0;
-
-        let is_embedded = self.host.len() == 0;
 
         let dpb = {
             let mut dpb: Vec<u8> = Vec::with_capacity(64);
@@ -104,11 +42,6 @@ impl FirebirdClient for NativeFbClient {
 
             dpb.extend(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
             dpb.extend(user.bytes());
-
-            if !is_embedded {
-                dpb.extend(&[ibase::isc_dpb_password as u8, pass.len() as u8]);
-                dpb.extend(pass.bytes());
-            }
 
             // Makes the database convert the strings to utf-8, allowing non ascii characters
             let charset = b"UTF8";
@@ -119,13 +52,60 @@ impl FirebirdClient for NativeFbClient {
             dpb
         };
 
-        let conn_string = {
-            if is_embedded {
-                db_name.to_string()
-            } else {
-                format!("{}/{}:{}", self.host, self.port, db_name)
+        unsafe {
+            if self.ibase.isc_attach_database()(
+                &mut self.status[0],
+                db_name.len() as i16,
+                db_name.as_ptr() as *const _,
+                &mut handle,
+                dpb.len() as i16,
+                dpb.as_ptr() as *const _,
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
             }
+        }
+
+        // Assert that the handle is valid
+        debug_assert_ne!(handle, 0);
+
+        Ok(handle)
+    }
+}
+
+impl FirebirdClientRemoteAttach<NativeFbClient> for NativeFbClient {
+
+    fn attach_database(
+        &mut self,
+        host: &str,
+        port: u16,
+        db_name: &str,
+        user: &str,
+        pass: &str,
+    ) -> Result<<NativeFbClient as FirebirdClient>::DbHandle, FbError> {
+        let mut handle = 0;
+
+        let dpb = {
+            let mut dpb: Vec<u8> = Vec::with_capacity(64);
+
+            dpb.extend(&[ibase::isc_dpb_version1 as u8]);
+
+            dpb.extend(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
+            dpb.extend(user.bytes());
+
+            dpb.extend(&[ibase::isc_dpb_password as u8, pass.len() as u8]);
+            dpb.extend(pass.bytes());
+
+            // Makes the database convert the strings to utf-8, allowing non ascii characters
+            let charset = b"UTF8";
+
+            dpb.extend(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
+            dpb.extend(charset);
+
+            dpb
         };
+
+        let conn_string = format!("{}/{}:{}", host, port, db_name);
 
         unsafe {
             if self.ibase.isc_attach_database()(
@@ -145,6 +125,37 @@ impl FirebirdClient for NativeFbClient {
         debug_assert_ne!(handle, 0);
 
         Ok(handle)
+    }
+}
+
+impl FirebirdClient for NativeFbClient {
+    type DbHandle = ibase::isc_db_handle;
+    type TrHandle = ibase::isc_tr_handle;
+    type StmtHandle = ibase::isc_stmt_handle;
+
+    type Args = Args;
+
+    fn new(args: Self::Args) -> Result<Self, FbError> {
+        match args {
+            #[cfg(feature = "linking")]
+            Args::Linking => Ok(Self {
+                ibase: IBase::Linking,
+                status: Default::default(),
+                stmt_data_map: Default::default(),
+            }),
+
+            #[cfg(feature = "dynamic_loading")]
+            Args::DynamicLoading {
+                lib_path,
+            } => Ok(Self {
+                ibase: IBase::with_client(lib_path).map_err(|e| FbError {
+                    code: -1,
+                    msg: e.to_string(),
+                })?,
+                status: Default::default(),
+                stmt_data_map: Default::default(),
+            }),
+        }
     }
 
     fn detach_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError> {

@@ -8,17 +8,29 @@
 pub mod pool;
 pub mod stmt_cache;
 
-use rsfbclient_core::{Dialect, FbError, FirebirdClient, FromRow, IntoParams};
+use rsfbclient_core::{Dialect, FbError, FirebirdClient, FirebirdClientEmbeddedAttach, FirebirdClientRemoteAttach, FromRow, IntoParams};
 use std::{cell::RefCell, marker};
 
 use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
 
-/// Builder for creating database connections
+/// The default builder for creating database connections
 pub struct ConnectionBuilder<C: FirebirdClient> {
+    host: String,
+    port: u16,
+    pass: String,
     db_name: String,
     user: String,
-    pass: String,
+    dialect: Dialect,
+    stmt_cache_size: usize,
+    cli_args: C::Args,
+    _cli_type: marker::PhantomData<C>,
+}
+
+/// The builder for creating database connections using the embedded firebird
+pub struct ConnectionBuilderEmbedded<C: FirebirdClient> {
+    db_name: String,
+    user: String,
     dialect: Dialect,
     stmt_cache_size: usize,
     cli_args: C::Args,
@@ -28,6 +40,7 @@ pub struct ConnectionBuilder<C: FirebirdClient> {
 /// The `PhantomMarker` makes it not Sync, but it is not true,
 /// as the `ConnectionBuilder` does not store `C`
 unsafe impl<C> Sync for ConnectionBuilder<C> where C: FirebirdClient {}
+unsafe impl<C> Sync for ConnectionBuilderEmbedded<C> where C: FirebirdClient {}
 
 impl<C> Clone for ConnectionBuilder<C>
 where
@@ -36,8 +49,10 @@ where
     fn clone(&self) -> Self {
         Self {
             db_name: self.db_name.clone(),
-            user: self.user.clone(),
             pass: self.pass.clone(),
+            port: self.port.clone(),
+            host: self.host.clone(),
+            user: self.user.clone(),
             dialect: self.dialect,
             stmt_cache_size: self.stmt_cache_size,
             cli_args: self.cli_args.clone(),
@@ -52,15 +67,14 @@ impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
     /// Uses the firebird client linked with the application at compile time
     pub fn linked() -> Self {
         Self {
+            host: "localhost".to_string(),
+            port: 3050,
             db_name: "test.fdb".to_string(),
             user: "SYSDBA".to_string(),
             pass: "masterkey".to_string(),
             dialect: Dialect::D3,
             stmt_cache_size: 20,
-            cli_args: rsfbclient_native::Args::Linking {
-                host: "localhost".to_string(),
-                port: 3050,
-            },
+            cli_args: rsfbclient_native::Args::Linking,
             _cli_type: Default::default(),
         }
     }
@@ -85,44 +99,51 @@ impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
     /// ```
     pub fn with_client<S: Into<String>>(fbclient: S) -> Self {
         Self {
+            host: "localhost".to_string(),
+            port: 3050,
             db_name: "test.fdb".to_string(),
             user: "SYSDBA".to_string(),
             pass: "masterkey".to_string(),
             dialect: Dialect::D3,
             stmt_cache_size: 20,
             cli_args: rsfbclient_native::Args::DynamicLoading {
-                host: "localhost".to_string(),
-                port: 3050,
                 lib_path: fbclient.into(),
             },
             _cli_type: Default::default(),
         }
     }
 
-    /// Hostname or IP address of the server. Default: localhost
-    pub fn host<S: Into<String>>(&mut self, host: S) -> &mut Self {
-        self.cli_args.set_host(host.into());
-        self
-    }
-
-    /// TCP Port of the server. Default: 3050
-    pub fn port(&mut self, port: u16) -> &mut Self {
-        self.cli_args.set_port(port);
-        self
-    }
-
     /// Force the embedded server utilization. Host, port and pass
     /// will be ignored.
-    pub fn embedded(&mut self) -> &mut Self {
-        self.cli_args.set_host(String::new());
-        self
+    pub fn embedded(self) -> ConnectionBuilderEmbedded<rsfbclient_native::NativeFbClient> {
+        ConnectionBuilderEmbedded {
+            db_name: self.db_name,
+            user: self.user,
+            dialect: self.dialect,
+            stmt_cache_size: self.stmt_cache_size,
+            cli_args: self.cli_args,
+            _cli_type: Default::default(),
+        }
     }
 }
 
 impl<C> ConnectionBuilder<C>
 where
-    C: FirebirdClient,
+    C: FirebirdClient + FirebirdClientRemoteAttach<C>,
 {
+
+    /// Hostname or IP address of the server. Default: localhost
+    pub fn host<S: Into<String>>(&mut self, host: S) -> &mut Self {
+        self.host = host.into();
+        self
+    }
+
+    /// TCP Port of the server. Default: 3050
+    pub fn port(&mut self, port: u16) -> &mut Self {
+        self.port = port;
+        self
+    }
+
     /// Database name or path. Default: test.fdb
     pub fn db_name<S: Into<String>>(&mut self, db_name: S) -> &mut Self {
         self.db_name = db_name.into();
@@ -155,7 +176,42 @@ where
 
     /// Open a new connection to the database
     pub fn connect(&self) -> Result<Connection<C>, FbError> {
-        Connection::open(self, C::new(self.cli_args.clone())?)
+        Connection::open_remote(self, C::new(self.cli_args.clone())?)
+    }
+}
+
+impl<C> ConnectionBuilderEmbedded<C>
+where
+    C: FirebirdClientEmbeddedAttach<C> + FirebirdClient,
+{
+
+    /// Database name or path. Default: test.fdb
+    pub fn db_name<S: Into<String>>(&mut self, db_name: S) -> &mut Self {
+        self.db_name = db_name.into();
+        self
+    }
+
+    /// Username. Default: SYSDBA
+    pub fn user<S: Into<String>>(&mut self, user: S) -> &mut Self {
+        self.user = user.into();
+        self
+    }
+
+    /// SQL Dialect. Default: 3
+    pub fn dialect(&mut self, dialect: Dialect) -> &mut Self {
+        self.dialect = dialect;
+        self
+    }
+
+    /// Statement cache size. Default: 20
+    pub fn stmt_cache_size(&mut self, stmt_cache_size: usize) -> &mut Self {
+        self.stmt_cache_size = stmt_cache_size;
+        self
+    }
+
+    /// Open a new connection to the database
+    pub fn connect(&self) -> Result<Connection<C>, FbError> {
+        Connection::open_embedded(self, C::new(self.cli_args.clone())?)
     }
 }
 
@@ -179,11 +235,11 @@ where
 
 impl<C> Connection<C>
 where
-    C: FirebirdClient,
+    C: FirebirdClientRemoteAttach<C> + FirebirdClient,
 {
-    /// Open a new connection to the remote database
-    fn open(builder: &ConnectionBuilder<C>, mut cli: C) -> Result<Connection<C>, FbError> {
-        let handle = cli.attach_database(&builder.db_name, &builder.user, &builder.pass)?;
+    /// Open a new connection to the database
+    fn open_remote(builder: &ConnectionBuilder<C>, mut cli: C) -> Result<Connection<C>, FbError> {
+        let handle = cli.attach_database(&builder.host, builder.port, &builder.db_name, &builder.user, &builder.pass)?;
 
         let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
 
@@ -194,7 +250,31 @@ where
             cli: RefCell::new(cli),
         })
     }
+}
 
+impl<C> Connection<C>
+where
+    C: FirebirdClientEmbeddedAttach<C> + FirebirdClient,
+{
+    /// Open a new connection to the database
+    fn open_embedded(builder: &ConnectionBuilderEmbedded<C>, mut cli: C) -> Result<Connection<C>, FbError> {
+        let handle = cli.attach_database(&builder.db_name, &builder.user)?;
+
+        let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
+
+        Ok(Connection {
+            handle,
+            dialect: builder.dialect,
+            stmt_cache,
+            cli: RefCell::new(cli),
+        })
+    }
+}
+
+impl<C> Connection<C>
+where
+    C: FirebirdClient,
+{
     /// Drop the current database
     pub fn drop_database(mut self) -> Result<(), FbError> {
         self.cli.get_mut().drop_database(self.handle)?;
