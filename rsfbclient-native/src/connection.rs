@@ -95,6 +95,8 @@ impl FirebirdClient for NativeFbClient {
     ) -> Result<Self::DbHandle, FbError> {
         let mut handle = 0;
 
+        let is_embedded = self.host.len() == 0;
+
         let dpb = {
             let mut dpb: Vec<u8> = Vec::with_capacity(64);
 
@@ -103,8 +105,10 @@ impl FirebirdClient for NativeFbClient {
             dpb.extend(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
             dpb.extend(user.bytes());
 
-            dpb.extend(&[ibase::isc_dpb_password as u8, pass.len() as u8]);
-            dpb.extend(pass.bytes());
+            if !is_embedded {
+                dpb.extend(&[ibase::isc_dpb_password as u8, pass.len() as u8]);
+                dpb.extend(pass.bytes());
+            }
 
             // Makes the database convert the strings to utf-8, allowing non ascii characters
             let charset = b"UTF8";
@@ -115,7 +119,13 @@ impl FirebirdClient for NativeFbClient {
             dpb
         };
 
-        let conn_string = format!("{}/{}:{}", self.host, self.port, db_name);
+        let conn_string = {
+            if is_embedded {
+                db_name.to_string()
+            } else {
+                format!("{}/{}:{}", self.host, self.port, db_name)
+            }
+        };
 
         unsafe {
             if self.ibase.isc_attach_database()(

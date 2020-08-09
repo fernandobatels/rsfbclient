@@ -110,6 +110,13 @@ impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
         self.cli_args.set_port(port);
         self
     }
+
+    /// Force the embedded server utilization. Host, port and pass
+    /// will be ignored.
+    pub fn embedded(&mut self) -> &mut Self {
+        self.cli_args.set_host(String::new());
+        self
+    }
 }
 
 impl<C> ConnectionBuilder<C>
