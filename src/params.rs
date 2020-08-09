@@ -187,7 +187,6 @@ mod test {
         Ok(())
     }
 
-    // TODO: Fix
     fn conn() -> Connection<rsfbclient_native::NativeFbClient> {
         #[cfg(not(feature = "dynamic_loading"))]
         let conn = crate::ConnectionBuilder::default()
@@ -196,7 +195,6 @@ mod test {
 
         #[cfg(feature = "dynamic_loading")]
         let conn = crate::ConnectionBuilder::with_client("./fbclient.lib")
-            .expect("Error finding fbclient lib")
             .connect()
             .expect("Error on connect the test database");
 

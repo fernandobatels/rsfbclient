@@ -28,8 +28,8 @@ impl NativeFbClient {
     }
 
     #[cfg(feature = "dynamic_loading")]
-    pub fn new(host: String, port: u16, lib_path: String) -> Result<Self, FbError> {
-        Self {
+    pub fn new(host: String, port: u16, lib_path: &str) -> Result<Self, FbError> {
+        Ok(Self {
             host,
             port,
             ibase: IBase::new(lib_path).map_err(|e| FbError {
@@ -37,8 +37,8 @@ impl NativeFbClient {
                 msg: e.to_string(),
             })?,
             status: Default::default(),
-            xsqlda_map: Default::default(),
-        }
+            stmt_data_map: Default::default(),
+        })
     }
 }
 

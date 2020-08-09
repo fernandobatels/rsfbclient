@@ -24,8 +24,11 @@ pub struct ConnectionBuilder {
     pass: String,
     dialect: Dialect,
     stmt_cache_size: usize,
+    #[cfg(all(feature = "native", feature = "dynamic_loading"))]
+    fbclient_path: String
 }
 
+#[cfg(all(feature = "native", not(feature = "dynamic_loading")))]
 impl Default for ConnectionBuilder {
     fn default() -> Self {
         Self {
@@ -41,7 +44,7 @@ impl Default for ConnectionBuilder {
 }
 
 impl ConnectionBuilder {
-    #[cfg(feature = "dynamic_loading")]
+    #[cfg(all(feature = "native", feature = "dynamic_loading"))]
     /// Searches for the firebird client at runtime, in the specified path.
     ///
     /// # Example
@@ -59,8 +62,8 @@ impl ConnectionBuilder {
     /// // folder where the executable was run
     /// ConnectionBuilder::with_client("./fbclient.lib");
     /// ```
-    pub fn with_client(fbclient: &str) -> Result<Self, FbError> {
-        Ok(Self {
+    pub fn with_client<S: Into<String>>(fbclient: S) -> Self {
+        Self {
             host: "localhost".to_string(),
             port: 3050,
             db_name: "test.fdb".to_string(),
@@ -68,11 +71,8 @@ impl ConnectionBuilder {
             pass: "masterkey".to_string(),
             dialect: Dialect::D3,
             stmt_cache_size: 20,
-            ibase: ibase::IBase::new(fbclient).map_err(|e| FbError {
-                code: -1,
-                msg: e.to_string(),
-            })?,
-        })
+            fbclient_path: fbclient.into()
+        }
     }
 
     /// Hostname or IP address of the server. Default: localhost
@@ -123,6 +123,15 @@ impl ConnectionBuilder {
         Connection::open(
             self,
             rsfbclient_native::NativeFbClient::new(self.host.clone(), self.port),
+        )
+    }
+
+    #[cfg(all(feature = "native", feature = "dynamic_loading"))]
+    /// Open a new connection to the database
+    pub fn connect(&self) -> Result<Connection<rsfbclient_native::NativeFbClient>, FbError> {
+        Connection::open(
+            self,
+            rsfbclient_native::NativeFbClient::new(self.host.clone(), self.port, &self.fbclient_path)?,
         )
     }
 }
@@ -360,7 +369,6 @@ mod test {
 
         #[cfg(feature = "dynamic_loading")]
         let conn = ConnectionBuilder::with_client("./fbclient.lib")
-            .expect("Error finding fbclient lib")
             .connect()
             .expect("Error on connect the test database");
 
@@ -387,7 +395,6 @@ mod test {
         assert_eq!(rows, 1);
     }
 
-    // TODO: Fix
     fn setup() -> Connection<rsfbclient_native::NativeFbClient> {
         #[cfg(not(feature = "dynamic_loading"))]
         let conn = ConnectionBuilder::default()
@@ -396,7 +403,6 @@ mod test {
 
         #[cfg(feature = "dynamic_loading")]
         let conn = ConnectionBuilder::with_client("./fbclient.lib")
-            .expect("Error finding fbclient lib")
             .connect()
             .expect("Error on connect the test database");
 

@@ -21,7 +21,7 @@ fn main() -> Result<(), FbError> {
         .connect()?;
 
     #[cfg(feature = "dynamic_loading")]
-    let conn = ConnectionBuilder::with_client("./fbclient.lib")?
+    let conn = ConnectionBuilder::with_client("./fbclient.lib")
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")
