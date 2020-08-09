@@ -2,14 +2,16 @@
 //! Rust Firebird Client
 //!
 
+#[cfg(test)]
+#[macro_use]
+pub(crate) mod tests;
+
 pub mod prelude {
     pub use crate::query::{Execute, Queryable};
 }
 
 mod connection;
-mod params;
 mod query;
-mod row;
 mod statement;
 mod transaction;
 

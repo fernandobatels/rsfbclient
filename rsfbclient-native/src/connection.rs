@@ -15,30 +15,39 @@ pub struct NativeFbClient {
     stmt_data_map: HashMap<ibase::isc_tr_handle, (XSqlDa, Vec<ColumnBuffer>)>,
 }
 
-impl NativeFbClient {
-    #[cfg(not(feature = "dynamic_loading"))]
-    pub fn new(host: String, port: u16) -> Self {
-        Self {
-            host,
-            port,
-            ibase: IBase,
-            status: Default::default(),
-            stmt_data_map: Default::default(),
+#[derive(Clone)]
+/// Arguments to instantiate the client
+pub enum Args {
+    #[cfg(feature = "linking")]
+    /// Linking needs host and port only
+    Linking { host: String, port: u16 },
+
+    #[cfg(feature = "dynamic_loading")]
+    /// Dynamic Loading needs host, port and path to the client
+    DynamicLoading {
+        host: String,
+        port: u16,
+        lib_path: String,
+    },
+}
+
+impl Args {
+    pub fn set_host(&mut self, new_host: String) {
+        match self {
+            #[cfg(feature = "linking")]
+            Args::Linking { host, .. } => *host = new_host,
+            #[cfg(feature = "dynamic_loading")]
+            Args::DynamicLoading { host, .. } => *host = new_host,
         }
     }
 
-    #[cfg(feature = "dynamic_loading")]
-    pub fn new(host: String, port: u16, lib_path: &str) -> Result<Self, FbError> {
-        Ok(Self {
-            host,
-            port,
-            ibase: IBase::new(lib_path).map_err(|e| FbError {
-                code: -1,
-                msg: e.to_string(),
-            })?,
-            status: Default::default(),
-            stmt_data_map: Default::default(),
-        })
+    pub fn set_port(&mut self, new_port: u16) {
+        match self {
+            #[cfg(feature = "linking")]
+            Args::Linking { port, .. } => *port = new_port,
+            #[cfg(feature = "dynamic_loading")]
+            Args::DynamicLoading { port, .. } => *port = new_port,
+        }
     }
 }
 
@@ -46,6 +55,37 @@ impl FirebirdClient for NativeFbClient {
     type DbHandle = ibase::isc_db_handle;
     type TrHandle = ibase::isc_tr_handle;
     type StmtHandle = ibase::isc_stmt_handle;
+
+    type Args = Args;
+
+    fn new(args: Self::Args) -> Result<Self, FbError> {
+        match args {
+            #[cfg(feature = "linking")]
+            Args::Linking { host, port } => Ok(Self {
+                host,
+                port,
+                ibase: IBase::Linking,
+                status: Default::default(),
+                stmt_data_map: Default::default(),
+            }),
+
+            #[cfg(feature = "dynamic_loading")]
+            Args::DynamicLoading {
+                host,
+                port,
+                lib_path,
+            } => Ok(Self {
+                host,
+                port,
+                ibase: IBase::with_client(lib_path).map_err(|e| FbError {
+                    code: -1,
+                    msg: e.to_string(),
+                })?,
+                status: Default::default(),
+                stmt_data_map: Default::default(),
+            }),
+        }
+    }
 
     fn attach_database(
         &mut self,

@@ -4,13 +4,20 @@ use num_enum::TryFromPrimitive;
 
 use crate::*;
 
-pub trait FirebirdClient {
+pub trait FirebirdClient: Send {
     /// A database handle
-    type DbHandle: Clone + Copy;
+    type DbHandle: Send + Clone + Copy;
     /// A transaction handle
-    type TrHandle: Clone + Copy;
+    type TrHandle: Send + Clone + Copy;
     /// A statement handle
-    type StmtHandle: Clone + Copy;
+    type StmtHandle: Send + Clone + Copy;
+
+    /// Arguments to instantiate the client
+    type Args: Send + Sync + Clone;
+
+    fn new(args: Self::Args) -> Result<Self, FbError>
+    where
+        Self: Sized;
 
     /// Connect to a database, returning a database handle
     fn attach_database(

@@ -2,24 +2,24 @@
 
 pub use rsfbclient_core::ibase::*;
 
-#[cfg(not(feature = "dynamic_loading"))]
-#[derive(Debug, Clone)]
-pub struct IBase;
+pub enum IBase {
+    #[cfg(feature = "linking")]
+    /// Use the fbclient linked with the application at compile time
+    Linking,
+    #[cfg(feature = "dynamic_loading")]
+    /// Use the fbclient loaded at runtime
+    DynamicLoading(std::sync::Arc<libloading::Library>),
+}
 
-#[cfg(feature = "dynamic_loading")]
-#[derive(Debug, Clone)]
-pub struct IBase(std::sync::Arc<libloading::Library>);
-
-#[cfg(feature = "dynamic_loading")]
 impl IBase {
-    pub fn new(fbclient: &str) -> Result<Self, libloading::Error> {
-        Ok(Self(std::sync::Arc::new(libloading::Library::new(
-            fbclient,
-        )?)))
+    #[cfg(feature = "dynamic_loading")]
+    pub fn with_client(fbclient: String) -> Result<Self, libloading::Error> {
+        Ok(Self::DynamicLoading(std::sync::Arc::new(
+            libloading::Library::new(fbclient)?,
+        )))
     }
 }
 
-#[cfg(feature = "dynamic_loading")]
 /// Registers the fbclient functions loaded from the library
 macro_rules! parse_functions {
     ( $(
@@ -30,28 +30,19 @@ macro_rules! parse_functions {
         impl IBase {
             $(
                 pub unsafe fn $name(&self) -> unsafe extern "C" fn($( $param )*) $( -> $ret )? {
-                    *self.0.get( stringify!($name).as_bytes() ).unwrap()
-                }
-            )*
-        }
-    }
-}
-
-#[cfg(not(feature = "dynamic_loading"))]
-/// Just passes the functions as they are
-macro_rules! parse_functions {
-    ( $(
-        extern "C" {
-            pub fn $name:ident( $( $param:tt )* ) $( -> $ret:ty )?;
-        }
-    )* ) => {
-        impl IBase {
-            $(
-                pub unsafe fn $name(&self) -> unsafe extern "C" fn($( $param )*) $( -> $ret )? {
-                    extern "C" {
-                        pub fn $name( $( $param )* ) $( -> $ret )?;
+                    match self {
+                        #[cfg(feature = "linking")]
+                        Self::Linking => {
+                            extern "C" {
+                                pub fn $name( $( $param )* ) $( -> $ret )?;
+                            }
+                            $name
+                        }
+                        #[cfg(feature = "dynamic_loading")]
+                        Self::DynamicLoading(lib) => {
+                            *lib.get( stringify!($name).as_bytes() ).unwrap()
+                        }
                     }
-                    $name
                 }
             )*
         }

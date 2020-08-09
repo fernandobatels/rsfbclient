@@ -13,8 +13,8 @@
 use rsfbclient::{prelude::*, ConnectionBuilder, FbError};
 
 fn main() -> Result<(), FbError> {
-    #[cfg(not(feature = "dynamic_loading"))]
-    let mut conn = ConnectionBuilder::default()
+    #[cfg(feature = "linking")]
+    let mut conn = ConnectionBuilder::linked()
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")

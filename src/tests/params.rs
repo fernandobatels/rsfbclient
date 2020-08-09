@@ -1,11 +1,16 @@
-#[cfg(test)]
-mod test {
+//!
+//! Rust Firebird Client
+//!
+//! Parameter tests
+//!
+
+mk_tests_default! {
     use crate::{prelude::*, Connection, FbError};
     use chrono::{NaiveDate, NaiveTime};
 
     #[test]
     fn dates() -> Result<(), FbError> {
-        let mut conn = conn();
+        let mut conn = connect();
 
         conn.execute("DROP TABLE PDATES", ()).ok();
         conn.execute(
@@ -48,7 +53,7 @@ mod test {
 
     #[test]
     fn strings() -> Result<(), FbError> {
-        let mut conn = conn();
+        let mut conn = connect();
 
         conn.execute("DROP TABLE PSTRINGS", ()).ok();
         conn.execute(
@@ -81,7 +86,7 @@ mod test {
 
     #[test]
     fn fixed_points() -> Result<(), FbError> {
-        let mut conn = conn();
+        let mut conn = connect();
 
         conn.execute("DROP TABLE PFIXEDS", ()).ok();
         conn.execute(
@@ -104,7 +109,7 @@ mod test {
 
     #[test]
     fn float_points() -> Result<(), FbError> {
-        let mut conn = conn();
+        let mut conn = connect();
 
         conn.execute("DROP TABLE PFLOATS", ()).ok();
         conn.execute(
@@ -134,7 +139,7 @@ mod test {
 
     #[test]
     fn ints() -> Result<(), FbError> {
-        let mut conn = conn();
+        let mut conn = connect();
 
         conn.execute("DROP TABLE PINTEGERS", ()).ok();
         conn.execute(
@@ -175,7 +180,7 @@ mod test {
 
     #[test]
     fn null() -> Result<(), FbError> {
-        let mut conn = conn();
+        let mut conn = connect();
 
         let res: Option<(i32,)> = conn.query_first(
             "select 1 from rdb$database where 1 = ? ",
@@ -185,19 +190,5 @@ mod test {
         assert!(res.is_none());
 
         Ok(())
-    }
-
-    fn conn() -> Connection<rsfbclient_native::NativeFbClient> {
-        #[cfg(not(feature = "dynamic_loading"))]
-        let conn = crate::ConnectionBuilder::default()
-            .connect()
-            .expect("Error on connect the test database");
-
-        #[cfg(feature = "dynamic_loading")]
-        let conn = crate::ConnectionBuilder::with_client("./fbclient.lib")
-            .connect()
-            .expect("Error on connect the test database");
-
-        conn
     }
 }

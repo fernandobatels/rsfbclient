@@ -1,4 +1,4 @@
 fn main() {
-    #[cfg(not(feature = "dynamic_loading"))]
+    #[cfg(feature = "linking")]
     println!("cargo:rustc-link-lib=dylib=fbclient");
 }
