@@ -8,28 +8,11 @@
 pub mod pool;
 pub mod stmt_cache;
 
-use std::{
-    cell::{Cell, RefCell},
-    marker,
-};
+use rsfbclient_core::{Dialect, FbError, FirebirdClient, FromRow, IntoParams};
+use std::{cell::RefCell, marker};
 
-use crate::{
-    ibase,
-    params::IntoParams,
-    query::Queryable,
-    row::{ColumnBuffer, FromRow},
-    status::{FbError, Status},
-    Execute, Transaction,
-};
+use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
-
-#[derive(Debug, Clone, Copy)]
-#[repr(u16)]
-pub enum Dialect {
-    D1 = 1,
-    D2 = 2,
-    D3 = 3,
-}
 
 #[derive(Debug, Clone)]
 /// Builder for creating database connections
@@ -41,10 +24,11 @@ pub struct ConnectionBuilder {
     pass: String,
     dialect: Dialect,
     stmt_cache_size: usize,
-    ibase: ibase::IBase,
+    #[cfg(all(feature = "native", feature = "dynamic_loading"))]
+    fbclient_path: String,
 }
 
-#[cfg(not(feature = "dynamic_loading"))]
+#[cfg(all(feature = "native", not(feature = "dynamic_loading")))]
 impl Default for ConnectionBuilder {
     fn default() -> Self {
         Self {
@@ -55,13 +39,12 @@ impl Default for ConnectionBuilder {
             pass: "masterkey".to_string(),
             dialect: Dialect::D3,
             stmt_cache_size: 20,
-            ibase: ibase::IBase,
         }
     }
 }
 
 impl ConnectionBuilder {
-    #[cfg(feature = "dynamic_loading")]
+    #[cfg(all(feature = "native", feature = "dynamic_loading"))]
     /// Searches for the firebird client at runtime, in the specified path.
     ///
     /// # Example
@@ -79,8 +62,8 @@ impl ConnectionBuilder {
     /// // folder where the executable was run
     /// ConnectionBuilder::with_client("./fbclient.lib");
     /// ```
-    pub fn with_client(fbclient: &str) -> Result<Self, FbError> {
-        Ok(Self {
+    pub fn with_client<S: Into<String>>(fbclient: S) -> Self {
+        Self {
             host: "localhost".to_string(),
             port: 3050,
             db_name: "test.fdb".to_string(),
@@ -88,11 +71,8 @@ impl ConnectionBuilder {
             pass: "masterkey".to_string(),
             dialect: Dialect::D3,
             stmt_cache_size: 20,
-            ibase: ibase::IBase::new(fbclient).map_err(|e| FbError {
-                code: -1,
-                msg: e.to_string(),
-            })?,
-        })
+            fbclient_path: fbclient.into(),
+        }
     }
 
     /// Hostname or IP address of the server. Default: localhost
@@ -137,99 +117,68 @@ impl ConnectionBuilder {
         self
     }
 
+    #[cfg(all(feature = "native", not(feature = "dynamic_loading")))]
     /// Open a new connection to the database
-    pub fn connect(&self) -> Result<Connection, FbError> {
-        Connection::open(self)
+    pub fn connect(&self) -> Result<Connection<rsfbclient_native::NativeFbClient>, FbError> {
+        Connection::open(
+            self,
+            rsfbclient_native::NativeFbClient::new(self.host.clone(), self.port),
+        )
+    }
+
+    #[cfg(all(feature = "native", feature = "dynamic_loading"))]
+    /// Open a new connection to the database
+    pub fn connect(&self) -> Result<Connection<rsfbclient_native::NativeFbClient>, FbError> {
+        Connection::open(
+            self,
+            rsfbclient_native::NativeFbClient::new(
+                self.host.clone(),
+                self.port,
+                &self.fbclient_path,
+            )?,
+        )
     }
 }
 
 /// A connection to a firebird database
-pub struct Connection {
+pub struct Connection<C>
+where
+    C: FirebirdClient,
+{
     /// Database handler
-    pub(crate) handle: Cell<ibase::isc_db_handle>,
-
-    /// Status for the client calls
-    pub(crate) status: RefCell<Status>,
+    pub(crate) handle: C::DbHandle,
 
     /// Firebird dialect for the statements
     pub(crate) dialect: Dialect,
 
     /// Cache for the prepared statements
-    pub(crate) stmt_cache: RefCell<StmtCache>,
+    pub(crate) stmt_cache: RefCell<StmtCache<StatementData<C::StmtHandle>>>,
 
-    /// Firebird client functions
-    pub(crate) ibase: ibase::IBase,
+    /// Firebird client
+    pub(crate) cli: RefCell<C>,
 }
 
-impl Connection {
+impl<C> Connection<C>
+where
+    C: FirebirdClient,
+{
     /// Open a new connection to the remote database
-    fn open(builder: &ConnectionBuilder) -> Result<Connection, FbError> {
-        let ibase = builder.ibase.clone();
-
-        let handle = Cell::new(0);
-        let status: RefCell<Status> = Default::default();
-
-        let dpb = {
-            let mut dpb: Vec<u8> = Vec::with_capacity(64);
-
-            dpb.extend(&[ibase::isc_dpb_version1 as u8]);
-
-            dpb.extend(&[ibase::isc_dpb_user_name as u8, builder.user.len() as u8]);
-            dpb.extend(builder.user.bytes());
-
-            dpb.extend(&[ibase::isc_dpb_password as u8, builder.pass.len() as u8]);
-            dpb.extend(builder.pass.bytes());
-
-            // Makes the database convert the strings to utf-8, allowing non ascii characters
-            let charset = b"UTF-8";
-
-            dpb.extend(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
-            dpb.extend(charset);
-
-            dpb
-        };
-
-        let conn_string = format!("{}/{}:{}", builder.host, builder.port, builder.db_name);
-
-        unsafe {
-            if ibase.isc_attach_database()(
-                status.borrow_mut().as_mut_ptr(),
-                conn_string.len() as i16,
-                conn_string.as_ptr() as *const _,
-                handle.as_ptr(),
-                dpb.len() as i16,
-                dpb.as_ptr() as *const _,
-            ) != 0
-            {
-                return Err(status.borrow().as_error(&ibase));
-            }
-        }
-
-        // Assert that the handle is valid
-        debug_assert_ne!(handle.get(), 0);
+    fn open(builder: &ConnectionBuilder, mut cli: C) -> Result<Connection<C>, FbError> {
+        let handle = cli.attach_database(&builder.db_name, &builder.user, &builder.pass)?;
 
         let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
 
         Ok(Connection {
             handle,
-            status,
             dialect: builder.dialect,
             stmt_cache,
-            ibase,
+            cli: RefCell::new(cli),
         })
     }
 
     /// Drop the current database
-    pub fn drop_database(self) -> Result<(), FbError> {
-        unsafe {
-            if self.ibase.isc_drop_database()(
-                self.status.borrow_mut().as_mut_ptr(),
-                self.handle.as_ptr(),
-            ) != 0
-            {
-                return Err(self.status.borrow().as_error(&self.ibase));
-            }
-        }
+    pub fn drop_database(mut self) -> Result<(), FbError> {
+        self.cli.get_mut().drop_database(self.handle)?;
 
         Ok(())
     }
@@ -238,7 +187,7 @@ impl Connection {
     /// the transaction will rollback, else it will be committed
     pub fn with_transaction<T>(
         &self,
-        closure: impl FnOnce(&mut Transaction) -> Result<T, FbError>,
+        closure: impl FnOnce(&mut Transaction<C>) -> Result<T, FbError>,
     ) -> Result<T, FbError> {
         let mut tr = Transaction::new(self)?;
 
@@ -262,46 +211,36 @@ impl Connection {
     fn __close(&mut self) -> Result<(), FbError> {
         self.stmt_cache.borrow_mut().close_all(self);
 
-        unsafe {
-            // Close the connection, if the handle is valid
-            if self.handle.get() != 0
-                && self.ibase.isc_detach_database()(
-                    self.status.borrow_mut().as_mut_ptr(),
-                    self.handle.as_ptr(),
-                ) != 0
-            {
-                return Err(self.status.borrow().as_error(&self.ibase));
-            }
-        }
-
-        // Assert that the handle is invalid
-        debug_assert_eq!(self.handle.get(), 0);
+        self.cli.get_mut().detach_database(self.handle)?;
 
         Ok(())
     }
 }
 
-impl Drop for Connection {
+impl<C> Drop for Connection<C>
+where
+    C: FirebirdClient,
+{
     fn drop(&mut self) {
         self.__close().ok();
     }
 }
 
 /// Variant of the `StatementIter` that owns the `Transaction` and uses the statement cache
-pub struct StmtIter<'a, R> {
+pub struct StmtIter<'a, R, C: FirebirdClient> {
     /// Statement cache data. Wrapped in option to allow taking the value to send back to the cache
-    stmt_cache_data: Option<StmtCacheData>,
-
-    /// Buffers for the column data
-    buffers: Vec<ColumnBuffer>,
+    stmt_cache_data: Option<StmtCacheData<StatementData<C::StmtHandle>>>,
 
     /// Transaction needs to be alive for the fetch to work
-    tr: Transaction<'a>,
+    tr: Transaction<'a, C>,
 
     _marker: marker::PhantomData<R>,
 }
 
-impl<R> Drop for StmtIter<'_, R> {
+impl<R, C> Drop for StmtIter<'_, R, C>
+where
+    C: FirebirdClient,
+{
     fn drop(&mut self) {
         // Close the cursor
         self.stmt_cache_data
@@ -324,9 +263,10 @@ impl<R> Drop for StmtIter<'_, R> {
     }
 }
 
-impl<R> Iterator for StmtIter<'_, R>
+impl<R, C> Iterator for StmtIter<'_, R, C>
 where
     R: FromRow,
+    C: FirebirdClient,
 {
     type Item = Result<R, FbError>;
 
@@ -335,17 +275,18 @@ where
             .as_mut()
             .unwrap()
             .stmt
-            .fetch(&self.tr.conn, &mut self.buffers)
-            .and_then(|row| row.map(|row| row.get_all()).transpose())
+            .fetch(&self.tr.conn)
+            .and_then(|row| row.map(FromRow::try_from).transpose())
             .transpose()
     }
 }
 
-impl<'a, R> Queryable<'a, R> for Connection
+impl<'a, R, C> Queryable<'a, R> for Connection<C>
 where
     R: FromRow + 'a,
+    C: FirebirdClient + 'a,
 {
-    type Iter = StmtIter<'a, R>;
+    type Iter = StmtIter<'a, R, C>;
 
     /// Prepare, execute, return the rows and commit the sql query
     ///
@@ -363,10 +304,9 @@ where
                 .get_or_prepare(self, &mut tr.data, sql)?;
 
         match stmt_cache_data.stmt.query(self, &mut tr.data, params) {
-            Ok(buffers) => {
+            Ok(_) => {
                 let iter = StmtIter {
                     stmt_cache_data: Some(stmt_cache_data),
-                    buffers,
                     tr,
                     _marker: Default::default(),
                 };
@@ -385,7 +325,10 @@ where
     }
 }
 
-impl Execute for Connection {
+impl<C> Execute for Connection<C>
+where
+    C: FirebirdClient,
+{
     /// Prepare, execute and commit the sql query
     ///
     /// Use `()` for no parameters or a tuple of parameters
@@ -430,7 +373,6 @@ mod test {
 
         #[cfg(feature = "dynamic_loading")]
         let conn = ConnectionBuilder::with_client("./fbclient.lib")
-            .expect("Error finding fbclient lib")
             .connect()
             .expect("Error on connect the test database");
 
@@ -457,7 +399,7 @@ mod test {
         assert_eq!(rows, 1);
     }
 
-    fn setup() -> Connection {
+    fn setup() -> Connection<rsfbclient_native::NativeFbClient> {
         #[cfg(not(feature = "dynamic_loading"))]
         let conn = ConnectionBuilder::default()
             .connect()
@@ -465,7 +407,6 @@ mod test {
 
         #[cfg(feature = "dynamic_loading")]
         let conn = ConnectionBuilder::with_client("./fbclient.lib")
-            .expect("Error finding fbclient lib")
             .connect()
             .expect("Error on connect the test database");
 

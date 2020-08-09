@@ -1,12 +1,6 @@
-//!
-//! Rust Firebird Client
-//!
-//! fbclient functions
-//!
+//! Constants, structs and functions from the native fbclient
 
-#![allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]
-
-use super::common::*;
+pub use rsfbclient_core::ibase::*;
 
 #[cfg(not(feature = "dynamic_loading"))]
 #[derive(Debug, Clone)]
@@ -202,9 +196,9 @@ parse_functions! {
     extern "C" {
         pub fn isc_commit_retaining(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
     }
-    // extern "C" {
-    //     pub fn isc_commit_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
-    // }
+    extern "C" {
+        pub fn isc_commit_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_create_blob(
     //         arg1: *mut ISC_STATUS,
@@ -381,16 +375,16 @@ parse_functions! {
     //         arg4: ::std::os::raw::c_ushort,
     //     ) -> ISC_STATUS;
     // }
-    // extern "C" {
-    //     pub fn isc_dsql_sql_info(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_stmt_handle,
-    //         arg3: ::std::os::raw::c_short,
-    //         arg4: *const ISC_SCHAR,
-    //         arg5: ::std::os::raw::c_short,
-    //         arg6: *mut ISC_SCHAR,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "C" {
+        pub fn isc_dsql_sql_info(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_stmt_handle,
+            arg3: ::std::os::raw::c_short,
+            arg4: *const ISC_SCHAR,
+            arg5: ::std::os::raw::c_short,
+            arg6: *mut ISC_SCHAR,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_encode_date(arg1: *const ::std::os::raw::c_void, arg2: *mut ISC_QUAD);
     // }

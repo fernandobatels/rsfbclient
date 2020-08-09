@@ -1,10 +1,11 @@
-//!
-//! Rust Firebird Client
-//!
-//! fbclient constants and typedefs
-//!
+//! FbClient constants and typedefs
 
-#![allow(non_upper_case_globals, dead_code, non_camel_case_types)]
+#![allow(
+    non_upper_case_globals,
+    dead_code,
+    non_camel_case_types,
+    clippy::redundant_static_lifetimes
+)]
 
 pub const FB_API_VER: u32 = 30;
 pub const ISC_TRUE: u32 = 1;

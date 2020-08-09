@@ -17,7 +17,7 @@ impl FirebirdConnectionManager {
 }
 
 impl r2d2::ManageConnection for FirebirdConnectionManager {
-    type Connection = Connection;
+    type Connection = Connection<rsfbclient_native::NativeFbClient>; //TODO: Fix
     type Error = FbError;
 
     fn connect(&self) -> Result<Self::Connection, Self::Error> {
@@ -25,10 +25,8 @@ impl r2d2::ManageConnection for FirebirdConnectionManager {
     }
 
     fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
-        let mut tr = Transaction::new(&conn)?;
-        let mut stmt = tr.prepare("SELECT 1 FROM RDB$DATABASE")?;
-        stmt.query(&mut tr, ())?;
-
+        // If it can start a transaction, we are ok
+        Transaction::new(&conn)?;
         Ok(())
     }
 

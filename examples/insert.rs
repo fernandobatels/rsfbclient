@@ -21,7 +21,7 @@ fn main() -> Result<(), FbError> {
         .connect()?;
 
     #[cfg(feature = "dynamic_loading")]
-    let conn = ConnectionBuilder::with_client("./fbclient.lib")?
+    let conn = ConnectionBuilder::with_client("./fbclient.lib")
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")
@@ -33,7 +33,7 @@ fn main() -> Result<(), FbError> {
         tr.execute(SQL_INSERT, (94, "Banana"))?;
 
         // Second alternative
-        tr.execute_immediate(SQL_INSERT, (-39, "test"))?;
+        // tr.execute_immediate(SQL_INSERT, (-39, "test"))?;
 
         // Third alternative
         {

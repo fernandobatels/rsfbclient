@@ -15,8 +15,7 @@ fn main() {
         let mut builder = ConnectionBuilder::default();
 
         #[cfg(feature = "dynamic_loading")]
-        let mut builder =
-            ConnectionBuilder::with_client("./fbclient.lib").expect("Unable to find fbclient.lib");
+        let mut builder = ConnectionBuilder::with_client("./fbclient.lib");
 
         builder
             .host("localhost")
