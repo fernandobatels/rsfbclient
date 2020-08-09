@@ -21,13 +21,10 @@ pub enum Args {
 
     #[cfg(feature = "dynamic_loading")]
     /// Dynamic Loading needs the path to the client
-    DynamicLoading {
-        lib_path: String,
-    },
+    DynamicLoading { lib_path: String },
 }
 
 impl FirebirdClientEmbeddedAttach<NativeFbClient> for NativeFbClient {
-
     fn attach_database(
         &mut self,
         db_name: &str,
@@ -74,7 +71,6 @@ impl FirebirdClientEmbeddedAttach<NativeFbClient> for NativeFbClient {
 }
 
 impl FirebirdClientRemoteAttach<NativeFbClient> for NativeFbClient {
-
     fn attach_database(
         &mut self,
         host: &str,
@@ -145,9 +141,7 @@ impl FirebirdClient for NativeFbClient {
             }),
 
             #[cfg(feature = "dynamic_loading")]
-            Args::DynamicLoading {
-                lib_path,
-            } => Ok(Self {
+            Args::DynamicLoading { lib_path } => Ok(Self {
                 ibase: IBase::with_client(lib_path).map_err(|e| FbError {
                     code: -1,
                     msg: e.to_string(),

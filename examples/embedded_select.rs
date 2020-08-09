@@ -21,7 +21,10 @@ fn main() -> Result<(), FbError> {
         .user("SYSDBA")
         .connect()?;
 
-    let rows: Vec<(String, String)> = conn.query("select mon$attachment_name, mon$user from mon$attachments", ())?;
+    let rows: Vec<(String, String)> = conn.query(
+        "select mon$attachment_name, mon$user from mon$attachments",
+        (),
+    )?;
 
     for row in rows {
         println!("Attachment {}, user {}", row.0, row.1);

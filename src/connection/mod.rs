@@ -8,7 +8,10 @@
 pub mod pool;
 pub mod stmt_cache;
 
-use rsfbclient_core::{Dialect, FbError, FirebirdClient, FirebirdClientEmbeddedAttach, FirebirdClientRemoteAttach, FromRow, IntoParams};
+use rsfbclient_core::{
+    Dialect, FbError, FirebirdClient, FirebirdClientEmbeddedAttach, FirebirdClientRemoteAttach,
+    FromRow, IntoParams,
+};
 use std::{cell::RefCell, marker};
 
 use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
@@ -131,7 +134,6 @@ impl<C> ConnectionBuilder<C>
 where
     C: FirebirdClient + FirebirdClientRemoteAttach<C>,
 {
-
     /// Hostname or IP address of the server. Default: localhost
     pub fn host<S: Into<String>>(&mut self, host: S) -> &mut Self {
         self.host = host.into();
@@ -184,7 +186,6 @@ impl<C> ConnectionBuilderEmbedded<C>
 where
     C: FirebirdClientEmbeddedAttach<C> + FirebirdClient,
 {
-
     /// Database name or path. Default: test.fdb
     pub fn db_name<S: Into<String>>(&mut self, db_name: S) -> &mut Self {
         self.db_name = db_name.into();
@@ -239,7 +240,13 @@ where
 {
     /// Open a new connection to the database
     fn open_remote(builder: &ConnectionBuilder<C>, mut cli: C) -> Result<Connection<C>, FbError> {
-        let handle = cli.attach_database(&builder.host, builder.port, &builder.db_name, &builder.user, &builder.pass)?;
+        let handle = cli.attach_database(
+            &builder.host,
+            builder.port,
+            &builder.db_name,
+            &builder.user,
+            &builder.pass,
+        )?;
 
         let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
 
@@ -257,7 +264,10 @@ where
     C: FirebirdClientEmbeddedAttach<C> + FirebirdClient,
 {
     /// Open a new connection to the database
-    fn open_embedded(builder: &ConnectionBuilderEmbedded<C>, mut cli: C) -> Result<Connection<C>, FbError> {
+    fn open_embedded(
+        builder: &ConnectionBuilderEmbedded<C>,
+        mut cli: C,
+    ) -> Result<Connection<C>, FbError> {
         let handle = cli.attach_database(&builder.db_name, &builder.user)?;
 
         let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
