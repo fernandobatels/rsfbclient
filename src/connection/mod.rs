@@ -25,7 +25,7 @@ pub struct ConnectionBuilder {
     dialect: Dialect,
     stmt_cache_size: usize,
     #[cfg(all(feature = "native", feature = "dynamic_loading"))]
-    fbclient_path: String
+    fbclient_path: String,
 }
 
 #[cfg(all(feature = "native", not(feature = "dynamic_loading")))]
@@ -71,7 +71,7 @@ impl ConnectionBuilder {
             pass: "masterkey".to_string(),
             dialect: Dialect::D3,
             stmt_cache_size: 20,
-            fbclient_path: fbclient.into()
+            fbclient_path: fbclient.into(),
         }
     }
 
@@ -131,7 +131,11 @@ impl ConnectionBuilder {
     pub fn connect(&self) -> Result<Connection<rsfbclient_native::NativeFbClient>, FbError> {
         Connection::open(
             self,
-            rsfbclient_native::NativeFbClient::new(self.host.clone(), self.port, &self.fbclient_path)?,
+            rsfbclient_native::NativeFbClient::new(
+                self.host.clone(),
+                self.port,
+                &self.fbclient_path,
+            )?,
         )
     }
 }
