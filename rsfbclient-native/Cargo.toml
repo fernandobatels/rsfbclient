@@ -13,4 +13,5 @@ rsfbclient-core = { version = "0.1.0", path = "../rsfbclient-core" }
 libloading = { version = "0.6", optional = true }
 
 [features]
+linking = []
 dynamic_loading = ["libloading"]

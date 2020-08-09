@@ -14,37 +14,58 @@ use std::{cell::RefCell, marker};
 use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
 
-#[derive(Debug, Clone)]
 /// Builder for creating database connections
-pub struct ConnectionBuilder {
-    host: String,
-    port: u16,
+pub struct ConnectionBuilder<C: FirebirdClient> {
     db_name: String,
     user: String,
     pass: String,
     dialect: Dialect,
     stmt_cache_size: usize,
-    #[cfg(all(feature = "native", feature = "dynamic_loading"))]
-    fbclient_path: String,
+    cli_args: C::Args,
+    _cli_type: marker::PhantomData<C>,
 }
 
-#[cfg(all(feature = "native", not(feature = "dynamic_loading")))]
-impl Default for ConnectionBuilder {
-    fn default() -> Self {
+/// The `PhantomMarker` makes it not Sync, but it is not true,
+/// as the `ConnectionBuilder` does not store `C`
+unsafe impl<C> Sync for ConnectionBuilder<C> where C: FirebirdClient {}
+
+impl<C> Clone for ConnectionBuilder<C>
+where
+    C: FirebirdClient,
+{
+    fn clone(&self) -> Self {
         Self {
-            host: "localhost".to_string(),
-            port: 3050,
+            db_name: self.db_name.clone(),
+            user: self.user.clone(),
+            pass: self.pass.clone(),
+            dialect: self.dialect,
+            stmt_cache_size: self.stmt_cache_size,
+            cli_args: self.cli_args.clone(),
+            _cli_type: Default::default(),
+        }
+    }
+}
+
+#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
+impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
+    #[cfg(feature = "linking")]
+    /// Uses the firebird client linked with the application at compile time
+    pub fn linked() -> Self {
+        Self {
             db_name: "test.fdb".to_string(),
             user: "SYSDBA".to_string(),
             pass: "masterkey".to_string(),
             dialect: Dialect::D3,
             stmt_cache_size: 20,
+            cli_args: rsfbclient_native::Args::Linking {
+                host: "localhost".to_string(),
+                port: 3050,
+            },
+            _cli_type: Default::default(),
         }
     }
-}
 
-impl ConnectionBuilder {
-    #[cfg(all(feature = "native", feature = "dynamic_loading"))]
+    #[cfg(feature = "dynamic_loading")]
     /// Searches for the firebird client at runtime, in the specified path.
     ///
     /// # Example
@@ -64,29 +85,37 @@ impl ConnectionBuilder {
     /// ```
     pub fn with_client<S: Into<String>>(fbclient: S) -> Self {
         Self {
-            host: "localhost".to_string(),
-            port: 3050,
             db_name: "test.fdb".to_string(),
             user: "SYSDBA".to_string(),
             pass: "masterkey".to_string(),
             dialect: Dialect::D3,
             stmt_cache_size: 20,
-            fbclient_path: fbclient.into(),
+            cli_args: rsfbclient_native::Args::DynamicLoading {
+                host: "localhost".to_string(),
+                port: 3050,
+                lib_path: fbclient.into(),
+            },
+            _cli_type: Default::default(),
         }
     }
 
     /// Hostname or IP address of the server. Default: localhost
     pub fn host<S: Into<String>>(&mut self, host: S) -> &mut Self {
-        self.host = host.into();
+        self.cli_args.set_host(host.into());
         self
     }
 
     /// TCP Port of the server. Default: 3050
     pub fn port(&mut self, port: u16) -> &mut Self {
-        self.port = port;
+        self.cli_args.set_port(port);
         self
     }
+}
 
+impl<C> ConnectionBuilder<C>
+where
+    C: FirebirdClient,
+{
     /// Database name or path. Default: test.fdb
     pub fn db_name<S: Into<String>>(&mut self, db_name: S) -> &mut Self {
         self.db_name = db_name.into();
@@ -117,26 +146,9 @@ impl ConnectionBuilder {
         self
     }
 
-    #[cfg(all(feature = "native", not(feature = "dynamic_loading")))]
     /// Open a new connection to the database
-    pub fn connect(&self) -> Result<Connection<rsfbclient_native::NativeFbClient>, FbError> {
-        Connection::open(
-            self,
-            rsfbclient_native::NativeFbClient::new(self.host.clone(), self.port),
-        )
-    }
-
-    #[cfg(all(feature = "native", feature = "dynamic_loading"))]
-    /// Open a new connection to the database
-    pub fn connect(&self) -> Result<Connection<rsfbclient_native::NativeFbClient>, FbError> {
-        Connection::open(
-            self,
-            rsfbclient_native::NativeFbClient::new(
-                self.host.clone(),
-                self.port,
-                &self.fbclient_path,
-            )?,
-        )
+    pub fn connect(&self) -> Result<Connection<C>, FbError> {
+        Connection::open(self, C::new(self.cli_args.clone())?)
     }
 }
 
@@ -163,7 +175,7 @@ where
     C: FirebirdClient,
 {
     /// Open a new connection to the remote database
-    fn open(builder: &ConnectionBuilder, mut cli: C) -> Result<Connection<C>, FbError> {
+    fn open(builder: &ConnectionBuilder<C>, mut cli: C) -> Result<Connection<C>, FbError> {
         let handle = cli.attach_database(&builder.db_name, &builder.user, &builder.pass)?;
 
         let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
@@ -361,55 +373,49 @@ where
 }
 
 #[cfg(test)]
-mod test {
-    use crate::*;
+mk_tests! {
+    tests {
+        use crate::*;
 
-    #[test]
-    fn remote_connection() {
-        #[cfg(not(feature = "dynamic_loading"))]
-        let conn = ConnectionBuilder::default()
-            .connect()
-            .expect("Error on connect the test database");
+        #[test]
+        fn remote_connection() {
+            let conn = connect();
 
-        #[cfg(feature = "dynamic_loading")]
-        let conn = ConnectionBuilder::with_client("./fbclient.lib")
-            .connect()
-            .expect("Error on connect the test database");
-
-        conn.close().expect("error closing the connection");
-    }
-
-    #[test]
-    fn query_iter() {
-        let mut conn = setup();
-
-        let mut rows = 0;
-
-        for row in conn
-            .query_iter("SELECT -3 FROM RDB$DATABASE WHERE 1 = ?", (1,))
-            .expect("Error on the query")
-        {
-            let (v,): (i32,) = row.expect("");
-
-            assert_eq!(v, -3);
-
-            rows += 1;
+            conn.close().expect("error closing the connection");
         }
 
-        assert_eq!(rows, 1);
+        #[test]
+        fn query_iter() {
+            let mut conn = connect();
+
+            let mut rows = 0;
+
+            for row in conn
+                .query_iter("SELECT -3 FROM RDB$DATABASE WHERE 1 = ?", (1,))
+                .expect("Error on the query")
+            {
+                let (v,): (i32,) = row.expect("");
+
+                assert_eq!(v, -3);
+
+                rows += 1;
+            }
+
+            assert_eq!(rows, 1);
+        }
     }
 
-    fn setup() -> Connection<rsfbclient_native::NativeFbClient> {
-        #[cfg(not(feature = "dynamic_loading"))]
-        let conn = ConnectionBuilder::default()
-            .connect()
-            .expect("Error on connect the test database");
+    #[cfg(feature = "linking")]
+    for linking -> Connection<rsfbclient_native::NativeFbClient> {
+        ConnectionBuilder::linked()
+                .connect()
+                .expect("Error on connect the test database")
+    }
 
-        #[cfg(feature = "dynamic_loading")]
-        let conn = ConnectionBuilder::with_client("./fbclient.lib")
-            .connect()
-            .expect("Error on connect the test database");
-
-        conn
+    #[cfg(feature = "dynamic_loading")]
+    for dynamic_loading -> Connection<rsfbclient_native::NativeFbClient> {
+        ConnectionBuilder::with_client("libfbclient.so")
+                .connect()
+                .expect("Error on connect the test database")
     }
 }

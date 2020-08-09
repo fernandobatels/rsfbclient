@@ -11,8 +11,8 @@ use std::time::Duration;
 
 fn main() {
     let builder = {
-        #[cfg(not(feature = "dynamic_loading"))]
-        let mut builder = ConnectionBuilder::default();
+        #[cfg(feature = "linking")]
+        let mut builder = ConnectionBuilder::linked();
 
         #[cfg(feature = "dynamic_loading")]
         let mut builder = ConnectionBuilder::with_client("./fbclient.lib");

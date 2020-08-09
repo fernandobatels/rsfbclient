@@ -12,8 +12,8 @@ use rsfbclient::{prelude::*, ConnectionBuilder, FbError};
 const SQL_INSERT: &str = "insert into test (col_b, col_c) values (?, ?)";
 
 fn main() -> Result<(), FbError> {
-    #[cfg(not(feature = "dynamic_loading"))]
-    let conn = ConnectionBuilder::default()
+    #[cfg(feature = "linking")]
+    let conn = ConnectionBuilder::linked()
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")

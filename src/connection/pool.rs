@@ -5,19 +5,26 @@
 //!
 
 use crate::{Connection, ConnectionBuilder, FbError, Transaction};
+use rsfbclient_core::FirebirdClient;
 
-pub struct FirebirdConnectionManager {
-    conn_builder: ConnectionBuilder,
+pub struct FirebirdConnectionManager<C: FirebirdClient> {
+    conn_builder: ConnectionBuilder<C>,
 }
 
-impl FirebirdConnectionManager {
-    pub fn new(conn_builder: ConnectionBuilder) -> Self {
+impl<C> FirebirdConnectionManager<C>
+where
+    C: FirebirdClient,
+{
+    pub fn new(conn_builder: ConnectionBuilder<C>) -> Self {
         Self { conn_builder }
     }
 }
 
-impl r2d2::ManageConnection for FirebirdConnectionManager {
-    type Connection = Connection<rsfbclient_native::NativeFbClient>; //TODO: Fix
+impl<C> r2d2::ManageConnection for FirebirdConnectionManager<C>
+where
+    C: FirebirdClient + 'static,
+{
+    type Connection = Connection<C>;
     type Error = FbError;
 
     fn connect(&self) -> Result<Self::Connection, Self::Error> {

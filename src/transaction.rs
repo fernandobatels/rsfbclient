@@ -216,7 +216,7 @@ pub struct TransactionData<H> {
 
 impl<H> TransactionData<H>
 where
-    H: Clone + Copy,
+    H: Send + Clone + Copy,
 {
     /// Start a new transaction
     fn new<C>(conn: &Connection<C>) -> Result<Self, FbError>

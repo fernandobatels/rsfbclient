@@ -126,7 +126,7 @@ pub struct StatementData<H> {
 
 impl<H> StatementData<H>
 where
-    H: Clone + Copy,
+    H: Send + Clone + Copy,
 {
     /// Prepare the statement that will be executed
     pub fn prepare<C>(

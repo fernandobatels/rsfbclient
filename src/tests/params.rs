@@ -1,0 +1,206 @@
+//!
+//! Rust Firebird Client
+//!
+//! Parameter tests
+//!
+
+use crate::{prelude::*, Connection, FbError};
+use chrono::{NaiveDate, NaiveTime};
+
+#[test]
+fn dates() -> Result<(), FbError> {
+    let mut conn = conn();
+
+    conn.execute("DROP TABLE PDATES", ()).ok();
+    conn.execute(
+        "CREATE TABLE PDATES (ref char(1), a date, b timestamp, c time)",
+        (),
+    )?;
+
+    conn.execute(
+        "insert into pdates (ref, a) values ('a', ?)",
+        (NaiveDate::from_ymd(2009, 8, 7),),
+    )?;
+    let val_exists: Option<(i16,)> = conn.query_first(
+        "select 1 from pdates where ref = 'a' and a = '2009-08-07'",
+        (),
+    )?;
+    assert!(val_exists.is_some());
+
+    conn.execute(
+        "insert into pdates (ref, b) values ('b', ?)",
+        (NaiveDate::from_ymd(2009, 8, 7).and_hms(11, 32, 25),),
+    )?;
+    let val_exists: Option<(i16,)> = conn.query_first(
+        "select 1 from pdates where ref = 'b' and b = '2009-08-07 11:32:25'",
+        (),
+    )?;
+    assert!(val_exists.is_some());
+
+    conn.execute(
+        "insert into pdates (ref, c) values ('c', ?)",
+        (NaiveTime::from_hms(11, 22, 33),),
+    )?;
+    let val_exists: Option<(i16,)> = conn.query_first(
+        "select 1 from pdates where ref = 'c' and c = '11:22:33'",
+        (),
+    )?;
+    assert!(val_exists.is_some());
+
+    Ok(())
+}
+
+#[test]
+fn strings() -> Result<(), FbError> {
+    let mut conn = conn();
+
+    conn.execute("DROP TABLE PSTRINGS", ()).ok();
+    conn.execute(
+        "CREATE TABLE PSTRINGS (ref char(1), a varchar(10), b varchar(10))",
+        (),
+    )?;
+
+    conn.execute(
+        "insert into pstrings (ref, a) values ('a', ?)",
+        ("firebird",),
+    )?;
+    let val_exists: Option<(i16,)> = conn.query_first(
+        "select 1 from pstrings where ref = 'a' and a = 'firebird'",
+        (),
+    )?;
+    assert!(val_exists.is_some());
+
+    conn.execute(
+        "insert into pstrings (ref, b) values ('b', ?)",
+        ("firebird",),
+    )?;
+    let val_exists: Option<(i16,)> = conn.query_first(
+        "select 1 from pstrings where ref = 'b' and b = 'firebird  '",
+        (),
+    )?;
+    assert!(val_exists.is_some());
+
+    Ok(())
+}
+
+#[test]
+fn fixed_points() -> Result<(), FbError> {
+    let mut conn = conn();
+
+    conn.execute("DROP TABLE PFIXEDS", ()).ok();
+    conn.execute(
+        "CREATE TABLE PFIXEDS (ref char(1), a numeric(2, 2), b decimal(2, 2))",
+        (),
+    )?;
+
+    conn.execute("insert into pfixeds (ref, a) values ('a', ?)", (22.33,))?;
+    let val_exists: Option<(i16,)> =
+        conn.query_first("select 1 from pfixeds where ref = 'a' and a = 22.33", ())?;
+    assert!(val_exists.is_some());
+
+    conn.execute("insert into pfixeds (ref, b) values ('b', ?)", (22.33,))?;
+    let val_exists: Option<(i16,)> =
+        conn.query_first("select 1 from pfixeds where ref = 'b' and b = 22.33", ())?;
+    assert!(val_exists.is_some());
+
+    Ok(())
+}
+
+#[test]
+fn float_points() -> Result<(), FbError> {
+    let mut conn = conn();
+
+    conn.execute("DROP TABLE PFLOATS", ()).ok();
+    conn.execute(
+        "CREATE TABLE PFLOATS (ref char(1), a float, b double precision)",
+        (),
+    )?;
+
+    conn.execute("insert into pfloats (ref, a) values ('a', ?)", (3.402E38,))?;
+    let val_exists: Option<(i16,)> = conn.query_first(
+        "select 1 from pfloats where ref = 'a' and a = cast(3.402E38 as float)",
+        (),
+    )?;
+    assert!(val_exists.is_some());
+
+    conn.execute(
+        "insert into pfloats (ref, b) values ('b', ?)",
+        (2.225e-300,),
+    )?;
+    let val_exists: Option<(i16,)> = conn.query_first(
+        "select 1 from pfloats where ref = 'b' and b = 2.225E-300",
+        (),
+    )?;
+    assert!(val_exists.is_some());
+
+    Ok(())
+}
+
+#[test]
+fn ints() -> Result<(), FbError> {
+    let mut conn = conn();
+
+    conn.execute("DROP TABLE PINTEGERS", ()).ok();
+    conn.execute(
+        "CREATE TABLE PINTEGERS (ref char(1), a smallint, b int, c bigint)",
+        (),
+    )?;
+
+    conn.execute(
+        "insert into pintegers (ref, a) values ('a', ?)",
+        (i16::MIN,),
+    )?;
+    let val_exists: Option<(i16,)> =
+        conn.query_first("select 1 from pintegers where ref = 'a' and a = -32768", ())?;
+    assert!(val_exists.is_some());
+
+    conn.execute(
+        "insert into pintegers (ref, b) values ('b', ?)",
+        (i32::MIN,),
+    )?;
+    let val_exists: Option<(i16,)> = conn.query_first(
+        "select 1 from pintegers where ref = 'b' and b = -2147483648",
+        (),
+    )?;
+    assert!(val_exists.is_some());
+
+    conn.execute(
+        "insert into pintegers (ref, c) values ('c', ?)",
+        (i64::MIN,),
+    )?;
+    let val_exists: Option<(i16,)> = conn.query_first(
+        "select 1 from pintegers where ref = 'c' and c = -9223372036854775808",
+        (),
+    )?;
+    assert!(val_exists.is_some());
+
+    Ok(())
+}
+
+#[test]
+fn null() -> Result<(), FbError> {
+    let mut conn = conn();
+
+    let res: Option<(i32,)> = conn.query_first(
+        "select 1 from rdb$database where 1 = ? ",
+        (Option::<i32>::None,),
+    )?;
+
+    assert!(res.is_none());
+
+    Ok(())
+}
+
+fn conn() -> Connection<rsfbclient_native::NativeFbClient> {
+    #[cfg(not(feature = "dynamic_loading"))]
+    let conn = crate::ConnectionBuilder::default()
+        .connect()
+        .expect("Error on connect the test database");
+
+    #[cfg(feature = "dynamic_loading")]
+    let conn = crate::ConnectionBuilder::with_client("./fbclient.lib")
+        .connect()
+        .expect("Error on connect the test database");
+
+    conn
+}

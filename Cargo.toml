@@ -18,10 +18,10 @@ rsfbclient-core = { version = "0.1.0", path = "rsfbclient-core" }
 rsfbclient-native = { version = "0.1.0", path = "rsfbclient-native", optional = true }
 
 [features]
-default = ["date_time", "native", "pool"]
+default = ["linking", "date_time", "pool"]
 date_time = ["rsfbclient-core/date_time", "chrono"]
 dynamic_loading = ["rsfbclient-native/dynamic_loading"]
-native = ["rsfbclient-native"]
+linking = ["rsfbclient-native/linking"]
 pool = ["r2d2"]
 
 [workspace]
