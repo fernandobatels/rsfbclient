@@ -35,7 +35,7 @@ jobs:
       - name: Install cli and development library
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev firebird3.0-server-core
+          sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev
 
       - name: Run cargo build
         uses: actions-rs/cargo@v1
@@ -51,6 +51,11 @@ jobs:
           firebird_user: "test_user"
           firebird_password: "test_password"
           isc_password: "masterkey"
+
+      - name: Setup FirebirdSQL 3.0 for embedded tests
+        run: |
+          sudo apt-get install -y --no-install-recommends firebird3.0-server-core
+          isql-fb -user SYSDBA -q -input src/tests/embedded_tests.sql
 
       - name: Testing Connection and Query
         run: |

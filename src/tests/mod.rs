@@ -59,6 +59,7 @@ macro_rules! mk_tests_default {
             for linking_embedded -> Connection<rsfbclient_native::NativeFbClient> {
                 crate::ConnectionBuilder::linked()
                         .embedded()
+                        .db_name("/tmp/embedded_tests.fdb")
                         .connect()
                         .expect("Error on connect the test database")
             }
@@ -74,6 +75,7 @@ macro_rules! mk_tests_default {
             for dynamic_loading_embedded -> Connection<rsfbclient_native::NativeFbClient> {
                 crate::ConnectionBuilder::with_client("libfbclient.so")
                         .embedded()
+                        .db_name("/tmp/embedded_tests.fdb")
                         .connect()
                         .expect("Error on connect the test database")
             }
