@@ -35,7 +35,7 @@ jobs:
       - name: Install cli and development library
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev
+          sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev firebird3.0-server-core
 
       - name: Run cargo build
         uses: actions-rs/cargo@v1
