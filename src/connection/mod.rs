@@ -53,7 +53,7 @@ where
         Self {
             db_name: self.db_name.clone(),
             pass: self.pass.clone(),
-            port: self.port.clone(),
+            port: self.port,
             host: self.host.clone(),
             user: self.user.clone(),
             dialect: self.dialect,
