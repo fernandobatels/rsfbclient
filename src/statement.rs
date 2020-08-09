@@ -219,22 +219,14 @@ where
 }
 
 #[cfg(test)]
-mod test {
+mk_tests_default! {
     use crate::{prelude::*, Connection, Row, Transaction};
 
     #[test]
     fn statements() {
         let conn1 = setup();
 
-        #[cfg(not(feature = "dynamic_loading"))]
-        let conn2 = crate::ConnectionBuilder::default()
-            .connect()
-            .expect("Error on connect the test database");
-
-        #[cfg(feature = "dynamic_loading")]
-        let conn2 = crate::ConnectionBuilder::with_client("./fbclient.lib")
-            .connect()
-            .expect("Error on connect the test database");
+        let conn2 = connect();
 
         let mut t1c1 = Transaction::new(&conn1).unwrap();
         let mut t2c2 = Transaction::new(&conn2).unwrap();
@@ -428,15 +420,7 @@ mod test {
     // }
 
     fn setup() -> Connection<rsfbclient_native::NativeFbClient> {
-        #[cfg(not(feature = "dynamic_loading"))]
-        let conn = crate::ConnectionBuilder::default()
-            .connect()
-            .expect("Error on connect the test database");
-
-        #[cfg(feature = "dynamic_loading")]
-        let conn = crate::ConnectionBuilder::with_client("./fbclient.lib")
-            .connect()
-            .expect("Error on connect the test database");
+        let conn = connect();
 
         conn.with_transaction(|tr| {
             tr.execute_immediate("DROP TABLE product").ok();

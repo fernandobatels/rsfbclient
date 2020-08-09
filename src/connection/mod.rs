@@ -373,49 +373,33 @@ where
 }
 
 #[cfg(test)]
-mk_tests! {
-    tests {
-        use crate::*;
+mk_tests_default! {
+    use crate::*;
 
-        #[test]
-        fn remote_connection() {
-            let conn = connect();
+    #[test]
+    fn remote_connection() {
+        let conn = connect();
 
-            conn.close().expect("error closing the connection");
-        }
-
-        #[test]
-        fn query_iter() {
-            let mut conn = connect();
-
-            let mut rows = 0;
-
-            for row in conn
-                .query_iter("SELECT -3 FROM RDB$DATABASE WHERE 1 = ?", (1,))
-                .expect("Error on the query")
-            {
-                let (v,): (i32,) = row.expect("");
-
-                assert_eq!(v, -3);
-
-                rows += 1;
-            }
-
-            assert_eq!(rows, 1);
-        }
+        conn.close().expect("error closing the connection");
     }
 
-    #[cfg(feature = "linking")]
-    for linking -> Connection<rsfbclient_native::NativeFbClient> {
-        ConnectionBuilder::linked()
-                .connect()
-                .expect("Error on connect the test database")
-    }
+    #[test]
+    fn query_iter() {
+        let mut conn = connect();
 
-    #[cfg(feature = "dynamic_loading")]
-    for dynamic_loading -> Connection<rsfbclient_native::NativeFbClient> {
-        ConnectionBuilder::with_client("libfbclient.so")
-                .connect()
-                .expect("Error on connect the test database")
+        let mut rows = 0;
+
+        for row in conn
+            .query_iter("SELECT -3 FROM RDB$DATABASE WHERE 1 = ?", (1,))
+            .expect("Error on the query")
+        {
+            let (v,): (i32,) = row.expect("");
+
+            assert_eq!(v, -3);
+
+            rows += 1;
+        }
+
+        assert_eq!(rows, 1);
     }
 }

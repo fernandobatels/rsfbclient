@@ -40,5 +40,30 @@ macro_rules! mk_tests {
     };
 }
 
+/// Generate copies of tests for the default client implementations
+macro_rules! mk_tests_default {
+    ( $( $tests:tt )* ) => {
+        mk_tests! {
+            tests {
+                $( $tests )*
+            }
+
+            #[cfg(feature = "linking")]
+            for linking -> Connection<rsfbclient_native::NativeFbClient> {
+                crate::ConnectionBuilder::linked()
+                        .connect()
+                        .expect("Error on connect the test database")
+            }
+
+            #[cfg(feature = "dynamic_loading")]
+            for dynamic_loading -> Connection<rsfbclient_native::NativeFbClient> {
+                crate::ConnectionBuilder::with_client("libfbclient.so")
+                        .connect()
+                        .expect("Error on connect the test database")
+            }
+        }
+    };
+}
+
 mod params;
 mod row;
