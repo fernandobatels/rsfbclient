@@ -5,24 +5,22 @@
 //!
 
 use crate::{
-    ibase,
-    params::IntoParams,
-    row::{FromRow, Row},
-    status::FbError,
     transaction::{Transaction, TransactionData},
-    xsqlda::{xsqlda_to_blr, XSqlVar},
     Connection,
 };
-use bytes::Bytes;
+use rsfbclient_core::{Column, FbError, FirebirdClient, FreeStmtOp, FromRow, IntoParams, StmtType};
 
-pub struct Statement<'c> {
-    pub(crate) data: StatementData,
-    pub(crate) conn: &'c Connection,
+pub struct Statement<'c, C: FirebirdClient> {
+    pub(crate) data: StatementData<C::StmtHandle>,
+    pub(crate) conn: &'c Connection<C>,
 }
 
-impl<'c> Statement<'c> {
+impl<'c, C> Statement<'c, C>
+where
+    C: FirebirdClient,
+{
     /// Prepare the statement that will be executed
-    pub fn prepare(tr: &mut Transaction<'c>, sql: &str) -> Result<Self, FbError> {
+    pub fn prepare(tr: &mut Transaction<'c, C>, sql: &str) -> Result<Self, FbError> {
         let data = StatementData::prepare(tr.conn, &mut tr.data, sql)?;
 
         Ok(Statement {
@@ -34,7 +32,7 @@ impl<'c> Statement<'c> {
     /// Execute the current statement without returnig any row
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    pub fn execute<T>(&mut self, tr: &mut Transaction, params: T) -> Result<(), FbError>
+    pub fn execute<T>(&mut self, tr: &mut Transaction<C>, params: T) -> Result<(), FbError>
     where
         T: IntoParams,
     {
@@ -45,13 +43,14 @@ impl<'c> Statement<'c> {
     /// and returns the lines founds
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    pub fn query<'s, T>(
+    pub fn query<'s, R, P>(
         &'s mut self,
-        tr: &'s mut Transaction,
-        params: T,
-    ) -> Result<StatementFetch<'s>, FbError>
+        tr: &'s mut Transaction<C>,
+        params: P,
+    ) -> Result<StatementFetch<'s, R, C>, FbError>
     where
-        T: IntoParams,
+        R: FromRow,
+        P: IntoParams,
     {
         self.data.query(self.conn, &mut tr.data, params)?;
 
@@ -59,132 +58,112 @@ impl<'c> Statement<'c> {
             stmt: &mut self.data,
             _tr: tr,
             conn: self.conn,
+            _marker: Default::default(),
         })
     }
 }
 
-impl Drop for Statement<'_> {
+impl<C> Drop for Statement<'_, C>
+where
+    C: FirebirdClient,
+{
     fn drop(&mut self) {
         self.data.close(self.conn).ok();
     }
 }
 /// Cursor to fetch the results of a statement
-pub struct StatementFetch<'s> {
-    pub(crate) stmt: &'s mut StatementData,
+pub struct StatementFetch<'s, R, C: FirebirdClient> {
+    pub(crate) stmt: &'s mut StatementData<C::StmtHandle>,
     /// Transaction needs to be alive for the fetch to work
-    pub(crate) _tr: &'s Transaction<'s>,
-    pub(crate) conn: &'s Connection,
+    pub(crate) _tr: &'s Transaction<'s, C>,
+    pub(crate) conn: &'s Connection<C>,
+    /// Type to convert the rows
+    _marker: std::marker::PhantomData<R>,
 }
 
-impl<'s> StatementFetch<'s> {
+// TODO: Make it an iterator directly
+impl<'s, R, C> StatementFetch<'s, R, C>
+where
+    R: FromRow,
+    C: FirebirdClient,
+{
     /// Fetch for the next row
-    pub fn fetch(&mut self) -> Result<Option<Row>, FbError> {
-        self.stmt.fetch(self.conn)
-    }
-
-    pub fn into_iter<T>(self) -> StatementIter<'s, T>
-    where
-        T: FromRow,
-    {
-        StatementIter {
-            stmt_ft: self,
-            _marker: Default::default(),
-        }
+    pub fn fetch(&mut self) -> Result<Option<R>, FbError> {
+        self.stmt
+            .fetch(self.conn)
+            .and_then(|row| row.map(FromRow::try_from).transpose())
     }
 }
 
-impl Drop for StatementFetch<'_> {
-    fn drop(&mut self) {
-        self.stmt.close_cursor(self.conn).ok();
-    }
-}
-
-/// Iterator for the statement results
-pub struct StatementIter<'s, T> {
-    stmt_ft: StatementFetch<'s>,
-    _marker: std::marker::PhantomData<T>,
-}
-
-impl<T> Iterator for StatementIter<'_, T>
+impl<T, C> Iterator for StatementFetch<'_, T, C>
 where
     T: FromRow,
+    C: FirebirdClient,
 {
     type Item = Result<T, FbError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.stmt_ft
-            .fetch()
-            .and_then(|row| row.map(|row| row.get_all()).transpose())
-            .transpose()
+        self.fetch().transpose()
+    }
+}
+
+impl<R, C> Drop for StatementFetch<'_, R, C>
+where
+    C: FirebirdClient,
+{
+    fn drop(&mut self) {
+        self.stmt.close_cursor(&self.conn).ok();
     }
 }
 
 /// Low level statement handler.
 ///
 /// Needs to be closed calling `close` before dropping.
-pub struct StatementData {
-    pub(crate) handle: ibase::StmtHandle,
-    pub(crate) xsqlda: Vec<XSqlVar>,
-    pub(crate) blr: Bytes,
-    pub(crate) stmt_type: ibase::StmtType,
-    pub(crate) param_count: usize,
+pub struct StatementData<H> {
+    pub(crate) handle: H,
+    pub(crate) stmt_type: StmtType,
 }
 
-impl StatementData {
+impl<H> StatementData<H>
+where
+    H: Send + Clone + Copy,
+{
     /// Prepare the statement that will be executed
-    pub fn prepare(
-        conn: &Connection,
-        tr: &mut TransactionData,
+    pub fn prepare<C>(
+        conn: &Connection<C>,
+        tr: &mut TransactionData<C::TrHandle>,
         sql: &str,
-    ) -> Result<Self, FbError> {
-        let (stmt_type, handle, mut xsqlda, param_count) = conn
-            .wire
-            .borrow_mut()
-            .prepare_statement(conn.handle, tr.handle, conn.dialect, sql)?;
+    ) -> Result<Self, FbError>
+    where
+        C: FirebirdClient<StmtHandle = H>,
+    {
+        let (stmt_type, handle) =
+            conn.cli
+                .borrow_mut()
+                .prepare_statement(conn.handle, tr.handle, conn.dialect, sql)?;
 
-        for var in xsqlda.iter_mut() {
-            var.coerce()?;
-        }
-        let blr = xsqlda_to_blr(&xsqlda)?;
-
-        Ok(Self {
-            handle,
-            xsqlda,
-            blr,
-            stmt_type,
-            param_count,
-        })
+        Ok(Self { stmt_type, handle })
     }
 
     /// Execute the current statement without returnig any row
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    pub fn execute<T>(
+    pub fn execute<T, C>(
         &mut self,
-        conn: &Connection,
-        tr: &mut TransactionData,
+        conn: &Connection<C>,
+        tr: &mut TransactionData<C::TrHandle>,
         params: T,
     ) -> Result<(), FbError>
     where
         T: IntoParams,
+        C: FirebirdClient<StmtHandle = H>,
     {
-        let params = params.to_params();
-
-        if params.len() != self.param_count {
-            return Err(format!(
-                "{} parameters received, but the sql has {}",
-                params.len(),
-                self.param_count
-            )
-            .into());
-        }
-
-        conn.wire
+        conn.cli
             .borrow_mut()
-            .execute(tr.handle, self.handle, &params)?;
+            .execute(tr.handle, self.handle, params.to_params())?;
 
-        if self.stmt_type == ibase::StmtType::Select {
-            // If it was a select, we need to close the cursor
+        if self.stmt_type == StmtType::Select {
+            // Close the cursor, as it will not be used
             self.close_cursor(conn)?;
         }
 
@@ -195,103 +174,62 @@ impl StatementData {
     /// and returns the column buffer
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    pub fn query<'s, T>(
+    pub fn query<'s, T, C>(
         &'s mut self,
-        conn: &'s Connection,
-        tr: &mut TransactionData,
+        conn: &'s Connection<C>,
+        tr: &mut TransactionData<C::TrHandle>,
         params: T,
     ) -> Result<(), FbError>
     where
         T: IntoParams,
+        C: FirebirdClient<StmtHandle = H>,
     {
-        let params = params.to_params();
-
-        if params.len() != self.param_count {
-            return Err(format!(
-                "{} parameters received, but the sql has {}",
-                params.len(),
-                self.param_count
-            )
-            .into());
-        }
-
-        conn.wire
+        conn.cli
             .borrow_mut()
-            .execute(tr.handle, self.handle, &params)
-
-        // let col_buffers = (0..self.xsqlda.sqln)
-        //     .map(|col| {
-        //         let xcol = self.xsqlda.get_xsqlvar_mut(col as usize).unwrap();
-
-        //         ColumnBuffer::from_xsqlvar(xcol)
-        //     })
-        //     .collect::<Result<_, _>>()?;
-
-        // Ok(col_buffers)
+            .execute(tr.handle, self.handle, params.to_params())
     }
 
     /// Fetch for the next row, needs to be called after `query`
-    pub fn fetch(&mut self, conn: &Connection) -> Result<Option<Row>, FbError> {
-        let res = conn
-            .wire
-            .borrow_mut()
-            .fetch(self.handle, &self.xsqlda, &self.blr)?;
-
-        Ok(res.map(|cols| Row { buffers: cols }))
+    pub fn fetch<C>(&mut self, conn: &Connection<C>) -> Result<Option<Vec<Column>>, FbError>
+    where
+        C: FirebirdClient<StmtHandle = H>,
+    {
+        conn.cli.borrow_mut().fetch(self.handle)
     }
 
     /// Closes the statement cursor, if it was open
-    pub fn close_cursor(&mut self, conn: &Connection) -> Result<(), FbError> {
-        conn.wire
+    pub fn close_cursor<C>(&mut self, conn: &Connection<C>) -> Result<(), FbError>
+    where
+        C: FirebirdClient<StmtHandle = H>,
+    {
+        conn.cli
             .borrow_mut()
-            .free_statement(self.handle, ibase::FreeStmtOp::Close)
+            .free_statement(self.handle, FreeStmtOp::Close)
     }
 
     /// Closes the statement
-    pub fn close(&mut self, conn: &Connection) -> Result<(), FbError> {
-        conn.wire
+    pub fn close<C>(&mut self, conn: &Connection<C>) -> Result<(), FbError>
+    where
+        C: FirebirdClient<StmtHandle = H>,
+    {
+        conn.cli
             .borrow_mut()
-            .free_statement(self.handle, ibase::FreeStmtOp::Drop)
+            .free_statement(self.handle, FreeStmtOp::Drop)
     }
 }
 
 #[cfg(test)]
-mod test {
-    use crate::{prelude::*, Connection, Transaction};
+/// Counter to allow the tests to be run in parallel without interfering in each other
+static TABLE_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-    #[test]
-    #[ignore]
-    // Not working as the way the fbclient handled the handle ids is diffrent (was unique in the app, not only the connection)
-    fn statements() {
-        let conn1 = setup();
-
-        let conn2 = crate::ConnectionBuilder::default()
-            .connect()
-            .expect("Error on connect the test database");
-
-        let mut t1c1 = Transaction::new(&conn1).unwrap();
-        let mut t2c2 = Transaction::new(&conn2).unwrap();
-        let mut t3c1 = Transaction::new(&conn1).unwrap();
-
-        println!("T1 {:?}", t1c1.data.handle);
-        println!("T2 {:?}", t2c2.data.handle);
-        println!("T3 {:?}", t3c1.data.handle);
-
-        let mut stmt = t1c1.prepare("SELECT 1 FROM RDB$DATABASE").unwrap();
-
-        stmt.execute(&mut t1c1, ())
-            .expect("Error on execute with t1 from conn1");
-
-        stmt.execute(&mut t2c2, ())
-            .expect_err("Can't use a transaction from conn2 in a statement of the conn1");
-
-        stmt.execute(&mut t3c1, ())
-            .expect("Error on execute with t3 from conn1");
-    }
+#[cfg(test)]
+mk_tests_default! {
+    use crate::{prelude::*, Connection, Row};
+    use rsfbclient_core::FirebirdClient;
 
     #[test]
     fn new_api_select() {
-        let mut conn = setup();
+        let (mut conn, table) = setup();
 
         let vals = vec![
             (Some(2), "coffee".to_string()),
@@ -301,7 +239,7 @@ mod test {
 
         conn.with_transaction(|tr| {
             for val in &vals {
-                tr.execute("insert into product (id, name) values (?, ?)", val.clone())
+                tr.execute(&format!("insert into {} (id, name) values (?, ?)", table), val.clone())
                     .expect("Error on insert");
             }
 
@@ -310,7 +248,7 @@ mod test {
         .expect("Error commiting the transaction");
 
         let rows = conn
-            .query("select id, name from product", ())
+            .query(&format!("select id, name from {}", table), ())
             .expect("Error executing query");
 
         // Asserts that all values are equal
@@ -319,7 +257,7 @@ mod test {
 
     #[test]
     fn old_api_select() {
-        let conn = setup();
+        let (conn, table) = setup();
 
         let vals = vec![
             (Some(2), "coffee".to_string()),
@@ -329,7 +267,7 @@ mod test {
 
         conn.with_transaction(|tr| {
             let mut stmt = tr
-                .prepare("insert into product (id, name) values (?, ?)")
+                .prepare(&format!("insert into {} (id, name) values (?, ?)", table))
                 .expect("Error preparing the insert statement");
 
             for val in &vals {
@@ -342,13 +280,12 @@ mod test {
 
         conn.with_transaction(|tr| {
             let mut stmt = tr
-                .prepare("select id, name from product")
+                .prepare(&format!("select id, name from {}", table))
                 .expect("Error on prepare the select");
 
             let rows: Vec<(Option<i32>, String)> = stmt
                 .query(tr, ())
                 .expect("Error on query")
-                .into_iter()
                 .collect::<Result<_, _>>()
                 .expect("Error on fetch");
 
@@ -357,7 +294,7 @@ mod test {
 
             let mut rows = stmt.query(tr, ()).expect("Error on query");
 
-            let row1 = rows
+            let row1: Row = rows
                 .fetch()
                 .expect("Error on fetch the next row")
                 .expect("No more rows");
@@ -426,13 +363,13 @@ mod test {
 
     #[test]
     fn prepared_insert() {
-        let conn = setup();
+        let (conn, table) = setup();
 
         let vals = vec![(Some(9), "apple"), (Some(12), "jack"), (None, "coffee")];
 
         conn.with_transaction(|tr| {
             for val in vals.into_iter() {
-                tr.execute("insert into product (id, name) values (?, ?)", val)
+                tr.execute(&format!("insert into {} (id, name) values (?, ?)", table), val)
                     .expect("Error on insert");
             }
 
@@ -445,13 +382,13 @@ mod test {
 
     // #[test]
     // fn immediate_insert() {
-    //     let conn = setup();
+    //     let (mut conn, table) = setup();
 
     //     conn.with_transaction(|tr| {
-    //         tr.execute_immediate("insert into product (id, name) values (?, ?)", (1, "apple"))
+    //         tr.execute_immediate(&format!("insert into {} (id, name) values (?, ?)", (1, "apple", table)))
     //             .expect("Error on 1° insert");
 
-    //         tr.execute_immediate("insert into product (id, name) values (?, ?)", (2, "coffe"))
+    //         tr.execute_immediate(&format!("insert into {} (id, name) values (?, ?)", (2, "coffe", table)))
     //             .expect("Error on 2° insert");
 
     //         Ok(())
@@ -461,21 +398,22 @@ mod test {
     //     conn.close().expect("error on close the connection");
     // }
 
-    fn setup() -> Connection {
-        let conn = crate::ConnectionBuilder::default()
-            .connect()
-            .expect("Error on connect the test database");
+    fn setup() -> (Connection<impl FirebirdClient>, String) {
+        let conn = connect();
+
+        let table_num = super::TABLE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let table = format!("product{}", table_num);
 
         conn.with_transaction(|tr| {
-            tr.execute_immediate("DROP TABLE product").ok();
+            tr.execute_immediate(&format!("DROP TABLE {}", table)).ok();
 
-            tr.execute_immediate("CREATE TABLE product (id int, name varchar(60), quantity int)")
+            tr.execute_immediate(&format!("CREATE TABLE {} (id int, name varchar(60), quantity int)", table))
                 .expect("Error on create the table product");
 
             Ok(())
         })
         .expect("Error in the transaction");
 
-        conn
+        (conn, table)
     }
 }

@@ -1,13 +1,10 @@
 #![allow(non_upper_case_globals)]
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use rsfbclient_core::{ibase, FbError, StmtType};
 use std::{convert::TryFrom, mem};
 
-use crate::{
-    ibase::{self, consts},
-    row::ColumnType,
-    FbError,
-};
+use crate::consts;
 
 /// Data for the statement to return
 pub const XSQLDA_DESCRIBE_VARS: [u8; 17] = [
@@ -68,31 +65,31 @@ impl XSqlVar {
 
         match sqltype as u32 {
             ibase::SQL_TEXT | ibase::SQL_VARYING => {
-                self.sqltype = ColumnType::Text as i16 + 1;
+                self.sqltype = ibase::SQL_VARYING as i16 + 1;
             }
 
             ibase::SQL_SHORT | ibase::SQL_LONG | ibase::SQL_INT64 => {
                 self.data_length = mem::size_of::<i64>() as i16;
 
                 if self.scale == 0 {
-                    self.sqltype = ColumnType::Integer as i16 + 1;
+                    self.sqltype = ibase::SQL_INT64 as i16 + 1;
                 } else {
                     // Is actually a decimal or numeric value, so coerce as double
                     self.scale = 0;
-                    self.sqltype = ColumnType::Float as i16 + 1;
+                    self.sqltype = ibase::SQL_DOUBLE as i16 + 1;
                 }
             }
 
             ibase::SQL_FLOAT | ibase::SQL_DOUBLE => {
                 self.data_length = mem::size_of::<i64>() as i16;
 
-                self.sqltype = ColumnType::Float as i16 + 1;
+                self.sqltype = ibase::SQL_DOUBLE as i16 + 1;
             }
 
             ibase::SQL_TIMESTAMP | ibase::SQL_TYPE_DATE | ibase::SQL_TYPE_TIME => {
                 self.data_length = mem::size_of::<ibase::ISC_TIMESTAMP>() as i16;
 
-                self.sqltype = ColumnType::Timestamp as i16 + 1;
+                self.sqltype = ibase::SQL_TIMESTAMP as i16 + 1;
             }
 
             sqltype => {
@@ -101,18 +98,6 @@ impl XSqlVar {
         }
 
         Ok(())
-    }
-
-    pub fn to_column_type(&self) -> Result<ColumnType, FbError> {
-        // Remove nullable type indicator
-        let sqltype = self.sqltype & (!1);
-
-        ColumnType::try_from(sqltype as u32).map_err(|_| {
-            FbError::Other(format!(
-                "Conversion from sql type {} not implemented",
-                sqltype
-            ))
-        })
     }
 }
 
@@ -129,22 +114,27 @@ pub fn xsqlda_to_blr(xsqlda: &[XSqlVar]) -> Result<Bytes, FbError> {
     blr.put_u16_le(xsqlda.len() as u16 * 2);
 
     for var in xsqlda {
-        let column_type = var.to_column_type()?;
+        // Remove nullable type indicator
+        let sqltype = var.sqltype as u32 & (!1);
 
-        match column_type {
-            ColumnType::Text => {
+        match sqltype as u32 {
+            ibase::SQL_VARYING => {
                 blr.put_u8(consts::blr::VARYING);
                 blr.put_i16_le(var.data_length);
             }
 
-            ColumnType::Integer => blr.put_slice(&[
+            ibase::SQL_INT64 => blr.put_slice(&[
                 consts::blr::INT64,
                 0, // Scale
             ]),
 
-            ColumnType::Float => blr.put_u8(consts::blr::DOUBLE),
+            ibase::SQL_DOUBLE => blr.put_u8(consts::blr::DOUBLE),
 
-            ColumnType::Timestamp => blr.put_u8(consts::blr::TIMESTAMP),
+            ibase::SQL_TIMESTAMP => blr.put_u8(consts::blr::TIMESTAMP),
+
+            sqltype => {
+                return Err(format!("Conversion from sql type {} not implemented", sqltype).into());
+            }
         }
         // Nullind
         blr.put_slice(&[consts::blr::SHORT, 0]);
@@ -157,7 +147,7 @@ pub fn xsqlda_to_blr(xsqlda: &[XSqlVar]) -> Result<Bytes, FbError> {
 
 /// Data returned for a prepare statement
 pub struct PrepareInfo {
-    pub stmt_type: ibase::StmtType,
+    pub stmt_type: StmtType,
     pub param_count: usize,
     pub truncated: bool,
 }
@@ -174,7 +164,7 @@ pub fn parse_xsqlda(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<Prepa
     resp.advance(3);
 
     let stmt_type =
-        ibase::StmtType::try_from(resp.get_u32_le()).map_err(|e| FbError::Other(e.to_string()))?;
+        StmtType::try_from(resp.get_u32_le() as u8).map_err(|e| FbError::Other(e.to_string()))?;
 
     let param_count;
 

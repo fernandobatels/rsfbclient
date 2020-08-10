@@ -4,7 +4,7 @@
 //! High level api
 //!
 
-use crate::{params::IntoParams, row::FromRow, FbError};
+use rsfbclient_core::{FbError, FromRow, IntoParams};
 
 /// Implemented for types that can be used to execute sql queries
 pub trait Queryable<'a, R>

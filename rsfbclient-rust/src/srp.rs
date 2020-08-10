@@ -295,7 +295,7 @@ impl SrpGroup {
 #[cfg(test)]
 mod test {
     use super::SRP_GROUP;
-    use crate::ibase::srp::{srp_private_key, SrpClient};
+    use crate::srp::{srp_private_key, SrpClient};
     use num_bigint::BigUint;
     use sha1::Sha1;
 

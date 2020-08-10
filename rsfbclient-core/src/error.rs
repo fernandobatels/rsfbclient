@@ -1,17 +1,13 @@
-//!
-//! Rust Firebird Client
-//!
-//! Status of connetions, transactions...
-//!
+//! Error type for the connection
 
 use thiserror::Error;
 
-use crate::row::ColumnType;
+use crate::ColumnType;
 
 #[derive(Debug, Error)]
 pub enum FbError {
-    #[error("sql error {}: {}", .0.code, .0.msg)]
-    Sql(SqlError),
+    #[error("sql error {code}: {msg}")]
+    Sql { msg: String, code: i32 },
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
@@ -32,34 +28,16 @@ impl From<&str> for FbError {
     }
 }
 
-#[derive(Debug)]
-pub struct SqlError {
-    pub msg: String,
-    pub code: i32,
-}
-
-pub fn err_idx_not_exist<T>() -> Result<T, FbError> {
-    Err(FbError::Other("This index doesn't exists".to_string()))
-}
-
 pub fn err_column_null(type_name: &str) -> FbError {
-    format!(
+    FbError::Other(format!(
         "This is a null value. Use the Option<{}> to safe access this column and avoid errors",
         type_name
-    )
-    .into()
+    ))
 }
 
 pub fn err_type_conv<T>(from: ColumnType, to: &str) -> Result<T, FbError> {
     Err(FbError::Other(format!(
         "Can't convert {:?} column to {}",
         from, to
-    )))
-}
-
-pub fn err_buffer_len<T>(expected: usize, found: usize, type_name: &str) -> Result<T, FbError> {
-    Err(FbError::Other(format!(
-        "Invalid buffer size for type {:?} (expected: {}, found: {})",
-        type_name, expected, found
     )))
 }

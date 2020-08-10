@@ -5,19 +5,26 @@
 //!
 
 use crate::{Connection, ConnectionBuilder, FbError, Transaction};
+use rsfbclient_core::{FirebirdClient, FirebirdClientRemoteAttach};
 
-pub struct FirebirdConnectionManager {
-    conn_builder: ConnectionBuilder,
+pub struct FirebirdConnectionManager<C: FirebirdClient> {
+    conn_builder: ConnectionBuilder<C>,
 }
 
-impl FirebirdConnectionManager {
-    pub fn new(conn_builder: ConnectionBuilder) -> Self {
+impl<C> FirebirdConnectionManager<C>
+where
+    C: FirebirdClient,
+{
+    pub fn new(conn_builder: ConnectionBuilder<C>) -> Self {
         Self { conn_builder }
     }
 }
 
-impl r2d2::ManageConnection for FirebirdConnectionManager {
-    type Connection = Connection;
+impl<C> r2d2::ManageConnection for FirebirdConnectionManager<C>
+where
+    C: FirebirdClient + FirebirdClientRemoteAttach + 'static, // TODO: Allow embedded database
+{
+    type Connection = Connection<C>;
     type Error = FbError;
 
     fn connect(&self) -> Result<Self::Connection, Self::Error> {
@@ -25,10 +32,8 @@ impl r2d2::ManageConnection for FirebirdConnectionManager {
     }
 
     fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
-        let mut tr = Transaction::new(conn)?;
-        let mut stmt = tr.prepare("SELECT 1 FROM RDB$DATABASE")?;
-        stmt.query(&mut tr, ())?;
-
+        // If it can start a transaction, we are ok
+        Transaction::new(&conn)?;
         Ok(())
     }
 

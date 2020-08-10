@@ -10,11 +10,13 @@
 //! the database ;)
 //!
 
+#![allow(unused_variables, unused_mut)]
+
 use rsfbclient::{prelude::*, ConnectionBuilder, FbError};
 
 fn main() -> Result<(), FbError> {
-    #[cfg(not(feature = "dynamic_loading"))]
-    let mut conn = ConnectionBuilder::default()
+    #[cfg(feature = "linking")]
+    let mut conn = ConnectionBuilder::linked()
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")
@@ -22,7 +24,7 @@ fn main() -> Result<(), FbError> {
         .connect()?;
 
     #[cfg(feature = "dynamic_loading")]
-    let mut conn = ConnectionBuilder::with_client("./fbclient.lib")?
+    let mut conn = ConnectionBuilder::with_client("./fbclient.lib")
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")

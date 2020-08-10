@@ -1,5 +1,6 @@
 # Rust Firebird Client 
 
+![Build](https://github.com/fernandobatels/rsfbclient/workflows/testing_changes/badge.svg)
 [![Crate](https://img.shields.io/crates/v/rsfbclient.svg)](https://crates.io/crates/rsfbclient)
 [![API](https://docs.rs/rsfbclient/badge.svg)](https://docs.rs/rsfbclient)
 
@@ -12,7 +13,7 @@ Binds to official firebird client lib
 - [x] Dynamic link with fbclient
 - [x] Dynamic loading the fbclient(.dll or .so)
 - [ ] ARM support
-- [ ] Firebird embedded support
+- [x] Firebird embedded support
 - [ ] Extern this api to ruby (in a new repo)
 - [ ] Extern this api to lua (in a new repo)
 

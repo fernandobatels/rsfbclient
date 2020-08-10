@@ -1,12 +1,9 @@
-use crate::ibase::consts;
-use crate::{
-    params::{ParamInfo, ParamType},
-    FbError,
-};
+use crate::consts;
 use bytes::{BufMut, Bytes, BytesMut};
+use rsfbclient_core::{FbError, Param};
 
 /// Maximum parameter data length
-const MAX_DATA_LENGTH: u16 = 32767;
+const MAX_DATA_LENGTH: usize = 32767;
 
 /// Data for the parameters to send in the wire
 pub struct ParamsBlr {
@@ -18,7 +15,7 @@ pub struct ParamsBlr {
 
 /// Convert the parameters to a blr (binary representation)
 pub fn params_to_blr(
-    params: &[ParamInfo],
+    params: &[Param],
     version: consts::ProtocolVersion,
 ) -> Result<ParamsBlr, FbError> {
     let mut blr = BytesMut::with_capacity(256);
@@ -39,41 +36,50 @@ pub fn params_to_blr(
     }
 
     for p in params {
-        let len = p.buffer.len() as u16;
-        if len > MAX_DATA_LENGTH {
-            return Err("Parameter too big! Not supported yet".into());
-        }
+        match p {
+            Param::Text(s) => {
+                if s.len() > MAX_DATA_LENGTH {
+                    return Err("Parameter too big! Not supported yet".into());
+                }
 
-        values.put_slice(&p.buffer);
-        if len % 4 != 0 {
-            // 4 byte align
-            values.put_slice(&[0; 4][..4 - (len as usize % 4)])
-        }
-        if version < consts::ProtocolVersion::V13 {
-            // Null indicator
-            values.put_i32_le(if p.null { -1 } else { 0 });
-        }
-
-        match p.sqltype {
-            ParamType::Text => {
                 blr.put_u8(consts::blr::TEXT);
-                blr.put_u16_le(len);
+                blr.put_u16_le(s.len() as u16);
+
+                values.put_slice(s.as_bytes());
+                if s.len() % 4 != 0 {
+                    // 4 byte align
+                    values.put_slice(&[0; 4][..4 - (s.len() as usize % 4)])
+                }
             }
+            Param::Integer(i) => {
+                blr.put_slice(&[
+                    consts::blr::INT64,
+                    0, // Scale
+                ]);
 
-            ParamType::Integer => blr.put_slice(&[
-                consts::blr::INT64,
-                0, // Scale
-            ]),
+                values.put_i64(*i);
+            }
+            Param::Floating(f) => {
+                blr.put_u8(consts::blr::DOUBLE);
 
-            ParamType::Floating => blr.put_u8(consts::blr::DOUBLE),
+                values.put_f64(*f);
+            }
+            Param::Timestamp(ts) => {
+                blr.put_u8(consts::blr::TIMESTAMP);
 
-            ParamType::Timestamp => blr.put_u8(consts::blr::TIMESTAMP),
-
-            ParamType::Null => {
+                values.put_i32(ts.timestamp_date);
+                values.put_u32(ts.timestamp_time);
+            }
+            Param::Null => {
                 // Represent as empty text
                 blr.put_u8(consts::blr::TEXT);
                 blr.put_u16_le(0);
             }
+        }
+
+        if version < consts::ProtocolVersion::V13 {
+            // Null indicator
+            values.put_i32_le(if p.is_null() { -1 } else { 0 });
         }
 
         // Null indicator type
@@ -95,12 +101,12 @@ pub fn params_to_blr(
 /// or 1 if it is, and so forth.
 ///
 /// Needs to be aligned to 4 bytes, so processing in chunks of 32 parameters (4 bytes = 32 bits)
-fn null_bitmap(values: &mut BytesMut, params: &[ParamInfo]) {
+fn null_bitmap(values: &mut BytesMut, params: &[Param]) {
     for bitmap in params.chunks(32).map(|params| {
         params
             .iter()
             .fold((0, 0), |(bitmap, i), p| {
-                if p.null {
+                if p.is_null() {
                     (bitmap | (1 << i), i + 1)
                 } else {
                     (bitmap, i + 1)

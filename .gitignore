@@ -13,3 +13,6 @@ tests/use
 
 # firebird lib
 fbclient.lib
+
+# vscode conf folder
+.vscode

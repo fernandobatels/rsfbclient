@@ -1,189 +1,16 @@
-use ParamType::*;
+//!
+//! Rust Firebird Client
+//!
+//! Parameter tests
+//!
 
-/// Data used to build the input XSQLVAR
-pub struct ParamInfo {
-    pub(crate) sqltype: ParamType,
-    pub(crate) buffer: Box<[u8]>,
-    pub(crate) null: bool,
-}
-
-pub enum ParamType {
-    /// Send as text
-    Text,
-
-    /// Send as bigint
-    Integer,
-
-    /// Send as double
-    Floating,
-
-    // Send as timestamp
-    Timestamp,
-
-    // Send as null
-    Null,
-}
-
-/// Implemented for types that can be sent as parameters
-pub trait ToParam {
-    fn to_info(self) -> ParamInfo;
-}
-
-impl ToParam for String {
-    fn to_info(self) -> ParamInfo {
-        let buffer = Vec::from(self).into_boxed_slice();
-
-        ParamInfo {
-            sqltype: Text,
-            buffer,
-            null: false,
-        }
-    }
-}
-
-impl ToParam for i64 {
-    fn to_info(self) -> ParamInfo {
-        let buffer = self.to_be_bytes().to_vec().into_boxed_slice();
-
-        ParamInfo {
-            sqltype: Integer,
-            buffer,
-            null: false,
-        }
-    }
-}
-
-/// Implements AsParam for integers
-macro_rules! impl_param_int {
-    ( $( $t: ident ),+ ) => {
-        $(
-            impl ToParam for $t {
-                fn to_info(self) -> ParamInfo {
-                    (self as i64).to_info()
-                }
-            }
-        )+
-    };
-}
-
-impl_param_int!(i32, u32, i16, u16, i8, u8);
-
-impl ToParam for f64 {
-    fn to_info(self) -> ParamInfo {
-        let buffer = self.to_be_bytes().to_vec().into_boxed_slice();
-
-        ParamInfo {
-            sqltype: Floating,
-            buffer,
-            null: false,
-        }
-    }
-}
-
-impl ToParam for f32 {
-    fn to_info(self) -> ParamInfo {
-        (self as f64).to_info()
-    }
-}
-
-/// Implements for all nullable variants
-impl<T> ToParam for Option<T>
-where
-    T: ToParam,
-{
-    fn to_info(self) -> ParamInfo {
-        if let Some(v) = self {
-            v.to_info()
-        } else {
-            ParamInfo {
-                sqltype: Null,
-                buffer: Box::new([]),
-                null: true,
-            }
-        }
-    }
-}
-
-/// Implements for all borrowed variants (&str, Cow and etc)
-impl<T, B> ToParam for &B
-where
-    B: ToOwned<Owned = T> + ?Sized,
-    T: core::borrow::Borrow<B> + ToParam,
-{
-    fn to_info(self) -> ParamInfo {
-        self.to_owned().to_info()
-    }
-}
-
-/// Implemented for types that represents a list of parameters
-pub trait IntoParams {
-    fn to_params(self) -> Vec<ParamInfo>;
-}
-
-/// Represents no parameters
-impl IntoParams for () {
-    fn to_params(self) -> Vec<ParamInfo> {
-        vec![]
-    }
-}
-
-/// Generates IntoParams implementations for a tuple
-macro_rules! impl_into_params {
-    ($([$t: ident, $v: ident]),+) => {
-        impl<$($t),+> IntoParams for ($($t,)+)
-        where
-            $( $t: ToParam, )+
-        {
-            fn to_params(self) -> Vec<ParamInfo> {
-                let ( $($v,)+ ) = self;
-
-                vec![ $(
-                    $v.to_info(),
-                )+ ]
-            }
-        }
-    };
-}
-
-/// Generates FromRow implementations for various tuples
-macro_rules! impls_into_params {
-    ([$t: ident, $v: ident]) => {
-        impl_into_params!([$t, $v]);
-    };
-
-    ([$t: ident, $v: ident], $([$ts: ident, $vs: ident]),+ ) => {
-        impls_into_params!($([$ts, $vs]),+);
-
-        impl_into_params!([$t, $v], $([$ts, $vs]),+);
-    };
-}
-
-impls_into_params!(
-    [A, a],
-    [B, b],
-    [C, c],
-    [D, d],
-    [E, e],
-    [F, f],
-    [G, g],
-    [H, h],
-    [I, i],
-    [J, j],
-    [K, k],
-    [L, l],
-    [M, m],
-    [N, n],
-    [O, o]
-);
-
-#[cfg(test)]
-mod test {
+mk_tests_default! {
     use crate::{prelude::*, Connection, FbError};
     use chrono::{NaiveDate, NaiveTime};
 
     #[test]
     fn dates() -> Result<(), FbError> {
-        let mut conn = conn();
+        let mut conn = connect();
 
         conn.execute("DROP TABLE PDATES", ()).ok();
         conn.execute(
@@ -226,7 +53,7 @@ mod test {
 
     #[test]
     fn strings() -> Result<(), FbError> {
-        let mut conn = conn();
+        let mut conn = connect();
 
         conn.execute("DROP TABLE PSTRINGS", ()).ok();
         conn.execute(
@@ -259,7 +86,7 @@ mod test {
 
     #[test]
     fn fixed_points() -> Result<(), FbError> {
-        let mut conn = conn();
+        let mut conn = connect();
 
         conn.execute("DROP TABLE PFIXEDS", ()).ok();
         conn.execute(
@@ -282,7 +109,7 @@ mod test {
 
     #[test]
     fn float_points() -> Result<(), FbError> {
-        let mut conn = conn();
+        let mut conn = connect();
 
         conn.execute("DROP TABLE PFLOATS", ()).ok();
         conn.execute(
@@ -312,7 +139,7 @@ mod test {
 
     #[test]
     fn ints() -> Result<(), FbError> {
-        let mut conn = conn();
+        let mut conn = connect();
 
         conn.execute("DROP TABLE PINTEGERS", ()).ok();
         conn.execute(
@@ -351,18 +178,17 @@ mod test {
         Ok(())
     }
 
-    fn conn() -> Connection {
-        #[cfg(not(feature = "dynamic_loading"))]
-        let conn = crate::ConnectionBuilder::default()
-            .connect()
-            .expect("Error on connect the test database");
+    #[test]
+    fn null() -> Result<(), FbError> {
+        let mut conn = connect();
 
-        #[cfg(feature = "dynamic_loading")]
-        let conn = crate::ConnectionBuilder::with_client("./fbclient.lib")
-            .expect("Error finding fbclient lib")
-            .connect()
-            .expect("Error on connect the test database");
+        let res: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where 1 = ? ",
+            (Option::<i32>::None,),
+        )?;
 
-        conn
+        assert!(res.is_none());
+
+        Ok(())
     }
 }

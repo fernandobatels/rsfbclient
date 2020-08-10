@@ -138,22 +138,6 @@ pub enum WireOp {
     CondAccept = 98,
 }
 
-#[repr(u8)]
-/// Commit / Rollback operations
-pub enum TrOp {
-    Commit = WireOp::Commit as u8,
-    CommitRetaining = WireOp::CommitRetaining as u8,
-    Rollback = WireOp::Rollback as u8,
-    RollbackRetaining = WireOp::RollbackRetaining as u8,
-}
-
-#[repr(u8)]
-/// Drop / Close statement
-pub enum FreeStmtOp {
-    Close = 1,
-    Drop = 2,
-}
-
 #[derive(Debug)]
 #[repr(u8)]
 /// User identification data
@@ -211,7 +195,7 @@ impl AuthPluginType {
         .join(",")
     }
 
-    pub fn parse(name: &[u8]) -> Result<Self, crate::FbError> {
+    pub fn parse(name: &[u8]) -> Result<Self, rsfbclient_core::FbError> {
         match name {
             b"Srp256" => Ok(Self::Srp256),
             b"Srp" => Ok(Self::Srp),
@@ -220,17 +204,6 @@ impl AuthPluginType {
             name => Err(format!("Invalid auth plugin: {}", String::from_utf8_lossy(name)).into()),
         }
     }
-}
-
-#[derive(Debug, PartialEq, Eq, TryFromPrimitive)]
-#[repr(u32)]
-/// Statement type
-pub enum StmtType {
-    Select = 1,
-    Insert = 2,
-    Update = 3,
-    Delete = 4,
-    DDL = 5,
 }
 
 /// Converts a gds_code to a error message

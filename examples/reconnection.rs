@@ -6,17 +6,18 @@
 //! You need create a database named test.fdb:
 //!
 
+#![allow(unused_variables, unused_mut)]
+
 use rsfbclient::{prelude::*, ConnectionBuilder};
 use std::time::Duration;
 
 fn main() {
     let builder = {
-        #[cfg(not(feature = "dynamic_loading"))]
-        let mut builder = ConnectionBuilder::default();
+        #[cfg(feature = "linking")]
+        let mut builder = ConnectionBuilder::linked();
 
         #[cfg(feature = "dynamic_loading")]
-        let mut builder =
-            ConnectionBuilder::with_client("./fbclient.lib").expect("Unable to find fbclient.lib");
+        let mut builder = ConnectionBuilder::with_client("./fbclient.lib");
 
         builder
             .host("localhost")
