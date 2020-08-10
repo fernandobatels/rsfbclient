@@ -47,7 +47,7 @@ jobs:
         uses: juarezr/firebirdsql-github-action@v1.0.0
         with:
           version: "latest"
-          firebird_database: "test.fdb" # TODO: replace this in tests
+          firebird_database: "test.fdb"
           firebird_user: "test_user"
           firebird_password: "test_password"
           isc_password: "masterkey"
@@ -55,7 +55,7 @@ jobs:
       - name: Setup FirebirdSQL 3.0 for embedded tests
         run: |
           sudo apt-get install -y --no-install-recommends firebird3.0-server-core
-          isql-fb -user SYSDBA -q -input src/tests/embedded_tests.sql
+          echo 'create database "/tmp/embedded_tests.fdb";' | isql-fb -bail -quiet -user SYSDBA
 
       - name: Testing Connection and Query
         run: |
@@ -79,6 +79,44 @@ jobs:
         with:
           command: fmt
           args: --all -- --check
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: default
+          toolchain: stable
+          default: true
+          override: true
+          components: rustfmt, clippy
+
+      - name: Install cli and development library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev
+
+      - name: Setup FirebirdSQL 3.0 for tests
+        uses: juarezr/firebirdsql-github-action@v1.0.0
+        with:
+          version: "latest"
+          firebird_database: "test.fdb"
+          firebird_user: "test_user"
+          firebird_password: "test_password"
+          isc_password: "masterkey"
+
+      - name: Setup FirebirdSQL 3.0 for embedded tests
+        run: |
+          sudo apt-get install -y --no-install-recommends firebird3.0-server-core
+          echo 'create database "/tmp/embedded_tests.fdb";' | isql-fb -bail -quiet -user SYSDBA
+
+      - name: Testing Connection and Query
+        run: |
+          echo 'select * from rdb$database;' | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:test.fdb'
 
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1

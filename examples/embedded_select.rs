@@ -4,6 +4,8 @@
 //! Example of select using the embedded firebird server
 //!
 
+#![allow(unused_variables, unused_mut)]
+
 use rsfbclient::{prelude::*, ConnectionBuilder, FbError};
 
 fn main() -> Result<(), FbError> {

@@ -10,6 +10,8 @@
 //! the database ;)
 //!
 
+#![allow(unused_variables, unused_mut)]
+
 use rsfbclient::{prelude::*, ConnectionBuilder, FbError};
 
 fn main() -> Result<(), FbError> {
