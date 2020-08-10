@@ -65,7 +65,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features -- --test-threads 1
+          args: --all-features
 
       - name: Run cargo clippy
         uses: actions-rs/clippy-check@v1
@@ -123,7 +123,7 @@ jobs:
         with:
           version: "latest"
           run-types: "Tests"
-          args: "-v --out Lcov --all-features -- --test-threads 1"
+          args: "-v --out Lcov --all-features"
 
       - name: Coveralls
         uses: coverallsapp/github-action@master
