@@ -6,6 +6,8 @@
 //! You need create a database named test.fdb:
 //!
 
+#![allow(unused_variables, unused_mut)]
+
 use rsfbclient::{prelude::*, ConnectionBuilder, FirebirdConnectionManager};
 use std::{sync::Arc, thread, time::Duration};
 

@@ -5,7 +5,7 @@
 //!
 
 use crate::{Connection, ConnectionBuilder, FbError, Transaction};
-use rsfbclient_core::FirebirdClient;
+use rsfbclient_core::{FirebirdClient, FirebirdClientRemoteAttach};
 
 pub struct FirebirdConnectionManager<C: FirebirdClient> {
     conn_builder: ConnectionBuilder<C>,
@@ -13,7 +13,7 @@ pub struct FirebirdConnectionManager<C: FirebirdClient> {
 
 impl<C> FirebirdConnectionManager<C>
 where
-    C: FirebirdClient,
+    C: FirebirdClient + FirebirdClientRemoteAttach<C>,
 {
     pub fn new(conn_builder: ConnectionBuilder<C>) -> Self {
         Self { conn_builder }
@@ -22,7 +22,7 @@ where
 
 impl<C> r2d2::ManageConnection for FirebirdConnectionManager<C>
 where
-    C: FirebirdClient + 'static,
+    C: FirebirdClient + 'static + FirebirdClientRemoteAttach<C>,
 {
     type Connection = Connection<C>;
     type Error = FbError;
