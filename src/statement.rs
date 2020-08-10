@@ -219,12 +219,17 @@ where
 }
 
 #[cfg(test)]
+/// Counter to allow the tests to be run in parallel without interfering in each other
+static TABLE_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+#[cfg(test)]
 mk_tests_default! {
     use crate::{prelude::*, Connection, Row, Transaction};
+    use rsfbclient_core::FirebirdClient;
 
     #[test]
     fn statements() {
-        let conn1 = setup();
+        let conn1 = connect();
 
         let conn2 = connect();
 
@@ -250,7 +255,7 @@ mk_tests_default! {
 
     #[test]
     fn new_api_select() {
-        let mut conn = setup();
+        let (mut conn, table) = setup();
 
         let vals = vec![
             (Some(2), "coffee".to_string()),
@@ -260,7 +265,7 @@ mk_tests_default! {
 
         conn.with_transaction(|tr| {
             for val in &vals {
-                tr.execute("insert into product (id, name) values (?, ?)", val.clone())
+                tr.execute(&format!("insert into {} (id, name) values (?, ?)", table), val.clone())
                     .expect("Error on insert");
             }
 
@@ -269,7 +274,7 @@ mk_tests_default! {
         .expect("Error commiting the transaction");
 
         let rows = conn
-            .query("select id, name from product", ())
+            .query(&format!("select id, name from {}", table), ())
             .expect("Error executing query");
 
         // Asserts that all values are equal
@@ -278,7 +283,7 @@ mk_tests_default! {
 
     #[test]
     fn old_api_select() {
-        let conn = setup();
+        let (conn, table) = setup();
 
         let vals = vec![
             (Some(2), "coffee".to_string()),
@@ -288,7 +293,7 @@ mk_tests_default! {
 
         conn.with_transaction(|tr| {
             let mut stmt = tr
-                .prepare("insert into product (id, name) values (?, ?)")
+                .prepare(&format!("insert into {} (id, name) values (?, ?)", table))
                 .expect("Error preparing the insert statement");
 
             for val in &vals {
@@ -301,7 +306,7 @@ mk_tests_default! {
 
         conn.with_transaction(|tr| {
             let mut stmt = tr
-                .prepare("select id, name from product")
+                .prepare(&format!("select id, name from {}", table))
                 .expect("Error on prepare the select");
 
             let rows: Vec<(Option<i32>, String)> = stmt
@@ -384,13 +389,13 @@ mk_tests_default! {
 
     #[test]
     fn prepared_insert() {
-        let conn = setup();
+        let (conn, table) = setup();
 
         let vals = vec![(Some(9), "apple"), (Some(12), "jack"), (None, "coffee")];
 
         conn.with_transaction(|tr| {
             for val in vals.into_iter() {
-                tr.execute("insert into product (id, name) values (?, ?)", val)
+                tr.execute(&format!("insert into {} (id, name) values (?, ?)", table), val)
                     .expect("Error on insert");
             }
 
@@ -403,13 +408,13 @@ mk_tests_default! {
 
     // #[test]
     // fn immediate_insert() {
-    //     let conn = setup();
+    //     let (mut conn, table) = setup();
 
     //     conn.with_transaction(|tr| {
-    //         tr.execute_immediate("insert into product (id, name) values (?, ?)", (1, "apple"))
+    //         tr.execute_immediate(&format!("insert into {} (id, name) values (?, ?)", (1, "apple", table)))
     //             .expect("Error on 1° insert");
 
-    //         tr.execute_immediate("insert into product (id, name) values (?, ?)", (2, "coffe"))
+    //         tr.execute_immediate(&format!("insert into {} (id, name) values (?, ?)", (2, "coffe", table)))
     //             .expect("Error on 2° insert");
 
     //         Ok(())
@@ -419,19 +424,22 @@ mk_tests_default! {
     //     conn.close().expect("error on close the connection");
     // }
 
-    fn setup() -> Connection<rsfbclient_native::NativeFbClient> {
+    fn setup() -> (Connection<impl FirebirdClient>, String) {
         let conn = connect();
 
-        conn.with_transaction(|tr| {
-            tr.execute_immediate("DROP TABLE product").ok();
+        let table_num = super::TABLE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let table = format!("product{}", table_num);
 
-            tr.execute_immediate("CREATE TABLE product (id int, name varchar(60), quantity int)")
+        conn.with_transaction(|tr| {
+            tr.execute_immediate(&format!("DROP TABLE {}", table)).ok();
+
+            tr.execute_immediate(&format!("CREATE TABLE {} (id int, name varchar(60), quantity int)", table))
                 .expect("Error on create the table product");
 
             Ok(())
         })
         .expect("Error in the transaction");
 
-        conn
+        (conn, table)
     }
 }
