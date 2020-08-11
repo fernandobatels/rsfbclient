@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        firebird: [v2, v3, v4]
+        firebird: [v3, v2, v4]
         build: [linking, dynamic_loading]
         include:
         - firebird: v2
@@ -86,7 +86,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev
 
-      - name: Setup FirebirdSQL ${{ matrix.image }} for tests
+      - name: Setup FirebirdSQL ${{ matrix.firebird }} with image  ${{ matrix.image }} for tests
         uses: juarezr/firebirdsql-github-action@v1.0.0
         with:
           version: "${{ matrix.image }}"
@@ -98,11 +98,13 @@ jobs:
       - name: Create a alias to test.fdb on fb v2
         if: matrix.firebird == 'v2'
         run: |
-          docker exec firebirdsql /usr/local/firebird/bin/createAliasDB.sh test.fdb /firebird/data/test.fdb
+          docker exec firebirdsql /bin/bash '/usr/local/firebird/bin/createAliasDB.sh' 'test.fdb' '/firebird/data/test.fdb'
 
       - name: Testing Connection and Query
+        if: matrix.firebird != 'v4'
         run: |
-          echo 'select * from rdb$database;' | isql-fb -bail -quiet -z -user SYSDBA -password masterkey 'localhost:/firebird/data/test.fdb'
+          SQL='select RDB$CHARACTER_SET_NAME as charset_fb${{ matrix.firebird }} from rdb$database;' 
+          echo $SQL | isql-fb -bail -quiet -z -user SYSDBA -password masterkey 'localhost:/firebird/data/test.fdb'
 
       - name: Testing Connection for User test_user on fb v3
         if: matrix.firebird == 'v3'
