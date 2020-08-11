@@ -98,7 +98,7 @@ jobs:
       - name: Create a alias to test.fdb on fb v2
         if: matrix.firebird == 'v2'
         run: |
-          docker exec -it firebirdsql /usr/local/firebird/bin/createAliasDB.sh test.fdb /firebird/data/test.fdb
+          docker exec firebirdsql /usr/local/firebird/bin/createAliasDB.sh test.fdb /firebird/data/test.fdb
 
       - name: Testing Connection and Query
         run: |
