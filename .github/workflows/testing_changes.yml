@@ -61,11 +61,15 @@ jobs:
         build: [linking, dynamic_loading]
         include:
         - firebird: v2
-          image: 2.5-ss
+          image: "2.5-ss"
         - firebird: v3
-          image: 3.0
+          image: "3.0"
         - firebird: v4
-          image: 4.0
+          image: "4.0"
+        - build: linking
+          features: linking date_time pool
+        - build: dynamic_loading
+          features: dynamic_loading date_time pool
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -99,18 +103,14 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --features '${{ matrix.build }} date_time pool'
+          args: --features '${{ matrix.features }}'
 
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
           version: "latest"
           run-types: "Tests"
-          args: "-v --out Lcov --features '${{ matrix.build }} date_time pool'"
-
-      - name: Remove docker FirebirdSQL ${{ matrix.image }} container
-        run: |
-          docker rm --volumes --force firebirdsql
+          args: "-v --out Lcov --features '${{ matrix.features }}'"
 
       - name: Coveralls Parallel
         uses: coverallsapp/github-action@master
@@ -121,9 +121,18 @@ jobs:
           flag-name: run-${{ matrix.firebird }}-${{ matrix.build }}
           parallel: true
 
+      - name: Cleanup docker and coverage
+        run: |
+          docker rm --volumes --force firebirdsql
+          rm -f ./lcov.info
+
+  coverage:
+    name: embedded
+    needs: testing
+    runs-on: ubuntu-latest
+    steps:
       - name: Coveralls Finished
         uses: coverallsapp/github-action@master
-        if: matrix.build == 'linking' && matrix.firebird == 'v4' # latest
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel-finished: true
@@ -159,15 +168,6 @@ jobs:
       - name: Create database for embedded tests
         run: |
           echo 'create database "/tmp/embedded_tests.fdb";' | isql-fb -bail -quiet -user SYSDBA
-
-      - name: Testing Connection and Query on embedded
-        run: |
-          echo 'select * from rdb$database;' | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:/tmp/embedded_tests.fdb'
-
-      - name: Run cargo clean
-        uses: actions-rs/cargo@v1
-        with:
-          command: clean
 
       - name: Run cargo embedded tests
         uses: actions-rs/cargo@v1
