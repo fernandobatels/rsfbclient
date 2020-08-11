@@ -470,15 +470,15 @@ parse_functions! {
             arg3: *mut *const ISC_STATUS,
         ) -> ISC_LONG;
     }
-    // extern "C" {
-    //     pub fn isc_open_blob(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_db_handle,
-    //         arg3: *mut isc_tr_handle,
-    //         arg4: *mut isc_blob_handle,
-    //         arg5: *mut ISC_QUAD,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "C" {
+        pub fn isc_open_blob(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_db_handle,
+            arg3: *mut isc_tr_handle,
+            arg4: *mut isc_blob_handle,
+            arg5: *mut ISC_QUAD,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_open_blob2(
     //         arg1: *mut ISC_STATUS,

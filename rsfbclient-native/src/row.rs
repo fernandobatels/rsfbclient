@@ -22,6 +22,8 @@ pub enum SqlType {
     Float,
     /// Coerces to Timestamp
     Timestamp,
+    /// Coerces to Blob sub_type 1
+    BlobText
 }
 
 #[derive(Debug)]
@@ -42,11 +44,24 @@ impl ColumnBuffer {
     pub fn from_xsqlvar(var: &mut ibase::XSQLVAR) -> Result<Self, FbError> {
         // Remove nullable type indicator
         let sqltype = var.sqltype & (!1);
+        let sqlsubtype = var.sqlsubtype;
 
         let mut nullind = Box::new(0);
         var.sqlind = &mut *nullind;
 
         let (kind, mut buffer) = match sqltype as u32 {
+
+            // BLOB sql_type text are considered a normal text on read
+            ibase::SQL_BLOB => {
+
+                let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
+
+                var.sqltype = ibase::SQL_BLOB as i16 + 1;
+
+                // TODO: support the others blobs subtypes
+                (BlobText, buffer)
+            }
+
             ibase::SQL_TEXT | ibase::SQL_VARYING => {
                 // sqllen + 2 because the two bytes from the varchar length
                 let buffer = vec![0; var.sqllen as usize + 2].into_boxed_slice();
@@ -96,7 +111,7 @@ impl ColumnBuffer {
             sqltype => {
                 return Err(FbError {
                     code: -1,
-                    msg: format!("Unsupported column type ({})", sqltype),
+                    msg: format!("Unsupported column type ({} {})", sqltype, sqlsubtype),
                 })
             }
         };
@@ -124,10 +139,59 @@ impl ColumnBuffer {
             Float => ColumnType::Float(float_from_buffer(&self.buffer)?),
 
             Timestamp => ColumnType::Timestamp(timestamp_from_buffer(&self.buffer)?),
+
+            BlobText => ColumnType::Text(blobtext_to_string(&self.buffer)?)
         };
 
         Ok(Column(Some(col_type)))
     }
+}
+
+/// Converts a text blob to a string
+fn blobtext_to_string(buffer: &[u8]) -> Result<String, FbError> {
+
+    let blob_id = integer_from_buffer(buffer)?;
+
+
+
+    /**
+
+        * Open the blob with the fetched blob_id.   Notice that the
+        *  segment length is shorter than the average segment fetched.
+        *  Each partial fetch should return isc_segment.
+        *
+        if (isc_open_blob(status, &DB, &trans, &blob_handle, &blob_id))
+        {
+            ERREXIT(status, 1)
+        }
+
+        * Get blob segments and their lengths and print each segment. *
+        blob_stat = isc_get_segment(status, &blob_handle,
+                                    (unsigned short *) &blob_seg_len,
+                                    sizeof(blob_segment), blob_segment);
+        while (blob_stat == 0 || status[1] == isc_segment)
+        {
+            printf("%*.*s", blob_seg_len, blob_seg_len, blob_segment);
+            blob_stat = isc_get_segment(status, &blob_handle,
+                                        (unsigned short *)&blob_seg_len,
+                                        sizeof(blob_segment), blob_segment);
+        }
+        * Close the blob.  Should be blob_stat to check *
+        if (status[1] == isc_segstr_eof)
+        {
+            if (isc_close_blob(status, &blob_handle))
+            {
+                ERREXIT(status, 1)
+            }
+        }
+        else
+            isc_print_status(status);
+
+
+
+     */
+    println!("{:?}", blob_id);
+    Ok("".to_string())
 }
 
 /// Converts a varchar in a buffer to a String

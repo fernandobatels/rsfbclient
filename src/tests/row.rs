@@ -9,6 +9,18 @@ mk_tests_default! {
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
     #[test]
+    fn blob_text_subtype() -> Result<(), FbError> {
+        let mut conn = connect();
+
+        let (a,): (String,) = conn.query_first("select cast('abc äbç 123' as BLOB sub_type 1) from rdb$database", ())?
+            .unwrap();
+
+        assert_eq!("abc äbç 123", a);
+
+        Ok(())
+    }
+
+    #[test]
     fn dates() -> Result<(), FbError> {
         let mut conn = connect();
 
