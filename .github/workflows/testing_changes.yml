@@ -99,7 +99,6 @@ jobs:
         if: matrix.firebird == 'v2'
         run: |
           docker exec firebirdsql /bin/bash '/usr/local/firebird/bin/createAliasDB.sh' 'test.fdb' '/firebird/data/test.fdb'
-          docker exec firebirdsql /bin/bash 'cat' '/firebird/etc/aliases.conf'
           docker container restart firebirdsql
           sleep 10
 
