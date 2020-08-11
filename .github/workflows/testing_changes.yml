@@ -7,7 +7,7 @@
 #
 # for simplicity we are checking compilation and testing everything on the Ubuntu environment only.
 # TODO:
-#   - Run for FirebirdSQL versions 2.5-ss 3.0 4.0
+#   - Fix tests for dynamic_loading and enable coverage
 #   - Run in windows
 #   - Run in arm little-endian architecture
 
@@ -16,8 +16,8 @@ on: [push, pull_request]
 name: testing_changes
 
 jobs:
-  ci:
-    name: ci-check
+  linting:
+    name: linting
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -32,40 +32,11 @@ jobs:
           override: true
           components: rustfmt, clippy
 
-      - name: Install cli and development library
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev
-
       - name: Run cargo build
         uses: actions-rs/cargo@v1
         with:
           command: check
           args: --verbose
-
-      - name: Setup FirebirdSQL 3.0 for tests
-        uses: juarezr/firebirdsql-github-action@v1.0.0
-        with:
-          version: "latest"
-          firebird_database: "test.fdb"
-          firebird_user: "test_user"
-          firebird_password: "test_password"
-          isc_password: "masterkey"
-
-      - name: Setup FirebirdSQL 3.0 for embedded tests
-        run: |
-          sudo apt-get install -y --no-install-recommends firebird3.0-server-core
-          echo 'create database "/tmp/embedded_tests.fdb";' | isql-fb -bail -quiet -user SYSDBA
-
-      - name: Testing Connection and Query
-        run: |
-          echo 'select * from rdb$database;' | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:test.fdb'
-
-      - name: Run cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features
 
       - name: Run cargo clippy
         uses: actions-rs/clippy-check@v1
@@ -80,8 +51,21 @@ jobs:
           command: fmt
           args: --all -- --check
 
-  coverage:
+  testing:
+    name: testing
+    needs: linting
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        firebird: [v2, v3, v4]
+        build: [linking, dynamic_loading]
+        include:
+        - firebird: v2
+          image: 2.5-ss
+        - firebird: v3
+          image: 3.0
+        - firebird: v4
+          image: 4.0
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -92,42 +76,103 @@ jobs:
           profile: default
           toolchain: stable
           default: true
-          override: true
-          components: rustfmt, clippy
 
       - name: Install cli and development library
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev
 
-      - name: Setup FirebirdSQL 3.0 for tests
+      - name: Setup FirebirdSQL ${{ matrix.image }} for tests
         uses: juarezr/firebirdsql-github-action@v1.0.0
         with:
-          version: "latest"
+          version: "${{ matrix.image }}"
           firebird_database: "test.fdb"
           firebird_user: "test_user"
           firebird_password: "test_password"
           isc_password: "masterkey"
 
-      - name: Setup FirebirdSQL 3.0 for embedded tests
-        run: |
-          sudo apt-get install -y --no-install-recommends firebird3.0-server-core
-          echo 'create database "/tmp/embedded_tests.fdb";' | isql-fb -bail -quiet -user SYSDBA
-
       - name: Testing Connection and Query
         run: |
           echo 'select * from rdb$database;' | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:test.fdb'
+
+      - name: Run cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --features '${{ matrix.build }} date_time pool'
 
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
           version: "latest"
           run-types: "Tests"
-          args: "-v --out Lcov --all-features"
+          args: "-v --out Lcov --features '${{ matrix.build }} date_time pool'"
 
-      - name: Coveralls
+      - name: Remove docker FirebirdSQL ${{ matrix.image }} container
+        run: |
+          docker rm --volumes --force firebirdsql
+
+      - name: Coveralls Parallel
         uses: coverallsapp/github-action@master
+        if: matrix.build == 'linking'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: "./lcov.info"
+          flag-name: run-${{ matrix.firebird }}-${{ matrix.build }}
+          parallel: true
+
+      - name: Coveralls Finished
+        uses: coverallsapp/github-action@master
+        if: matrix.build == 'linking' && matrix.firebird == 'v4' # latest
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel-finished: true
+
+  embedded:
+    name: embedded
+    needs: linting
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        build: [linking, dynamic_loading]
+        include:
+        - build: linking
+          features: linking date_time pool embedded
+        - build: dynamic_loading
+          features: dynamic_loading date_time pool embedded
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: default
+          toolchain: stable
+          default: true
+
+      - name: Setup FirebirdSQL 3.0 for embedded tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev firebird3.0-server-core
+
+      - name: Create database for embedded tests
+        run: |
+          echo 'create database "/tmp/embedded_tests.fdb";' | isql-fb -bail -quiet -user SYSDBA
+
+      - name: Testing Connection and Query on embedded
+        run: |
+          echo 'select * from rdb$database;' | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:/tmp/embedded_tests.fdb'
+
+      - name: Run cargo clean
+        uses: actions-rs/cargo@v1
+        with:
+          command: clean
+
+      - name: Run cargo embedded tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --features '${{ matrix.features }}'
+
 # end of file
