@@ -96,6 +96,7 @@ jobs:
           isc_password: "masterkey"
 
       - name: Testing Connection and Query
+        if: matrix.firebird != 'v4'
         run: |
           echo 'select * from rdb$database;' | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:test.fdb'
 
