@@ -56,6 +56,7 @@ jobs:
     needs: linting
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         firebird: [v3, v2, v4]
         build: [linking, dynamic_loading]
