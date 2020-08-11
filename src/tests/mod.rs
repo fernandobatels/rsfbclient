@@ -48,7 +48,7 @@ macro_rules! mk_tests_default {
                 $( $tests )*
             }
 
-            #[cfg(feature = "linking")]
+            #[cfg(all(feature = "linking", not(feature = "embedded")))]
             for linking -> Connection<rsfbclient_native::NativeFbClient> {
                 crate::ConnectionBuilder::linked()
                         .connect()
@@ -64,7 +64,7 @@ macro_rules! mk_tests_default {
                         .expect("Error on connect the test database")
             }
 
-            #[cfg(feature = "dynamic_loading")]
+            #[cfg(all(feature = "dynamic_loading", not(feature = "embedded")))]
             for dynamic_loading -> Connection<rsfbclient_native::NativeFbClient> {
                 crate::ConnectionBuilder::with_client("libfbclient.so")
                         .connect()
