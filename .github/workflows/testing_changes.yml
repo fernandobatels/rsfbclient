@@ -7,7 +7,7 @@
 #
 # for simplicity we are checking compilation and testing everything on the Ubuntu environment only.
 # TODO:
-#   - Fix tests for dynamic_loading and enable coverage
+#   - Fix tests for dynamic_loading, embedded
 #   - Run in windows
 #   - Run in arm little-endian architecture
 
@@ -95,8 +95,17 @@ jobs:
           firebird_password: "test_password"
           isc_password: "masterkey"
 
+      - name: Create a alias to test.fdb on fb v2
+        if: matrix.firebird == 'v2'
+        run: |
+          docker exec -it firebirdsql /usr/local/firebird/bin/createAliasDB.sh test.fdb /firebird/data/test.fdb
+
       - name: Testing Connection and Query
-        if: matrix.firebird != 'v4'
+        run: |
+          echo 'select * from rdb$database;' | isql-fb -bail -quiet -z -user SYSDBA -password masterkey 'localhost:/firebird/data/test.fdb'
+
+      - name: Testing Connection for User test_user on fb v3
+        if: matrix.firebird == 'v3'
         run: |
           echo 'select * from rdb$database;' | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:test.fdb'
 
@@ -128,7 +137,7 @@ jobs:
           rm -f ./lcov.info
 
   coverage:
-    name: embedded
+    name: coverage
     needs: testing
     runs-on: ubuntu-latest
     steps:
