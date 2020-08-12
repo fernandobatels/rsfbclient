@@ -133,7 +133,7 @@ jobs:
           # cargo tarpaulin --ignore-config --out Lcov Xml Html --run-types AllTargets -v --line --count --branch --features 'linking date_time pool' -- --test-threads 1
 
       - name: Coveralls Parallel
-        uses: coverallsapp/github-action@master
+        uses: coverallsapp/github-action@v1.1.1
         if: matrix.build == 'linking'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -152,7 +152,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Coveralls Finished
-        uses: coverallsapp/github-action@master
+        uses: coverallsapp/github-action@v1.1.1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel-finished: true
