@@ -1,0 +1,17 @@
+# https://github.com/actions-rs/audit-check#scheduled-audit
+
+name: Montly Security Audit
+on:
+  schedule:
+    - cron: '0 0 0 1 *'
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Run security audit
+        uses: actions-rs/audit-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
