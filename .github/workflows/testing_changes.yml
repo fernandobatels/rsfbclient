@@ -126,8 +126,11 @@ jobs:
         uses: actions-rs/tarpaulin@v0.1
         with:
           version: "latest"
-          run-types: "Tests"
-          args: "-v --out Lcov --features '${{ matrix.features }}'"
+          run-types: "AllTargets"
+          out-type: "Lcov"
+          args: "--line --count --branch -v --line --count --branch --features '${{ matrix.features }}' -- --test-threads 1"
+          # args: "--line --count --branch -v --line --count --branch --features '${{ matrix.features }}'
+          # cargo tarpaulin --ignore-config --out Lcov Xml Html --run-types AllTargets --line --count --branch -v --features 'linking date_time pool' -- --test-threads 1
 
       - name: Coveralls Parallel
         uses: coverallsapp/github-action@master
