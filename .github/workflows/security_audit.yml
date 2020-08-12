@@ -1,9 +1,10 @@
 # https://github.com/actions-rs/audit-check#scheduled-audit
 
-name: Montly Security Audit
+name: Weekly Security Audit
 on:
   schedule:
-    - cron: '0 0 0 1 *'
+    - cron: '0 0 * * 1'
+    # would run a command only on Mondays.
 jobs:
   audit:
     runs-on: ubuntu-latest
