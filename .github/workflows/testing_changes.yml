@@ -72,8 +72,25 @@ jobs:
         - build: dynamic_loading
           features: dynamic_loading date_time pool
     steps:
+      - name: Setup FirebirdSQL ${{ matrix.firebird }} with image  ${{ matrix.image }} for tests
+        uses: juarezr/firebirdsql-github-action@v1.0.0
+        with:
+          version: "${{ matrix.image }}"
+          firebird_database: "test.fdb"
+          firebird_user: "test_user"
+          firebird_password: "test_password"
+          isc_password: "masterkey"
+
       - name: Checkout sources
         uses: actions/checkout@v2
+
+      - name: Create a alias to test.fdb on fb v2
+        if: matrix.firebird == 'v2'
+        run: |
+          docker exec firebirdsql /bin/bash '/usr/local/firebird/bin/createAliasDB.sh' 'test.fdb' '/firebird/data/test.fdb'
+          docker container restart firebirdsql
+          echo '# Restarted container firebirdsql'
+          sleep 10
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
@@ -87,32 +104,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev
 
-      - name: Setup FirebirdSQL ${{ matrix.firebird }} with image  ${{ matrix.image }} for tests
-        uses: juarezr/firebirdsql-github-action@v1.0.0
-        with:
-          version: "${{ matrix.image }}"
-          firebird_database: "test.fdb"
-          firebird_user: "test_user"
-          firebird_password: "test_password"
-          isc_password: "masterkey"
-
-      - name: Create a alias to test.fdb on fb v2
-        if: matrix.firebird == 'v2'
-        run: |
-          docker exec firebirdsql /bin/bash '/usr/local/firebird/bin/createAliasDB.sh' 'test.fdb' '/firebird/data/test.fdb'
-          docker container restart firebirdsql
-          sleep 10
-
       - name: Testing Connection and Query
         if: matrix.firebird != 'v4'
         run: |
-          SQL='select RDB$CHARACTER_SET_NAME as charset_fb${{ matrix.firebird }} from rdb$database;' 
-          echo $SQL | isql-fb -bail -quiet -z -user SYSDBA -password masterkey 'localhost:/firebird/data/test.fdb'
+          SQL1='select RDB$CHARACTER_SET_NAME as charset_sysdba from rdb$database;' 
+          echo $SQL1 | isql-fb -bail -quiet -z -user SYSDBA -password masterkey 'localhost:/firebird/data/test.fdb'
 
       - name: Testing Connection for User test_user on fb v3
         if: matrix.firebird == 'v3'
         run: |
-          echo 'select * from rdb$database;' | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:test.fdb'
+          SQL2='select RDB$CHARACTER_SET_NAME as charset_user from rdb$database;' 
+          echo $SQL2 | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:test.fdb'
 
       - name: Run cargo test
         uses: actions-rs/cargo@v1
