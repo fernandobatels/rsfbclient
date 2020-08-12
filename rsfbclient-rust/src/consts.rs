@@ -172,7 +172,6 @@ pub enum Cnct {
 pub enum AuthPluginType {
     Srp256,
     Srp,
-    Legacy,
 }
 
 impl AuthPluginType {
@@ -181,25 +180,18 @@ impl AuthPluginType {
         match self {
             Self::Srp256 => "Srp256",
             Self::Srp => "Srp",
-            Self::Legacy => "Legacy_Auth",
         }
     }
 
     /// List with the plugins
     pub fn plugin_list() -> String {
-        [
-            AuthPluginType::Srp.name(),
-            AuthPluginType::Srp256.name(),
-            AuthPluginType::Legacy.name(),
-        ]
-        .join(",")
+        [AuthPluginType::Srp.name(), AuthPluginType::Srp256.name()].join(",")
     }
 
     pub fn parse(name: &[u8]) -> Result<Self, rsfbclient_core::FbError> {
         match name {
             b"Srp256" => Ok(Self::Srp256),
             b"Srp" => Ok(Self::Srp),
-            b"Legacy_Auth" => Ok(Self::Legacy),
 
             name => Err(format!("Invalid auth plugin: {}", String::from_utf8_lossy(name)).into()),
         }

@@ -26,7 +26,8 @@ pub fn connect(
     user: &str,
     username: &str,
     hostname: &str,
-) -> (Bytes, SrpClient<'static, sha1::Sha1>) {
+    srp_key: &[u8],
+) -> Bytes {
     let protocols = [
         // PROTOCOL_VERSION, Arch type (Generic=1), min, max, weight
         [ProtocolVersion::V10 as u32, 1, 0, 5, 2],
@@ -52,9 +53,8 @@ pub fn connect(
     // Protocol versions understood
     connect.put_u32(protocols.len() as u32);
 
-    // Random seed for the srp
-    let seed: [u8; 32] = rand::random();
-    let srp = SrpClient::<sha1::Sha1>::new(&seed, &SRP_GROUP);
+    // Request SRP by default, so use Sha1
+    let srp = SrpClient::<sha1::Sha1>::new(srp_key, &SRP_GROUP);
 
     let uid = {
         let mut uid = BytesMut::new();
@@ -66,6 +66,7 @@ pub fn connect(
         uid.put_u8(user.len() as u8);
         uid.put(user.as_bytes());
 
+        // Request SRP by default
         let plugin = AuthPluginType::Srp.name();
 
         uid.put_u8(Cnct::PluginName as u8);
@@ -112,7 +113,7 @@ pub fn connect(
         connect.put_u32(*i);
     }
 
-    (connect.freeze(), srp)
+    connect.freeze()
 }
 
 /// Continue authentication request
@@ -674,6 +675,34 @@ pub fn parse_accept(resp: &mut Bytes) -> Result<ConnectionResponse, FbError> {
     Ok(ConnectionResponse {
         version,
         auth_plugin,
+    })
+}
+
+/// Parse an authentication continuation response (`WireOp::ContAuth`)
+pub fn parse_cont_auth(resp: &mut Bytes) -> Result<AuthPlugin, FbError> {
+    if resp.remaining() < 4 {
+        return err_invalid_response();
+    }
+    let op_code = resp.get_u32();
+
+    if op_code == WireOp::Response as u32 {
+        // Returned an error
+        parse_response(resp)?;
+    }
+
+    if op_code != WireOp::ContAuth as u32 {
+        return err_conn_rejected(op_code);
+    }
+
+    let auth_data = parse_srp_auth_data(&mut resp.get_wire_bytes()?)?;
+    let plugin = AuthPluginType::parse(&resp.get_wire_bytes()?)?;
+    let _plugin_list = resp.get_wire_bytes()?;
+    let keys = resp.get_wire_bytes()?;
+
+    Ok(AuthPlugin {
+        kind: plugin,
+        data: auth_data,
+        keys,
     })
 }
 

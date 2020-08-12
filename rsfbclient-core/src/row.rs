@@ -80,11 +80,9 @@ impl ColumnToVal<String> for Column {
             Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts).to_string()),
 
             #[cfg(not(feature = "date_time"))]
-            Timestamp(_) => Err(FbError {
-                code: -1,
-                msg: "Enable the `date_time` feature to use Timestamp, Date and Time types"
-                    .to_string(),
-            }),
+            Timestamp(_) => {
+                Err("Enable the `date_time` feature to use Timestamp, Date and Time types".into())
+            }
         }
     }
 }

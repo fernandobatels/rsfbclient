@@ -209,7 +209,10 @@ impl FirebirdWireConnection {
 
         let mut socket = FbStream::Plain(socket);
 
-        let (req, srp) = connect(db_name, false, user, &username, &hostname);
+        // Random key for the srp
+        let srp_key: [u8; 32] = rand::random();
+
+        let req = connect(db_name, false, user, &username, &hostname, &srp_key);
         socket.write_all(&req)?;
         socket.flush()?;
 
@@ -224,55 +227,62 @@ impl FirebirdWireConnection {
             auth_plugin,
         } = parse_accept(&mut resp)?;
 
-        if let Some(AuthPlugin { kind, data, .. }) = auth_plugin {
-            match kind {
-                plugin @ AuthPluginType::Srp256 | plugin @ AuthPluginType::Srp => {
-                    if let Some(data) = data {
-                        // Generate a private key with the salt received from the server
-                        let private_key = srp_private_key::<sha1::Sha1>(
-                            user.as_bytes(),
-                            pass.as_bytes(),
-                            &data.salt,
-                        );
+        if let Some(mut auth_plugin) = auth_plugin {
+            loop {
+                match auth_plugin.kind {
+                    plugin @ AuthPluginType::Srp => {
+                        let srp = SrpClient::<sha1::Sha1>::new(&srp_key, &SRP_GROUP);
 
-                        // Generate a verified with the private key above and the server public key received
-                        let verifier = srp
-                            .process_reply(user.as_bytes(), &data.salt, &private_key, &data.pub_key)
-                            .map_err(|e| FbError::from(format!("Srp error: {}", e)))?;
+                        if let Some(data) = auth_plugin.data {
+                            socket = srp_auth(socket, &mut buff, srp, plugin, user, pass, data)?;
 
-                        // Generate a proof to send to the server so it can verify the password
-                        let proof = hex::encode(verifier.get_proof());
+                            // Authentication Ok
+                            break;
+                        } else {
+                            // Server requested a different authentication method than the client specified
+                            // in the initial connection
 
-                        // Send proof data
-                        socket.write_all(&cont_auth(
-                            &proof.as_bytes(),
-                            plugin,
-                            AuthPluginType::plugin_list(),
-                            &[],
-                        ))?;
-                        socket.flush()?;
+                            socket.write_all(&cont_auth(
+                                hex::encode(srp.get_a_pub()).as_bytes(),
+                                plugin,
+                                AuthPluginType::plugin_list(),
+                                &[],
+                            ))?;
+                            socket.flush()?;
 
-                        read_response(&mut socket, &mut buff)?;
+                            let len = socket.read(&mut buff)?;
+                            let mut resp = Bytes::copy_from_slice(&buff[..len]);
 
-                        // Enable wire encryption
-                        socket.write_all(&crypt("Arc4", "Symmetric"))?;
-                        socket.flush()?;
+                            auth_plugin = parse_cont_auth(&mut resp)?;
+                        }
+                    }
+                    plugin @ AuthPluginType::Srp256 => {
+                        let srp = SrpClient::<sha2::Sha256>::new(&srp_key, &SRP_GROUP);
 
-                        socket = FbStream::Arc4(Arc4Stream::new(
-                            match socket {
-                                FbStream::Plain(s) => s,
-                                _ => unreachable!("Stream was already encrypted!"),
-                            },
-                            &verifier.get_key(),
-                            buff.len(),
-                        ));
+                        if let Some(data) = auth_plugin.data {
+                            socket = srp_auth(socket, &mut buff, srp, plugin, user, pass, data)?;
 
-                        read_response(&mut socket, &mut buff)?;
-                    } else {
-                        todo!("Not sure what to do")
+                            // Authentication Ok
+                            break;
+                        } else {
+                            // Server requested a different authentication method than the client specified
+                            // in the initial connection
+
+                            socket.write_all(&cont_auth(
+                                &hex::encode(srp.get_a_pub()).as_bytes(),
+                                plugin,
+                                AuthPluginType::plugin_list(),
+                                &[],
+                            ))?;
+                            socket.flush()?;
+
+                            let len = socket.read(&mut buff)?;
+                            let mut resp = Bytes::copy_from_slice(&buff[..len]);
+
+                            auth_plugin = parse_cont_auth(&mut resp)?;
+                        }
                     }
                 }
-                AuthPluginType::Legacy => {}
             }
         }
 
@@ -562,6 +572,59 @@ fn read_packet(socket: &mut impl Read, buff: &mut [u8]) -> Result<(u32, Bytes), 
     };
 
     Ok((op_code, resp))
+}
+
+/// Performs the srp authentication with the server, returning the encrypted stream
+fn srp_auth<D>(
+    mut socket: FbStream,
+    buff: &mut [u8],
+    srp: SrpClient<D>,
+    plugin: AuthPluginType,
+    user: &str,
+    pass: &str,
+    data: SrpAuthData,
+) -> Result<FbStream, FbError>
+where
+    D: digest::Digest,
+{
+    // Generate a private key with the salt received from the server
+    let private_key = srp_private_key::<sha1::Sha1>(user.as_bytes(), pass.as_bytes(), &data.salt);
+
+    // Generate a verified with the private key above and the server public key received
+    let verifier = srp
+        .process_reply(user.as_bytes(), &data.salt, &private_key, &data.pub_key)
+        .map_err(|e| FbError::from(format!("Srp error: {}", e)))?;
+
+    // Generate a proof to send to the server so it can verify the password
+    let proof = hex::encode(verifier.get_proof());
+
+    // Send proof data
+    socket.write_all(&cont_auth(
+        &proof.as_bytes(),
+        plugin,
+        AuthPluginType::plugin_list(),
+        &[],
+    ))?;
+    socket.flush()?;
+
+    read_response(&mut socket, buff)?;
+
+    // Enable wire encryption
+    socket.write_all(&crypt("Arc4", "Symmetric"))?;
+    socket.flush()?;
+
+    socket = FbStream::Arc4(Arc4Stream::new(
+        match socket {
+            FbStream::Plain(s) => s,
+            _ => unreachable!("Stream was already encrypted!"),
+        },
+        &verifier.get_key(),
+        buff.len(),
+    ));
+
+    read_response(&mut socket, buff)?;
+
+    Ok(socket)
 }
 
 #[derive(Debug, Clone, Copy)]

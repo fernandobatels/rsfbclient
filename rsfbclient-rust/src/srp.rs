@@ -96,7 +96,8 @@ pub struct SrpClient<'a, D: Digest> {
 /// SRP client state after handshake with the server.
 pub struct SrpClientVerifier<D: Digest> {
     proof: GenericArray<u8, D::OutputSize>,
-    key: GenericArray<u8, D::OutputSize>,
+    // Firebird hashes this with SHA1 for some reason
+    key: GenericArray<u8, <Sha1 as Digest>::OutputSize>,
 }
 
 /// Compute user private key as described in the RFC 5054. Consider using proper
@@ -136,14 +137,15 @@ impl<'a, D: Digest> SrpClient<'a, D> {
         v.to_bytes_be()
     }
 
+    // Firebird hashes this with SHA1 for some reason
     fn calc_key(
         &self,
         b_pub: &BigUint,
         x: &BigUint,
         u: &BigUint,
-    ) -> GenericArray<u8, D::OutputSize> {
+    ) -> GenericArray<u8, <Sha1 as Digest>::OutputSize> {
         let n = &self.params.n;
-        let k = self.params.compute_k::<D>();
+        let k = self.params.compute_k::<Sha1>();
         let interm = (k * self.params.powm(x)) % n;
         // Because we do operation in modulo N we can get: (kv + g^b) < kv
         let v = if *b_pub > interm {
@@ -153,7 +155,7 @@ impl<'a, D: Digest> SrpClient<'a, D> {
         };
         // S = |B - kg^x| ^ (a + ux)
         let s = powm(&v, &(&self.a + (u * x) % n), n);
-        D::digest(&s.to_bytes_be())
+        Sha1::digest(&s.to_bytes_be())
     }
 
     /// Process server reply to the handshake.
@@ -166,7 +168,8 @@ impl<'a, D: Digest> SrpClient<'a, D> {
     ) -> Result<SrpClientVerifier<D>, SrpAuthError> {
         let u = {
             BigUint::from_bytes_be(
-                &D::new()
+                // Firebird hashes this with SHA1 for some reason
+                &Sha1::new()
                     .chain(&self.a_pub.to_bytes_be())
                     .chain(b_pub)
                     .finalize(),
@@ -224,7 +227,7 @@ impl<D: Digest> SrpClientVerifier<D> {
     /// Get shared secret key without authenticating server, e.g. for using with
     /// authenticated encryption modes. DO NOT USE this method without
     /// some kind of secure authentication
-    pub fn get_key(self) -> GenericArray<u8, D::OutputSize> {
+    pub fn get_key(self) -> GenericArray<u8, <Sha1 as Digest>::OutputSize> {
         self.key
     }
 
@@ -374,10 +377,12 @@ mod test {
         let user = b"SYSDBA";
         let password = b"masterkey";
 
+        // Real one randomly generated
         let seed = b"`\x97U'\x03\\\xf2\xad\x19\x89\x80o\x04\x07!\x0b\xc8\x1e\xdc\x04\xe2v*V\xaf\xd5)\xdd\xda-C\x93";
 
         let cli = SrpClient::<Sha256>::new(seed, &SRP_GROUP);
 
+        // Real ones are received from server
         let salt = b"\x02\xe2h\x800\x00\x00\x00y\xa4x\xa7\x00\x00\x00\x02\xd1\xa6\x97\x90\x00\x00\x00&\xe1`\x1c\x00\x00\x00\x05O";
         let serv_pub = BigUint::parse_bytes(
             b"57bcd7d4241869e616ed54b5ab1814ca7b97b04bc269c4054a1325708a9f80821efeade02b875d2bda35c7e1e217ff7ef432c77720aa57baa250bdfbca47de56cccdfa8a6e82c74a99e4ae3db3f07f88d4b583169180fc78e70672e10746da0a27c5709e9b67fab4eaa7b426ac1cebf506d6cdaec1c1a0ade0e9e63a4a89d80a", 
