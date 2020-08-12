@@ -120,7 +120,8 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --features '${{ matrix.features }}'
+          args: --features '${{ matrix.features }}' -- --test-threads 1
+          # TODO: args: --features '${{ matrix.features }}'
 
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
@@ -128,18 +129,17 @@ jobs:
           version: "latest"
           run-types: "AllTargets"
           out-type: "Lcov"
-          args: "-v --line --count --branch --features '${{ matrix.features }}' -- --test-threads 1"
-          # args: "-v --line --count --branch --features '${{ matrix.features }}'"
-          # cargo tarpaulin --ignore-config --out Lcov Xml Html --run-types AllTargets -v --line --count --branch --features 'linking date_time pool' -- --test-threads 1
+          args: -v --line --count --branch --features '${{ matrix.features }}' -- --test-threads 1
 
       - name: Coveralls Parallel
-        uses: coverallsapp/github-action@v1.1.1
-        if: matrix.build == 'linking'
+        uses: coverallsapp/github-action@master
+        env:
+          COVERALLS_FLAG_NAME: run-${{ matrix.firebird }}-${{ matrix.build }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: "./lcov.info"
-          flag-name: run-${{ matrix.firebird }}-${{ matrix.build }}
           parallel: true
+          # flag-name: run-${{ matrix.firebird }}-${{ matrix.build }}
 
       - name: Cleanup docker and coverage
         run: |
@@ -152,7 +152,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Coveralls Finished
-        uses: coverallsapp/github-action@v1.1.1
+        uses: coverallsapp/github-action@master
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel-finished: true
@@ -193,7 +193,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --features '${{ matrix.features }}'
+          args: --features '${{ matrix.features }}' -- --test-threads 1
 
   security:
     name: security
