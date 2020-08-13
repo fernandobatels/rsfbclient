@@ -90,7 +90,7 @@ where
     /// Fetch for the next row
     pub fn fetch(&mut self) -> Result<Option<R>, FbError> {
         self.stmt
-            .fetch(self.conn)
+            .fetch(self.conn, &self._tr.data)
             .and_then(|row| row.map(FromRow::try_from).transpose())
     }
 }
@@ -190,11 +190,15 @@ where
     }
 
     /// Fetch for the next row, needs to be called after `query`
-    pub fn fetch<C>(&mut self, conn: &Connection<C>) -> Result<Option<Vec<Column>>, FbError>
+    pub fn fetch<C>(
+        &mut self,
+        conn: &Connection<C>,
+        tr: &TransactionData<C::TrHandle>,
+    ) -> Result<Option<Vec<Column>>, FbError>
     where
         C: FirebirdClient<StmtHandle = H>,
     {
-        conn.cli.borrow_mut().fetch(self.handle)
+        conn.cli.borrow_mut().fetch(conn.handle, tr.handle, self.handle)
     }
 
     /// Closes the statement cursor, if it was open

@@ -5,9 +5,9 @@
 //!
 
 use rsfbclient_core::{Column, ColumnType, FbError};
-use std::{convert::TryInto, mem, result::Result};
+use std::{convert::TryInto, mem, result::Result, str, ffi};
 
-use crate::ibase;
+use crate::{ibase, ibase::IBase, status::Status};
 
 use SqlType::*;
 
@@ -126,7 +126,7 @@ impl ColumnBuffer {
     }
 
     /// Converts the buffer to a Column
-    pub fn to_column(&self) -> Result<Column, FbError> {
+    pub fn to_column(&self, db: &mut ibase::isc_db_handle, tr: &mut ibase::isc_tr_handle, ibase: &IBase) -> Result<Column, FbError> {
         if *self.nullind != 0 {
             return Ok(Column(None));
         }
@@ -140,7 +140,7 @@ impl ColumnBuffer {
 
             Timestamp => ColumnType::Timestamp(timestamp_from_buffer(&self.buffer)?),
 
-            BlobText => ColumnType::Text(blobtext_to_string(&self.buffer)?)
+            BlobText => ColumnType::Text(blobtext_to_string(&self.buffer, db, tr, ibase)?)
         };
 
         Ok(Column(Some(col_type)))
@@ -148,50 +148,76 @@ impl ColumnBuffer {
 }
 
 /// Converts a text blob to a string
-fn blobtext_to_string(buffer: &[u8]) -> Result<String, FbError> {
+fn blobtext_to_string(buffer: &[u8], db: &mut ibase::isc_db_handle, tr: &mut ibase::isc_tr_handle, ibase: &IBase) -> Result<String, FbError> {
 
-    let blob_id = integer_from_buffer(buffer)?;
+    let mut final_string = String::new();
 
+    let mut status = Status::default();
+    let mut handle = 0;
 
+    let (head, body, _) = unsafe {
+        buffer.align_to::<ibase::GDS_QUAD_t>()
+    };
+    assert!(head.is_empty(), "Blob id is not aligned");
+    let mut blob_id = body[0];
 
-    /**
-
-        * Open the blob with the fetched blob_id.   Notice that the
-        *  segment length is shorter than the average segment fetched.
-        *  Each partial fetch should return isc_segment.
-        *
-        if (isc_open_blob(status, &DB, &trans, &blob_handle, &blob_id))
+    unsafe {
+        if ibase.isc_open_blob()(
+            &mut status[0],
+            db,
+            tr,
+            &mut handle,
+            &mut blob_id
+        ) != 0
         {
-            ERREXIT(status, 1)
+            return Err(status.as_error(&ibase));
         }
+    }
 
-        * Get blob segments and their lengths and print each segment. *
-        blob_stat = isc_get_segment(status, &blob_handle,
-                                    (unsigned short *) &blob_seg_len,
-                                    sizeof(blob_segment), blob_segment);
-        while (blob_stat == 0 || status[1] == isc_segment)
+    // Assert that the handle is valid
+    debug_assert_ne!(handle, 0);
+
+    let mut blob_stat = 0;
+
+    while blob_stat == 0 || status[1] == (ibase::isc_segment as isize) {
+        let mut blob_seg_loaded = 0 as u16;
+        let mut blob_seg_slice = [0; 255];
+        let blob_seg = blob_seg_slice.as_mut_ptr();
+
+        blob_stat = unsafe {
+            ibase.isc_get_segment()(
+                &mut status[0],
+                &mut handle,
+                &mut blob_seg_loaded,
+                blob_seg_slice.len() as u16,
+                blob_seg
+            )
+        };
+
+        let blob_seg_cstr = unsafe {
+            ffi::CStr::from_ptr(blob_seg)
+        };
+
+        let blob_seg_str = blob_seg_cstr.to_str()
+            .map_err(|_| FbError {
+                code: -1,
+                msg: "Found column with an invalid utf-8 string".to_owned(),
+            })?;
+
+        final_string.push_str(blob_seg_str);
+    }
+
+    unsafe {
+        if ibase.isc_close_blob()(
+            &mut status[0],
+            &mut handle
+        ) != 0
         {
-            printf("%*.*s", blob_seg_len, blob_seg_len, blob_segment);
-            blob_stat = isc_get_segment(status, &blob_handle,
-                                        (unsigned short *)&blob_seg_len,
-                                        sizeof(blob_segment), blob_segment);
+            return Err(status.as_error(&ibase));
         }
-        * Close the blob.  Should be blob_stat to check *
-        if (status[1] == isc_segstr_eof)
-        {
-            if (isc_close_blob(status, &blob_handle))
-            {
-                ERREXIT(status, 1)
-            }
-        }
-        else
-            isc_print_status(status);
+    }
 
-
-
-     */
-    println!("{:?}", blob_id);
-    Ok("".to_string())
+    Ok(final_string)
 }
 
 /// Converts a varchar in a buffer to a String
@@ -206,7 +232,7 @@ fn varchar_to_string(buffer: &[u8]) -> Result<String, FbError> {
         return err_buffer_len(len + 2, buffer.len(), "String");
     }
 
-    std::str::from_utf8(&buffer[2..(len + 2)])
+    str::from_utf8(&buffer[2..(len + 2)])
         .map(|str| str.to_string())
         .map_err(|_| FbError {
             code: -1,

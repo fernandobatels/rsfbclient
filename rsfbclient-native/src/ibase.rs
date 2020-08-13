@@ -181,9 +181,9 @@ parse_functions! {
     //         arg3: *mut ISC_LONG,
     //     ) -> ISC_STATUS;
     // }
-    // extern "C" {
-    //     pub fn isc_close_blob(arg1: *mut ISC_STATUS, arg2: *mut isc_blob_handle) -> ISC_STATUS;
-    // }
+    extern "C" {
+        pub fn isc_close_blob(arg1: *mut ISC_STATUS, arg2: *mut isc_blob_handle) -> ISC_STATUS;
+    }
     extern "C" {
         pub fn isc_commit_retaining(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
     }
@@ -436,15 +436,15 @@ parse_functions! {
     // extern "C" {
     //     pub fn isc_free(arg1: *mut ISC_SCHAR) -> ISC_LONG;
     // }
-    // extern "C" {
-    //     pub fn isc_get_segment(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_blob_handle,
-    //         arg3: *mut ::std::os::raw::c_ushort,
-    //         arg4: ::std::os::raw::c_ushort,
-    //         arg5: *mut ISC_SCHAR,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "C" {
+        pub fn isc_get_segment(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_blob_handle,
+            arg3: *mut ::std::os::raw::c_ushort,
+            arg4: ::std::os::raw::c_ushort,
+            arg5: *mut ISC_SCHAR,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_get_slice(
     //         arg1: *mut ISC_STATUS,

@@ -17,6 +17,14 @@ mk_tests_default! {
 
         assert_eq!("abc äbç 123", a);
 
+        // With a big string....
+
+        let (b,): (String,) = conn.query_first("select cast('Mussum Ipsum, cacilds vidis litro abertis. Admodum accumsan disputationi eu sit. Vide electram sadipscing et per. Delegadis gente finis, bibendum egestas augue arcu ut est. Paisis, filhis, espiritis santis. Quem manda na minha terra sou euzis!' as BLOB sub_type 1) from rdb$database", ())?
+            .unwrap();
+
+        assert_eq!("Mussum Ipsum, cacilds vidis litro abertis. Admodum accumsan disputationi eu sit. Vide electram sadipscing et per. Delegadis gente finis, bibendum egestas augue arcu ut est. Paisis, filhis, espiritis santis. Quem manda na minha terra sou euzis!", b);
+
+
         Ok(())
     }
 
