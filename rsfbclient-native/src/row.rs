@@ -5,7 +5,7 @@
 //!
 
 use rsfbclient_core::{Column, ColumnType, FbError};
-use std::{convert::TryInto, mem, result::Result, str, ffi};
+use std::{convert::TryInto, ffi, mem, result::Result, str};
 
 use crate::{ibase, ibase::IBase, status::Status};
 
@@ -23,7 +23,7 @@ pub enum SqlType {
     /// Coerces to Timestamp
     Timestamp,
     /// Coerces to Blob sub_type 1
-    BlobText
+    BlobText,
 }
 
 #[derive(Debug)]
@@ -50,10 +50,8 @@ impl ColumnBuffer {
         var.sqlind = &mut *nullind;
 
         let (kind, mut buffer) = match sqltype as u32 {
-
             // BLOB sql_type text are considered a normal text on read
             ibase::SQL_BLOB => {
-
                 let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
 
                 var.sqltype = ibase::SQL_BLOB as i16 + 1;
@@ -126,7 +124,12 @@ impl ColumnBuffer {
     }
 
     /// Converts the buffer to a Column
-    pub fn to_column(&self, db: &mut ibase::isc_db_handle, tr: &mut ibase::isc_tr_handle, ibase: &IBase) -> Result<Column, FbError> {
+    pub fn to_column(
+        &self,
+        db: &mut ibase::isc_db_handle,
+        tr: &mut ibase::isc_tr_handle,
+        ibase: &IBase,
+    ) -> Result<Column, FbError> {
         if *self.nullind != 0 {
             return Ok(Column(None));
         }
@@ -140,7 +143,7 @@ impl ColumnBuffer {
 
             Timestamp => ColumnType::Timestamp(timestamp_from_buffer(&self.buffer)?),
 
-            BlobText => ColumnType::Text(blobtext_to_string(&self.buffer, db, tr, ibase)?)
+            BlobText => ColumnType::Text(blobtext_to_string(&self.buffer, db, tr, ibase)?),
         };
 
         Ok(Column(Some(col_type)))
@@ -148,28 +151,23 @@ impl ColumnBuffer {
 }
 
 /// Converts a text blob to a string
-fn blobtext_to_string(buffer: &[u8], db: &mut ibase::isc_db_handle, tr: &mut ibase::isc_tr_handle, ibase: &IBase) -> Result<String, FbError> {
-
+fn blobtext_to_string(
+    buffer: &[u8],
+    db: &mut ibase::isc_db_handle,
+    tr: &mut ibase::isc_tr_handle,
+    ibase: &IBase,
+) -> Result<String, FbError> {
     let mut final_string = String::new();
 
     let mut status = Status::default();
     let mut handle = 0;
 
-    let (head, body, _) = unsafe {
-        buffer.align_to::<ibase::GDS_QUAD_t>()
-    };
+    let (head, body, _) = unsafe { buffer.align_to::<ibase::GDS_QUAD_t>() };
     assert!(head.is_empty(), "Blob id is not aligned");
     let mut blob_id = body[0];
 
     unsafe {
-        if ibase.isc_open_blob()(
-            &mut status[0],
-            db,
-            tr,
-            &mut handle,
-            &mut blob_id
-        ) != 0
-        {
+        if ibase.isc_open_blob()(&mut status[0], db, tr, &mut handle, &mut blob_id) != 0 {
             return Err(status.as_error(&ibase));
         }
     }
@@ -190,29 +188,22 @@ fn blobtext_to_string(buffer: &[u8], db: &mut ibase::isc_db_handle, tr: &mut iba
                 &mut handle,
                 &mut blob_seg_loaded,
                 blob_seg_slice.len() as u16,
-                blob_seg
+                blob_seg,
             )
         };
 
-        let blob_seg_cstr = unsafe {
-            ffi::CStr::from_ptr(blob_seg)
-        };
+        let blob_seg_cstr = unsafe { ffi::CStr::from_ptr(blob_seg) };
 
-        let blob_seg_str = blob_seg_cstr.to_str()
-            .map_err(|_| FbError {
-                code: -1,
-                msg: "Found column with an invalid utf-8 string".to_owned(),
-            })?;
+        let blob_seg_str = blob_seg_cstr.to_str().map_err(|_| FbError {
+            code: -1,
+            msg: "Found column with an invalid utf-8 string".to_owned(),
+        })?;
 
         final_string.push_str(blob_seg_str);
     }
 
     unsafe {
-        if ibase.isc_close_blob()(
-            &mut status[0],
-            &mut handle
-        ) != 0
-        {
+        if ibase.isc_close_blob()(&mut status[0], &mut handle) != 0 {
             return Err(status.as_error(&ibase));
         }
     }

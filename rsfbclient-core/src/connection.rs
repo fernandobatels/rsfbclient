@@ -98,7 +98,7 @@ pub trait FirebirdClient: Send {
         &mut self,
         db_handle: Self::DbHandle,
         tr_handle: Self::TrHandle,
-        stmt_handle: Self::StmtHandle
+        stmt_handle: Self::StmtHandle,
     ) -> Result<Option<Vec<Column>>, FbError>;
 }
 

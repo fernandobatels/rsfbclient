@@ -198,7 +198,9 @@ where
     where
         C: FirebirdClient<StmtHandle = H>,
     {
-        conn.cli.borrow_mut().fetch(conn.handle, tr.handle, self.handle)
+        conn.cli
+            .borrow_mut()
+            .fetch(conn.handle, tr.handle, self.handle)
     }
 
     /// Closes the statement cursor, if it was open

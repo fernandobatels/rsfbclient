@@ -417,7 +417,7 @@ impl FirebirdClient for NativeFbClient {
         &mut self,
         mut db_handle: Self::DbHandle,
         mut tr_handle: Self::TrHandle,
-        mut stmt_handle: Self::StmtHandle
+        mut stmt_handle: Self::StmtHandle,
     ) -> Result<Option<Vec<Column>>, FbError> {
         let (xsqlda, col_buf) = self
             .stmt_data_map
