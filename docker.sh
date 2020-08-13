@@ -10,6 +10,8 @@ case $2 in
 esac
 
 case $1 in
+    ps) docker ps --filter 'name=firebirdsql' ;;
+
     start) docker start firebirdsql ;;
 
     stop) docker stop firebirdsql ;;
