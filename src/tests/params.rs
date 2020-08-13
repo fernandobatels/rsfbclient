@@ -5,7 +5,7 @@
 //!
 
 mk_tests_default! {
-    use crate::{prelude::*, Connection, FbError};
+    use crate::{prelude::*, Connection, FbError, Param};
     use chrono::{NaiveDate, NaiveTime};
 
     #[test]
@@ -188,6 +188,30 @@ mk_tests_default! {
         )?;
 
         assert!(res.is_none());
+
+        Ok(())
+    }
+
+    #[test]
+    fn lots_of_params() -> Result<(), FbError> {
+        let mut conn = connect();
+
+        let vals = -250..250;
+
+        let params: Vec<Param> = vals.clone().map(|v| v.into()).collect();
+
+        let sql = format!("select 1 from rdb$database where {}", vals.fold(String::new(), |mut acc, v| {
+            if acc.is_empty() {
+                acc += &format!("{} = ?", v);
+            }else{
+                acc += &format!(" and {} = ?", v);
+            }
+            acc
+        }));
+
+        let resp = conn.query_first(&sql, params)?;
+
+        assert_eq!(resp, Some((1,)));
 
         Ok(())
     }

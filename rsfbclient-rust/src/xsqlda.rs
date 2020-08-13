@@ -169,7 +169,7 @@ pub fn parse_xsqlda(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<Prepa
     let param_count;
 
     let truncated = if resp.remaining() >= 8
-        && resp.bytes()[..2]
+        && resp[..2]
             == [
                 ibase::isc_info_sql_bind as u8,          // Start of param data
                 ibase::isc_info_sql_describe_vars as u8, // Param count
@@ -182,13 +182,13 @@ pub fn parse_xsqlda(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<Prepa
 
         param_count = resp.get_u32_le() as usize;
 
-        while resp.remaining() > 0 && resp.bytes()[0] == ibase::isc_info_sql_describe_end as u8 {
+        while resp.remaining() > 0 && resp[0] == ibase::isc_info_sql_describe_end as u8 {
             // Indicates the end of param data, skip it as it appears only once. has one for each param
             resp.advance(1);
         }
 
         if resp.remaining() >= 8
-            && resp.bytes()[..2]
+            && resp[..2]
                 == [
                     ibase::isc_info_sql_select as u8,        // Start of column data
                     ibase::isc_info_sql_describe_vars as u8, // Column count

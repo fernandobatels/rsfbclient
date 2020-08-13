@@ -1,4 +1,4 @@
-use bytes::{Buf, Bytes};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::{
     collections::HashMap,
     env,
@@ -558,8 +558,19 @@ fn read_response(socket: &mut impl Read, buff: &mut [u8]) -> Result<Response, Fb
 
 /// Reads a packet from the socket
 fn read_packet(socket: &mut impl Read, buff: &mut [u8]) -> Result<(u32, Bytes), FbError> {
-    let len = socket.read(buff)?;
-    let mut resp = Bytes::copy_from_slice(&buff[..len]);
+    let mut len = socket.read(buff)?;
+    let mut resp = BytesMut::from(&buff[..len]);
+
+    loop {
+        if len == buff.len() {
+            // The buffer was not large enough, so read more
+            len = socket.read(buff)?;
+            resp.put_slice(&buff[..len]);
+        } else {
+            break;
+        }
+    }
+    let mut resp = resp.freeze();
 
     let op_code = loop {
         if resp.remaining() < 4 {

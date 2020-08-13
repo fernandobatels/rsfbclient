@@ -81,7 +81,6 @@ pub struct StatementFetch<'s, R, C: FirebirdClient> {
     _marker: std::marker::PhantomData<R>,
 }
 
-// TODO: Make it an iterator directly
 impl<'s, R, C> StatementFetch<'s, R, C>
 where
     R: FromRow,

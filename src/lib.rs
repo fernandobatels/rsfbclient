@@ -21,7 +21,13 @@ pub use crate::{
     statement::Statement,
     transaction::Transaction,
 };
-pub use rsfbclient_core::{Dialect, FbError, IntoParam, Row};
+pub use rsfbclient_core::{Column, ColumnType, Dialect, FbError, FromRow, IntoParam, Param, Row};
 
 #[cfg(feature = "pool")]
 pub use crate::connection::pool::FirebirdConnectionManager;
+
+#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
+pub use rsfbclient_native;
+
+#[cfg(feature = "pure_rust")]
+pub use rsfbclient_rust;
