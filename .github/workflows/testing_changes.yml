@@ -166,9 +166,9 @@ jobs:
         build: [linking, dynamic_loading]
         include:
         - build: linking
-          features: linking date_time pool embedded
+          features: linking date_time pool embedded_tests
         - build: dynamic_loading
-          features: dynamic_loading date_time pool embedded
+          features: dynamic_loading date_time pool embedded_tests
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
