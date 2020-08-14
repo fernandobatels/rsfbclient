@@ -18,7 +18,7 @@ fn search_on_environment_var() -> bool {
         println!("cargo:rustc-link-search={}", user_specified_dir);
         return false;
     }
-    return true;
+    true
 }
 
 #[cfg(all(feature = "linking", target_os = "linux"))]
@@ -29,25 +29,39 @@ fn search_on_linux() {
 }
 
 #[cfg(all(feature = "linking", target_os = "windows"))]
+use glob::glob;
+
+#[cfg(all(feature = "linking", target_os = "windows"))]
 fn search_on_windows() {
-    let fbclient_lib_names: [&str; 2] = ["fbclient.lib", "fbclient_ms.lib"];
-    for fbclient_lib in &fbclient_lib_names {
-        if let Some(found) = search_for_file(fbclient_lib) {
-            println!("cargo:rustc-link-lib=dylib={}", found);
-            return;
+    let def_fbclient_lib = "C:\\Program Files\\Firebird\\Firebird_3_0\\lib\\fbclient_ms.lib";
+    let fb3_lib_path = std::path::Path::new(def_fbclient_lib);
+    if fb3_lib_path.exists() {
+        println!("cargo:rustc-link-search=C:\\Program Files\\Firebird\\Firebird_3_0\\lib");
+        println!("cargo:rustc-link-lib=dylib=fbclient_ms");
+    } else if search_on_windows_for_lib("fbclient", "fbclient.lib") {
+        if search_on_windows_for_lib("fbclient_ms", "fbclient_ms.lib") {
+            println!("warning:fbclient.lib not found!");
         }
     }
 }
 
 #[cfg(all(feature = "linking", target_os = "windows"))]
-use glob::glob;
+fn search_on_windows_for_lib(libname: &str, filename: &str) -> bool {
+    if let Some(fbclient_lib) = search_for_file(filename) {
+        let dir = fbclient_lib.parent().unwrap().to_str().unwrap();
+        println!("cargo:rustc-link-search={}", dir);
+        println!("cargo:rustc-link-lib=dylib={}", libname);
+        return true;
+    }
+    false
+}
 
 #[cfg(all(feature = "linking", target_os = "windows"))]
-fn search_for_file(filename: &str) -> Option<String> {
+fn search_for_file(filename: &str) -> Option<std::path::PathBuf> {
     // https://kornel.ski/rust-sys-crate#find
 
     let firebird_install_dirs: [&str; 5] = [
-        "C:\\Program Files\\Firebird\\Firebird_3_0",
+        "C:\\Program Files\\Firebird\\Firebird_3_0\\lib",
         "C:\\Program Files\\Firebird\\Firebird*",
         "C:\\Firebird*",
         "D:\\Firebird*",
@@ -61,13 +75,12 @@ fn search_for_file(filename: &str) -> Option<String> {
         for entry in found {
             if let Ok(path) = entry {
                 if path.is_file() {
-                    let fp = path.to_str().unwrap();
-                    return Some(fp.to_string());
+                    return Some(path);
                 }
             }
         }
     }
-    return None;
+    None
 }
 
 // end of code
