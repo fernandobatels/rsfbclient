@@ -101,36 +101,47 @@ jobs:
         shell: powershell
         run: |
           # Get-ChildItem -File -Recurse -Path "C:\Program Files\Firebird\Firebird_3_0" -Name
-          $WinSysDir = [Environment]::SystemDirectory
-          $CurDir = Get-Location
-          $DestFile = Join-Path -Path $CurDir -ChildPath "fbclient.lib"
-          $Dirs = @(
-              "${WinSysDir}",
-              "C:\Program Files\Firebird\Firebird_3_0", 
-              "C:\Program Files\Firebird\Firebird_4_0", 
-              "C:\Program Files\Firebird\Firebird_2_5"
-              )
-          $Libs = @( 
-              "fbclient_ms.lib", 
-              "fbclient.lib", 
-              "lib\fbclient_ms.lib", 
-              "lib\fbclient.lib", 
-              "WOW64\lib\fbclient_ms.lib", 
-              "WOW64\lib\fbclient.lib" 
-              )
-          Foreach ($dr in $Dirs) {
-            Foreach ($lb in $Libs) {
-              $Source = Join-Path -Path $dr -ChildPath $lb
-              echo "Searching for $Source"
-              if (Test-Path $Source -PathType Leaf) {
-                echo "Coying $Source to $DestFile"
-                Copy-Item -Path $Source -Destination $DestFile
-                return
+          function Find-Copy() {
+            param (
+                $Files, $FileName
+            )
+            $WinSysDir = [Environment]::SystemDirectory
+            $CurDir = Get-Location
+            $DestDir = Join-Path -Path $CurDir -ChildPath "target\debug\deps"
+            $DestFile = Join-Path -Path $DestDir -ChildPath $FileName
+            $Dirs = @(
+                "${WinSysDir}",
+                "C:\Program Files\Firebird\Firebird_3_0", 
+                "C:\Program Files\Firebird\Firebird_4_0", 
+                "C:\Program Files\Firebird\Firebird_2_5"
+                )
+            $Subs = @(
+                "", 
+                "lib", 
+                "WOW64" 
+                "WOW64\lib" 
+                )
+            Foreach ($prefix in $Dirs) {
+              Foreach ($infix in $Subs) {
+                $folder = Join-Path -Path $prefix -ChildPath $infix
+                Foreach ($suffix in $Files) {
+                  $Source = Join-Path -Path $folder -ChildPath $suffix
+                  echo "Searched for $Source"
+                  if (Test-Path $Source -PathType Leaf) {
+                    echo "Coying $Source to $DestFile"
+                    New-Item $DestDir -ItemType Directory -ea 0
+                    Copy-Item -Path $Source -Destination $DestFile
+                    return
+                  }
+                }
               }
             }
+            echo "File $FileName not copied to $DesdtDir !!!"
           }
-          echo "fbclient.lib not found !!!"
-          return 1
+          $Libs = @( "fbclient_ms.lib", "fbclient.lib" )
+          $Dlls = @( "fbclient.dll" )
+          Find-Copy -Files $Libs -FileName "fbclient.lib"
+          Find-Copy -Files $Dlls -FileName "fbclient.dll"
 
       - name: Checkout sources
         uses: actions/checkout@v2
