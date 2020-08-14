@@ -94,7 +94,8 @@ jobs:
       - name: Setup FirebirdSQL ${{ matrix.firebird }} on Windows
         if: matrix.plataform == 'windows'
         run: |
-          choco install firebird -params '/ClientAndDevTools'
+          choco install firebird -params '/SuperClassic'
+          choco install firebird-odbc
 
       - name: Locating fbclient.lib Dir on Windows
         if: matrix.plataform == 'windows'
@@ -106,7 +107,6 @@ jobs:
             )
             $WinSysDir = [Environment]::SystemDirectory
             $CommonDirs = @(
-                "C:\Program Files\Firebird\Firebird_3_0", 
                 "C:\Program Files\Firebird", 
                 "C:\Firebird",
                 "${WinSysDir}"
@@ -127,6 +127,7 @@ jobs:
           Search-Common-Folders -FileName "fbclient.dll"
           Search-Common-Folders -FileName "fbclient.lib"
           Search-Common-Folders -FileName "fbclient_ms.lib"
+          Search-Common-Folders -FileName "isql.exe"
 
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -150,6 +151,31 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev
+
+      - name: Create database test.fdb in fb ${{ matrix.firebird }} on Windows
+        if: matrix.plataform == 'windows'
+        run: |
+          echo "CREATE DATABASE 'localhost:test.fdb';" | & "C:\Program Files\Firebird\Firebird_3_0\isql.exe" -bail -quiet -z -user SYSDBA -password masterkey
+
+      # - name: Create database test.fdb in fb ${{ matrix.firebird }} on Windows
+      #   if: matrix.plataform == 'windows'
+      #   shell: powershell
+      #   run: |
+      #     function Execute-ODBC-Query{
+      #       param(
+      #         [string]$Query=$(throw 'query is required.'),
+      #         [string]$DSN=$(throw 'DSN is required.')
+      #       )
+      #       $conn = New-Object System.Data.Odbc.OdbcConnection
+      #       $conn.ConnectionString= "DSN=$DSN;"
+      #       $cmd = new-object System.Data.Odbc.OdbcCommand($Query,$conn)
+      #       $conn.open()
+      #       $cmd.ExecuteNonQuery()
+      #       $conn.close()
+      #     }
+      #     # executing on local firebird
+      #     Add-OdbcDsn -Name "odbcfirebird" -DriverName "Firebird/InterBase(r) driver" -DsnType "System" -SetPropertyValue @("DBNAME=security3.fdb", "USER=SYSDBA", "PASSWORD=masterkey")
+      #     Execute-ODBC-Query -Query "create database test.fdb" -DSN "odbcfirebird"
 
       - name: Testing Connection and Query on Linux
         if: matrix.firebird != 'v4' && matrix.plataform == 'linux'
