@@ -91,57 +91,42 @@ jobs:
           firebird_password: "test_password"
           isc_password: "masterkey"
 
-      - name: Setup FirebirdSQL ${{ matrix.firebird }} on  ${{ matrix.os }}
+      - name: Setup FirebirdSQL ${{ matrix.firebird }} on Windows
         if: matrix.plataform == 'windows'
         run: |
           choco install firebird -params '/ClientAndDevTools'
 
-      - name: Copying fbclient.lib to Current Dir on ${{ matrix.os }} 
+      - name: Locating fbclient.lib Dir on Windows
         if: matrix.plataform == 'windows'
         shell: powershell
         run: |
-          # Get-ChildItem -File -Recurse -Path "C:\Program Files\Firebird\Firebird_3_0" -Name
-          function Find-Copy() {
+          function Search-Common-Folders() {
             param (
-                $Files, $FileName
+                [string]$FileName
             )
             $WinSysDir = [Environment]::SystemDirectory
-            $CurDir = Get-Location
-            $DestDir = Join-Path -Path $CurDir -ChildPath "target\debug\deps"
-            $DestFile = Join-Path -Path $DestDir -ChildPath $FileName
-            $Dirs = @(
-                "${WinSysDir}",
+            $CommonDirs = @(
                 "C:\Program Files\Firebird\Firebird_3_0", 
-                "C:\Program Files\Firebird\Firebird_4_0", 
-                "C:\Program Files\Firebird\Firebird_2_5"
+                "C:\Program Files\Firebird", 
+                "C:\Firebird",
+                "${WinSysDir}"
                 )
-            $Subs = @(
-                "", 
-                "lib", 
-                "WOW64" 
-                "WOW64\lib" 
-                )
-            Foreach ($prefix in $Dirs) {
-              Foreach ($infix in $Subs) {
-                $folder = Join-Path -Path $prefix -ChildPath $infix
-                Foreach ($suffix in $Files) {
-                  $Source = Join-Path -Path $folder -ChildPath $suffix
-                  echo "Searched for $Source"
-                  if (Test-Path $Source -PathType Leaf) {
-                    echo "Coying $Source to $DestFile"
-                    New-Item $DestDir -ItemType Directory -ea 0
-                    Copy-Item -Path $Source -Destination $DestFile
-                    return
-                  }
-                }
+            Foreach ($folder in $CommonDirs) {
+              $found = Get-ChildItem -File -Recurse -Path $folder -Include $FileName -ea 0
+              Foreach ($source in $found) {
+                echo "Found: $source"
+                # $CurDir = Get-Location
+                # $DestDir = Join-Path -Path $CurDir -ChildPath "target\debug\deps"
+                # $DestFile = Join-Path -Path $DestDir -ChildPath $FileName
+                # New-Item $DestDir -ItemType Directory -ea 0
+                # echo "Copying $source to $DesdtDir"
+                # Copy-Item -Path $source -Destination $DestFile
               }
             }
-            echo "File $FileName not copied to $DesdtDir !!!"
           }
-          $Libs = @( "fbclient_ms.lib", "fbclient.lib" )
-          $Dlls = @( "fbclient.dll" )
-          Find-Copy -Files $Libs -FileName "fbclient.lib"
-          Find-Copy -Files $Dlls -FileName "fbclient.dll"
+          Search-Common-Folders -FileName "fbclient.dll"
+          Search-Common-Folders -FileName "fbclient.lib"
+          Search-Common-Folders -FileName "fbclient_ms.lib"
 
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -160,13 +145,13 @@ jobs:
           toolchain: stable
           default: true
 
-      - name: Install cli and development library
+      - name: Install cli and development library on Linux
         if: matrix.plataform == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev
 
-      - name: Testing Connection and Query
+      - name: Testing Connection and Query on Linux
         if: matrix.firebird != 'v4' && matrix.plataform == 'linux'
         run: |
           SQL1='select RDB$CHARACTER_SET_NAME as charset_sysdba from rdb$database;' 
@@ -177,6 +162,13 @@ jobs:
         run: |
           SQL2='select RDB$CHARACTER_SET_NAME as charset_user from rdb$database;' 
           echo $SQL2 | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:test.fdb'
+
+      - name: Run cargo build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -vv --features '${{ matrix.features }}'
+          # Searching for fbclient.lib in rsfbclient-native/build.rs
 
       - name: Run cargo test
         uses: actions-rs/cargo@v1
