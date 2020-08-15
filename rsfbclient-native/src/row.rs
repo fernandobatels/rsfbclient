@@ -162,9 +162,16 @@ fn blobtext_to_string(
     let mut status = Status::default();
     let mut handle = 0;
 
-    let (head, body, _) = unsafe { buffer.align_to::<ibase::GDS_QUAD_t>() };
-    assert!(head.is_empty(), "Blob id is not aligned");
-    let mut blob_id = body[0];
+    let len = mem::size_of::<ibase::GDS_QUAD_t>();
+    assert_eq!(len, 8);
+    if buffer.len() < len {
+        return err_buffer_len(len, buffer.len(), "BlobText");
+    }
+
+    let mut blob_id = ibase::GDS_QUAD_t {
+        gds_quad_high: ibase::ISC_LONG::from_ne_bytes(buffer[0..4].try_into().unwrap()),
+        gds_quad_low: ibase::ISC_ULONG::from_ne_bytes(buffer[4..8].try_into().unwrap())
+    };
 
     unsafe {
         if ibase.isc_open_blob()(&mut status[0], db, tr, &mut handle, &mut blob_id) != 0 {
