@@ -190,15 +190,15 @@ parse_functions! {
     extern "C" {
         pub fn isc_commit_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
     }
-    // extern "C" {
-    //     pub fn isc_create_blob(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_db_handle,
-    //         arg3: *mut isc_tr_handle,
-    //         arg4: *mut isc_blob_handle,
-    //         arg5: *mut ISC_QUAD,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "C" {
+        pub fn isc_create_blob(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_db_handle,
+            arg3: *mut isc_tr_handle,
+            arg4: *mut isc_blob_handle,
+            arg5: *mut ISC_QUAD,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_create_blob2(
     //         arg1: *mut ISC_STATUS,
@@ -504,14 +504,14 @@ parse_functions! {
     // extern "C" {
     //     pub fn isc_print_status(arg1: *const ISC_STATUS_ARRAY) -> ISC_STATUS;
     // }
-    // extern "C" {
-    //     pub fn isc_put_segment(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_blob_handle,
-    //         arg3: ::std::os::raw::c_ushort,
-    //         arg4: *const ISC_SCHAR,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "C" {
+        pub fn isc_put_segment(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_blob_handle,
+            arg3: ::std::os::raw::c_ushort,
+            arg4: *const ISC_SCHAR,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_put_slice(
     //         arg1: *mut ISC_STATUS,

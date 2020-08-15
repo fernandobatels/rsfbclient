@@ -384,11 +384,19 @@ impl FirebirdClient for NativeFbClient {
 
     fn execute(
         &mut self,
+        mut db_handle: Self::DbHandle,
         mut tr_handle: Self::TrHandle,
         mut stmt_handle: Self::StmtHandle,
         params: Vec<Param>,
     ) -> Result<(), FbError> {
-        let params = Params::new(&self.ibase, &mut self.status, &mut stmt_handle, params)?;
+        let params = Params::new(
+            &mut db_handle,
+            &mut tr_handle,
+            &self.ibase,
+            &mut self.status,
+            &mut stmt_handle,
+            params,
+        )?;
 
         unsafe {
             if self.ibase.isc_dsql_execute()(

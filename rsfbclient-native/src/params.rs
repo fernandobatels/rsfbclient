@@ -1,5 +1,6 @@
-use crate::{ibase, status::Status, xsqlda::XSqlDa};
+use crate::{ibase, ibase::IBase, status::Status, xsqlda::XSqlDa};
 use rsfbclient_core::{FbError, Param};
+use std::mem::MaybeUninit;
 
 /// Stores the data needed to send the parameters
 pub struct Params {
@@ -13,6 +14,8 @@ pub struct Params {
 impl Params {
     /// Validate and set the parameters of a statement
     pub(crate) fn new(
+        db_handle: &mut ibase::isc_db_handle,
+        tr_handle: &mut ibase::isc_tr_handle,
         ibase: &ibase::IBase,
         status: &mut Status,
         stmt_handle: &mut ibase::isc_stmt_handle,
@@ -35,13 +38,17 @@ impl Params {
                 });
             }
 
-            let buffers = infos
-                .into_iter()
-                .enumerate()
-                .map(|(col, info)| {
-                    ParamBuffer::from_parameter(info, xsqlda.get_xsqlvar_mut(col).unwrap())
-                })
-                .collect();
+            let mut buffers = vec![];
+
+            for (col, info) in infos.into_iter().enumerate() {
+                buffers.push(ParamBuffer::from_parameter(
+                    info,
+                    xsqlda.get_xsqlvar_mut(col).unwrap(),
+                    db_handle,
+                    tr_handle,
+                    ibase,
+                )?);
+            }
 
             Self {
                 _buffers: buffers,
@@ -96,7 +103,13 @@ pub struct ParamBuffer {
 
 impl ParamBuffer {
     /// Allocate a buffer from a value to use in an input (parameter) XSQLVAR
-    pub fn from_parameter(info: Param, var: &mut ibase::XSQLVAR) -> Self {
+    pub fn from_parameter(
+        info: Param,
+        var: &mut ibase::XSQLVAR,
+        db: &mut ibase::isc_db_handle,
+        tr: &mut ibase::isc_tr_handle,
+        ibase: &IBase,
+    ) -> Result<Self, FbError> {
         let mut null = 0;
 
         var.sqltype = info.sql_type() as i16;
@@ -115,6 +128,7 @@ impl ParamBuffer {
                 null = -1;
                 vec![]
             }
+            Param::Binary(bin) => binary_to_blob(bin, db, tr, ibase)?,
         };
 
         let mut nullind = Box::new(null);
@@ -123,9 +137,66 @@ impl ParamBuffer {
         var.sqldata = buffer.as_mut_ptr() as *mut _;
         var.sqllen = buffer.len() as i16;
 
-        ParamBuffer {
+        Ok(ParamBuffer {
             _buffer: buffer.into_boxed_slice(),
             _nullind: nullind,
+        })
+    }
+}
+
+// Convert the binary vec to a blob
+fn binary_to_blob(
+    buffer: Vec<u8>,
+    db_handle: &mut ibase::isc_db_handle,
+    tr_handle: &mut ibase::isc_tr_handle,
+    ibase: &IBase,
+) -> Result<Vec<u8>, FbError> {
+    let mut status = Status::default();
+    let mut handle = 0;
+
+    let mut blob_id = MaybeUninit::<ibase::GDS_QUAD_t>::uninit();
+
+    unsafe {
+        if ibase.isc_create_blob()(
+            &mut status[0],
+            db_handle,
+            tr_handle,
+            &mut handle,
+            blob_id.as_mut_ptr(),
+        ) != 0
+        {
+            return Err(status.as_error(&ibase));
         }
     }
+
+    // Assert that the handle is valid
+    debug_assert_ne!(handle, 0);
+
+    let buffer_i8: Vec<i8> = buffer.iter().map(|byte| *byte as i8).collect();
+
+    unsafe {
+        if ibase.isc_put_segment()(
+            &mut status[0],
+            &mut handle,
+            buffer_i8.len() as u16,
+            buffer_i8.as_ptr(),
+        ) != 0
+        {
+            return Err(status.as_error(&ibase));
+        }
+    }
+
+    unsafe {
+        if ibase.isc_close_blob()(&mut status[0], &mut handle) != 0 {
+            return Err(status.as_error(&ibase));
+        }
+    }
+
+    let blob_id = unsafe { blob_id.assume_init() };
+
+    Ok([
+        blob_id.gds_quad_high.to_ne_bytes(),
+        blob_id.gds_quad_low.to_ne_bytes(),
+    ]
+    .concat())
 }

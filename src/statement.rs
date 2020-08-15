@@ -160,7 +160,7 @@ where
     {
         conn.cli
             .borrow_mut()
-            .execute(tr.handle, self.handle, params.to_params())?;
+            .execute(conn.handle, tr.handle, self.handle, params.to_params())?;
 
         if self.stmt_type == StmtType::Select {
             // Close the cursor, as it will not be used
@@ -186,7 +186,7 @@ where
     {
         conn.cli
             .borrow_mut()
-            .execute(tr.handle, self.handle, params.to_params())
+            .execute(conn.handle, tr.handle, self.handle, params.to_params())
     }
 
     /// Fetch for the next row, needs to be called after `query`

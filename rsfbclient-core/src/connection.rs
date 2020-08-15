@@ -87,6 +87,7 @@ pub trait FirebirdClient: Send {
     /// Execute the prepared statement with parameters
     fn execute(
         &mut self,
+        db_handle: Self::DbHandle,
         tr_handle: Self::TrHandle,
         stmt_handle: Self::StmtHandle,
         params: Vec<Param>,

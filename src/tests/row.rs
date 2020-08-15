@@ -19,7 +19,6 @@ mk_tests_default! {
         assert_eq!(13, a.len());
         assert_eq!("abc äbç 123", str::from_utf8(&a).expect("Invalid UTF-8 sequence"));
 
-
         Ok(())
     }
 
