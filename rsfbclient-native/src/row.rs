@@ -170,7 +170,7 @@ fn blobtext_to_string(
 
     let mut blob_id = ibase::GDS_QUAD_t {
         gds_quad_high: ibase::ISC_LONG::from_ne_bytes(buffer[0..4].try_into().unwrap()),
-        gds_quad_low: ibase::ISC_ULONG::from_ne_bytes(buffer[4..8].try_into().unwrap())
+        gds_quad_low: ibase::ISC_ULONG::from_ne_bytes(buffer[4..8].try_into().unwrap()),
     };
 
     unsafe {

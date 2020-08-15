@@ -9,6 +9,20 @@ mk_tests_default! {
     use chrono::{NaiveDate, NaiveTime};
 
     #[test]
+    fn blob_text_subtype() -> Result<(), FbError> {
+        let mut conn = connect();
+
+        conn.execute("DROP TABLE PBLOBTEXT", ()).ok();
+        conn.execute("CREATE TABLE PBLOBTEXT (content blob sub_type 1)", ())?;
+
+        conn.execute("insert into pblobtext (content) values (?)", ("abc äbç 123",))?;
+        let val_exists: Option<(i16,)> = conn.query_first("select 1 from pblobtext where content = 'abc äbç 123'", ())?;
+        assert!(val_exists.is_some());
+
+        Ok(())
+    }
+
+    #[test]
     fn dates() -> Result<(), FbError> {
         let mut conn = connect();
 
