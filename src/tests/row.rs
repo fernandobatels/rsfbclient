@@ -7,6 +7,21 @@
 mk_tests_default! {
     use crate::{prelude::*, Connection, FbError};
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+    use std::str;
+
+    #[test]
+    fn blob_binary_subtype() -> Result<(), FbError> {
+        let mut conn = connect();
+
+        let (a,): (Vec<u8>,) = conn.query_first("select cast(x'61626320c3a462c3a720313233' as blob SUB_TYPE 0) from rdb$database;", ())?
+            .unwrap();
+
+        assert_eq!(13, a.len());
+        assert_eq!("abc äbç 123", str::from_utf8(&a).expect("Invalid UTF-8 sequence"));
+
+
+        Ok(())
+    }
 
     #[test]
     fn blob_text_subtype() -> Result<(), FbError> {

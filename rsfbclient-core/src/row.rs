@@ -59,6 +59,8 @@ pub enum ColumnType {
     Float(f64),
 
     Timestamp(ibase::ISC_TIMESTAMP),
+
+    Binary(Vec<u8>),
 }
 
 /// Define the conversion from the buffer to a value
@@ -87,6 +89,11 @@ impl ColumnToVal<String> for Column {
                 code: -1,
                 msg: "Enable the `date_time` feature to use Timestamp, Date and Time types"
                     .to_string(),
+            }),
+
+            Binary(_) => Err(FbError {
+                code: -1,
+                msg: "This is a binary column. You cannot use string to access.".to_string(),
             }),
         }
     }
@@ -131,6 +138,18 @@ impl ColumnToVal<f64> for Column {
 impl ColumnToVal<f32> for Column {
     fn to_val(self) -> Result<f32, FbError> {
         ColumnToVal::<f64>::to_val(self).map(|i| i as f32)
+    }
+}
+
+impl ColumnToVal<Vec<u8>> for Column {
+    fn to_val(self) -> Result<Vec<u8>, FbError> {
+        let col = self.0.ok_or_else(|| err_column_null("Vec<u8>"))?;
+
+        match col {
+            Binary(b) => Ok(b),
+
+            _ => err_type_conv(col, "Vec<u8>"),
+        }
     }
 }
 

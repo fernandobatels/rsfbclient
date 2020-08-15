@@ -24,6 +24,8 @@ pub enum SqlType {
     Timestamp,
     /// Coerces to Blob sub_type 1
     BlobText,
+    /// Coerces to Blob sub_type 0
+    BlobBinary,
 }
 
 #[derive(Debug)]
@@ -51,13 +53,16 @@ impl ColumnBuffer {
 
         let (kind, mut buffer) = match sqltype as u32 {
             // BLOB sql_type text are considered a normal text on read
-            ibase::SQL_BLOB => {
+            ibase::SQL_BLOB if (sqlsubtype == 0 || sqlsubtype == 1) => {
                 let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
 
                 var.sqltype = ibase::SQL_BLOB as i16 + 1;
 
-                // TODO: support the others blobs subtypes
-                (BlobText, buffer)
+                if sqlsubtype == 0 {
+                    (BlobBinary, buffer)
+                } else {
+                    (BlobText, buffer)
+                }
             }
 
             ibase::SQL_TEXT | ibase::SQL_VARYING => {
@@ -144,10 +149,38 @@ impl ColumnBuffer {
             Timestamp => ColumnType::Timestamp(timestamp_from_buffer(&self.buffer)?),
 
             BlobText => ColumnType::Text(blobtext_to_string(&self.buffer, db, tr, ibase)?),
+
+            BlobBinary => ColumnType::Binary(blobbinary_to_vec(&self.buffer, db, tr, ibase)?),
         };
 
         Ok(Column(Some(col_type)))
     }
+}
+
+/// Converts a binary blob to a vec<u8>
+fn blobbinary_to_vec(
+    buffer: &[u8],
+    db: &mut ibase::isc_db_handle,
+    tr: &mut ibase::isc_tr_handle,
+    ibase: &IBase,
+) -> Result<Vec<u8>, FbError> {
+    let mut final_bin = vec![];
+
+    read_blob(
+        buffer,
+        db,
+        tr,
+        ibase,
+        |blob_seg_loaded, blob_seg_vec, _blob_seg| {
+            for byte in &blob_seg_vec[0..(blob_seg_loaded as usize)] {
+                final_bin.push(*byte as u8);
+            }
+
+            Ok(())
+        },
+    )?;
+
+    Ok(final_bin)
 }
 
 /// Converts a text blob to a string
@@ -159,13 +192,46 @@ fn blobtext_to_string(
 ) -> Result<String, FbError> {
     let mut final_string = String::new();
 
+    read_blob(
+        buffer,
+        db,
+        tr,
+        ibase,
+        |_blob_seg_loaded, _blob_seg_vec, blob_seg| {
+            let blob_seg_cstr = unsafe { ffi::CStr::from_ptr(blob_seg) };
+
+            let blob_seg_str = blob_seg_cstr.to_str().map_err(|_| FbError {
+                code: -1,
+                msg: "Found column with an invalid utf-8 string".to_owned(),
+            })?;
+
+            final_string.push_str(blob_seg_str);
+
+            Ok(())
+        },
+    )?;
+
+    Ok(final_string)
+}
+
+/// Read the blob type
+fn read_blob<F>(
+    buffer: &[u8],
+    db: &mut ibase::isc_db_handle,
+    tr: &mut ibase::isc_tr_handle,
+    ibase: &IBase,
+    mut on_read_segment: F,
+) -> Result<(), FbError>
+where
+    F: FnMut(u16, Vec<i8>, *mut i8) -> Result<(), FbError>,
+{
     let mut status = Status::default();
     let mut handle = 0;
 
     let len = mem::size_of::<ibase::GDS_QUAD_t>();
     assert_eq!(len, 8);
     if buffer.len() < len {
-        return err_buffer_len(len, buffer.len(), "BlobText");
+        return err_buffer_len(len, buffer.len(), "Blob");
     }
 
     let mut blob_id = ibase::GDS_QUAD_t {
@@ -199,14 +265,7 @@ fn blobtext_to_string(
             )
         };
 
-        let blob_seg_cstr = unsafe { ffi::CStr::from_ptr(blob_seg) };
-
-        let blob_seg_str = blob_seg_cstr.to_str().map_err(|_| FbError {
-            code: -1,
-            msg: "Found column with an invalid utf-8 string".to_owned(),
-        })?;
-
-        final_string.push_str(blob_seg_str);
+        on_read_segment(blob_seg_loaded, blob_seg_slice.to_vec(), blob_seg)?;
     }
 
     unsafe {
@@ -215,7 +274,7 @@ fn blobtext_to_string(
         }
     }
 
-    Ok(final_string)
+    Ok(())
 }
 
 /// Converts a varchar in a buffer to a String
