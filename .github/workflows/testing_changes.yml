@@ -7,7 +7,7 @@
 #
 # for simplicity we are checking compilation and testing everything on the Ubuntu environment only.
 # TODO:
-#   - Run for FirebirdSQL versions 2.5-ss 3.0 4.0
+#   - Fix tests for dynamic_loading, embedded
 #   - Run in windows
 #   - Run in arm little-endian architecture
 
@@ -16,8 +16,8 @@ on: [push, pull_request]
 name: testing_changes
 
 jobs:
-  ci:
-    name: ci-check
+  linting:
+    name: linting
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -32,40 +32,11 @@ jobs:
           override: true
           components: rustfmt, clippy
 
-      - name: Install cli and development library
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev
-
       - name: Run cargo build
         uses: actions-rs/cargo@v1
         with:
           command: check
           args: --verbose
-
-      - name: Setup FirebirdSQL 3.0 for tests
-        uses: juarezr/firebirdsql-github-action@v1.0.0
-        with:
-          version: "latest"
-          firebird_database: "test.fdb"
-          firebird_user: "test_user"
-          firebird_password: "test_password"
-          isc_password: "masterkey"
-
-      - name: Setup FirebirdSQL 3.0 for embedded tests
-        run: |
-          sudo apt-get install -y --no-install-recommends firebird3.0-server-core
-          echo 'create database "/tmp/embedded_tests.fdb";' | isql-fb -bail -quiet -user SYSDBA
-
-      - name: Testing Connection and Query
-        run: |
-          echo 'select * from rdb$database;' | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:test.fdb'
-
-      - name: Run cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features
 
       - name: Run cargo clippy
         uses: actions-rs/clippy-check@v1
@@ -80,8 +51,124 @@ jobs:
           command: fmt
           args: --all -- --check
 
+  testing:
+    name: testing
+    needs: linting
+    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        firebird: [v3, v2, v4]
+        build: [linking, dynamic_loading]
+        include:
+        - firebird: v2
+          image: "2.5-ss"
+        - firebird: v3
+          image: "3.0"
+        - firebird: v4
+          image: "4.0"
+        - build: linking
+          features: linking date_time pool
+        - build: dynamic_loading
+          features: dynamic_loading date_time pool
+    steps:
+      - name: Setup FirebirdSQL ${{ matrix.firebird }} with image  ${{ matrix.image }} for tests
+        uses: juarezr/firebirdsql-github-action@v1.0.0
+        with:
+          version: "${{ matrix.image }}"
+          firebird_database: "test.fdb"
+          firebird_user: "test_user"
+          firebird_password: "test_password"
+          isc_password: "masterkey"
+
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Create a alias to test.fdb on fb v2
+        if: matrix.firebird == 'v2'
+        run: |
+          docker exec firebirdsql /bin/bash '/usr/local/firebird/bin/createAliasDB.sh' 'test.fdb' '/firebird/data/test.fdb'
+          docker container restart firebirdsql
+          echo '# Restarted container firebirdsql'
+          sleep 10
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: default
+          toolchain: stable
+          default: true
+
+      - name: Install cli and development library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev
+
+      - name: Testing Connection and Query
+        if: matrix.firebird != 'v4'
+        run: |
+          SQL1='select RDB$CHARACTER_SET_NAME as charset_sysdba from rdb$database;' 
+          echo $SQL1 | isql-fb -bail -quiet -z -user SYSDBA -password masterkey 'localhost:/firebird/data/test.fdb'
+
+      - name: Testing Connection for User test_user on fb v3
+        if: matrix.firebird == 'v3'
+        run: |
+          SQL2='select RDB$CHARACTER_SET_NAME as charset_user from rdb$database;' 
+          echo $SQL2 | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:test.fdb'
+
+      - name: Run cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --features '${{ matrix.features }}' -- --test-threads 1
+          # TODO: args: --features '${{ matrix.features }}'
+
+      - name: Run cargo-tarpaulin
+        uses: actions-rs/tarpaulin@v0.1
+        with:
+          version: "latest"
+          run-types: "AllTargets"
+          out-type: "Lcov"
+          args: -v --line --count --branch --features '${{ matrix.features }}' -- --test-threads 1
+
+      - name: Coveralls Parallel
+        uses: coverallsapp/github-action@master
+        env:
+          COVERALLS_FLAG_NAME: run-${{ matrix.firebird }}-${{ matrix.build }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: "./lcov.info"
+          parallel: true
+          # flag-name: run-${{ matrix.firebird }}-${{ matrix.build }}
+
+      - name: Cleanup docker and coverage
+        run: |
+          docker rm --volumes --force firebirdsql
+          rm -f ./lcov.info
+
   coverage:
+    name: coverage
+    needs: testing
     runs-on: ubuntu-latest
+    steps:
+      - name: Coveralls Finished
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel-finished: true
+
+  embedded:
+    name: embedded
+    needs: linting
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        build: [linking, dynamic_loading]
+        include:
+        - build: linking
+          features: linking date_time pool embedded_tests
+        - build: dynamic_loading
+          features: dynamic_loading date_time pool embedded_tests
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -92,42 +179,33 @@ jobs:
           profile: default
           toolchain: stable
           default: true
-          override: true
-          components: rustfmt, clippy
-
-      - name: Install cli and development library
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev
-
-      - name: Setup FirebirdSQL 3.0 for tests
-        uses: juarezr/firebirdsql-github-action@v1.0.0
-        with:
-          version: "latest"
-          firebird_database: "test.fdb"
-          firebird_user: "test_user"
-          firebird_password: "test_password"
-          isc_password: "masterkey"
 
       - name: Setup FirebirdSQL 3.0 for embedded tests
         run: |
-          sudo apt-get install -y --no-install-recommends firebird3.0-server-core
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev firebird3.0-server-core
+
+      - name: Create database for embedded tests
+        run: |
           echo 'create database "/tmp/embedded_tests.fdb";' | isql-fb -bail -quiet -user SYSDBA
 
-      - name: Testing Connection and Query
-        run: |
-          echo 'select * from rdb$database;' | isql-fb -bail -quiet -z -user test_user -password test_password 'localhost:test.fdb'
-
-      - name: Run cargo-tarpaulin
-        uses: actions-rs/tarpaulin@v0.1
+      - name: Run cargo embedded tests
+        uses: actions-rs/cargo@v1
         with:
-          version: "latest"
-          run-types: "Tests"
-          args: "-v --out Lcov --all-features"
+          command: test
+          args: --features '${{ matrix.features }}' -- --test-threads 1
 
-      - name: Coveralls
-        uses: coverallsapp/github-action@master
+  security:
+    name: security
+    needs: linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Run security audit
+        uses: actions-rs/audit-check@v1
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: "./lcov.info"
+          token: ${{ secrets.GITHUB_TOKEN }}
+
 # end of file
