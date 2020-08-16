@@ -1,6 +1,5 @@
 use crate::{ibase, ibase::IBase, status::Status, xsqlda::XSqlDa};
 use rsfbclient_core::{FbError, Param};
-use std::mem::MaybeUninit;
 
 /// Stores the data needed to send the parameters
 pub struct Params {
@@ -154,7 +153,10 @@ fn binary_to_blob(
     let mut status = Status::default();
     let mut handle = 0;
 
-    let mut blob_id = MaybeUninit::<ibase::GDS_QUAD_t>::uninit();
+    let mut blob_id = ibase::GDS_QUAD_t {
+        gds_quad_high: 0,
+        gds_quad_low: 0,
+    };
 
     unsafe {
         if ibase.isc_create_blob()(
@@ -162,7 +164,7 @@ fn binary_to_blob(
             db_handle,
             tr_handle,
             &mut handle,
-            blob_id.as_mut_ptr(),
+            &mut blob_id,
         ) != 0
         {
             return Err(status.as_error(&ibase));
@@ -172,14 +174,12 @@ fn binary_to_blob(
     // Assert that the handle is valid
     debug_assert_ne!(handle, 0);
 
-    let buffer_i8: Vec<i8> = buffer.iter().map(|byte| *byte as i8).collect();
-
     unsafe {
         if ibase.isc_put_segment()(
             &mut status[0],
             &mut handle,
-            buffer_i8.len() as u16,
-            buffer_i8.as_ptr(),
+            buffer.len() as u16,
+            buffer.as_ptr() as *mut i8,
         ) != 0
         {
             return Err(status.as_error(&ibase));
@@ -191,8 +191,6 @@ fn binary_to_blob(
             return Err(status.as_error(&ibase));
         }
     }
-
-    let blob_id = unsafe { blob_id.assume_init() };
 
     Ok([
         blob_id.gds_quad_high.to_ne_bytes(),
