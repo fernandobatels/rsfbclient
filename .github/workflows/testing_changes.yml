@@ -95,7 +95,6 @@ jobs:
         if: matrix.plataform == 'windows'
         run: |
           choco install firebird -params '/SuperClassic'
-          choco install firebird-odbc
 
       - name: Locating fbclient.lib Dir on Windows
         if: matrix.plataform == 'windows'
@@ -115,12 +114,6 @@ jobs:
               $found = Get-ChildItem -File -Recurse -Path $folder -Include $FileName -ea 0
               Foreach ($source in $found) {
                 echo "Found: $source"
-                # $CurDir = Get-Location
-                # $DestDir = Join-Path -Path $CurDir -ChildPath "target\debug\deps"
-                # $DestFile = Join-Path -Path $DestDir -ChildPath $FileName
-                # New-Item $DestDir -ItemType Directory -ea 0
-                # echo "Copying $source to $DesdtDir"
-                # Copy-Item -Path $source -Destination $DestFile
               }
             }
           }
@@ -157,26 +150,6 @@ jobs:
         run: |
           echo "CREATE DATABASE 'localhost:test.fdb';" | & "C:\Program Files\Firebird\Firebird_3_0\isql.exe" -bail -quiet -z -user SYSDBA -password masterkey
 
-      # - name: Create database test.fdb in fb ${{ matrix.firebird }} on Windows
-      #   if: matrix.plataform == 'windows'
-      #   shell: powershell
-      #   run: |
-      #     function Execute-ODBC-Query{
-      #       param(
-      #         [string]$Query=$(throw 'query is required.'),
-      #         [string]$DSN=$(throw 'DSN is required.')
-      #       )
-      #       $conn = New-Object System.Data.Odbc.OdbcConnection
-      #       $conn.ConnectionString= "DSN=$DSN;"
-      #       $cmd = new-object System.Data.Odbc.OdbcCommand($Query,$conn)
-      #       $conn.open()
-      #       $cmd.ExecuteNonQuery()
-      #       $conn.close()
-      #     }
-      #     # executing on local firebird
-      #     Add-OdbcDsn -Name "odbcfirebird" -DriverName "Firebird/InterBase(r) driver" -DsnType "System" -SetPropertyValue @("DBNAME=security3.fdb", "USER=SYSDBA", "PASSWORD=masterkey")
-      #     Execute-ODBC-Query -Query "create database test.fdb" -DSN "odbcfirebird"
-
       - name: Testing Connection and Query on Linux
         if: matrix.firebird != 'v4' && matrix.plataform == 'linux'
         run: |
@@ -205,6 +178,8 @@ jobs:
 
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
+        if: matrix.plataform == 'linux'
+        # TODO: #[error]The process 'C:\Rust\.cargo\bin\cargo.exe' failed with exit code 101: error: no such subcommand: `tarpaulin`
         with:
           version: "latest"
           run-types: "AllTargets"
@@ -213,6 +188,7 @@ jobs:
 
       - name: Coveralls Parallel
         uses: coverallsapp/github-action@master
+        if: matrix.plataform == 'linux'
         env:
           COVERALLS_FLAG_NAME: run-${{ matrix.firebird }}-${{ matrix.build }}
         with:
