@@ -111,9 +111,10 @@ jobs:
                 "${WinSysDir}"
                 )
             Foreach ($folder in $CommonDirs) {
+              echo "# Finding relevant files in FirebirdSQL install:"
               $found = Get-ChildItem -File -Recurse -Path $folder -Include $FileName -ea 0
               Foreach ($source in $found) {
-                echo "Found: $source"
+                echo "  - $source"
               }
             }
           }
@@ -173,7 +174,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --features '${{ matrix.features }}' -- --test-threads 1
+          args: --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
           # TODO: args: --features '${{ matrix.features }}'
 
       - name: Run cargo-tarpaulin
@@ -184,7 +185,7 @@ jobs:
           version: "latest"
           run-types: "AllTargets"
           out-type: "Lcov"
-          args: -v --line --count --branch --features '${{ matrix.features }}' -- --test-threads 1
+          args: -v --line --count --branch --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
 
       - name: Coveralls Parallel
         uses: coverallsapp/github-action@master
@@ -250,7 +251,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --features '${{ matrix.features }}' -- --test-threads 1
+          args: --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
 
   security:
     name: security
