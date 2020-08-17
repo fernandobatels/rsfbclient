@@ -1,3 +1,5 @@
+//! Structs and functions to parse and send data about the sql parameters and columns
+
 #![allow(non_upper_case_globals)]
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -6,7 +8,7 @@ use std::{convert::TryFrom, mem};
 
 use crate::consts;
 
-/// Data for the statement to return
+/// Data to return about a statement
 pub const XSQLDA_DESCRIBE_VARS: [u8; 17] = [
     ibase::isc_info_sql_stmt_type as u8, // Statement type: StmtType
     ibase::isc_info_sql_bind as u8,      // Select params
@@ -101,7 +103,7 @@ impl XSqlVar {
     }
 }
 
-/// Convert the xsqlda a blr (binary representation)
+/// Convert the xsqlda to blr (binary representation)
 pub fn xsqlda_to_blr(xsqlda: &[XSqlVar]) -> Result<Bytes, FbError> {
     let mut blr = BytesMut::with_capacity(256);
     blr.put_slice(&[
@@ -157,7 +159,7 @@ pub struct PrepareInfo {
 /// XSqlDa data format: u8 type + optional data preceded by a u16 length.
 /// Returns the statement type, xsqlda and an indicator if the data was truncated (xsqlda not entirely filled)
 pub fn parse_xsqlda(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<PrepareInfo, FbError> {
-    // Asserts that the first
+    // Asserts that the first 7 bytes are the statement type information
     if resp.remaining() < 7 || resp[..3] != [ibase::isc_info_sql_stmt_type as u8, 0x04, 0x00] {
         return err_invalid_xsqlda();
     }
@@ -168,50 +170,51 @@ pub fn parse_xsqlda(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<Prepa
 
     let param_count;
 
-    let truncated = if resp.remaining() >= 8
-        && resp[..2]
-            == [
+    // Asserts that the next 8 bytes are the start of the parameters data
+    if resp.remaining() < 8
+        || resp[..2]
+            != [
                 ibase::isc_info_sql_bind as u8,          // Start of param data
                 ibase::isc_info_sql_describe_vars as u8, // Param count
-            ] {
-        resp.advance(2);
-        // Parameter count
-
-        // Assume 0x04 0x00
-        resp.advance(2);
-
-        param_count = resp.get_u32_le() as usize;
-
-        while resp.remaining() > 0 && resp[0] == ibase::isc_info_sql_describe_end as u8 {
-            // Indicates the end of param data, skip it as it appears only once. has one for each param
-            resp.advance(1);
-        }
-
-        if resp.remaining() >= 8
-            && resp[..2]
-                == [
-                    ibase::isc_info_sql_select as u8,        // Start of column data
-                    ibase::isc_info_sql_describe_vars as u8, // Column count
-                ]
-        {
-            resp.advance(2);
-            // Column count
-
-            // Assume 0x04 0x00
-            resp.advance(2);
-
-            let col_len = resp.get_u32_le() as usize;
-            if xsqlda.is_empty() {
-                xsqlda.reserve(col_len);
-            }
-
-            parse_select_items(resp, xsqlda)?
-        } else {
-            return err_invalid_xsqlda();
-        }
-    } else {
+            ]
+    {
         return err_invalid_xsqlda();
-    };
+    }
+    resp.advance(2);
+    // Parameter count
+
+    // Assume 0x04 0x00
+    resp.advance(2);
+
+    param_count = resp.get_u32_le() as usize;
+
+    while resp.remaining() > 0 && resp[0] == ibase::isc_info_sql_describe_end as u8 {
+        // Indicates the end of param data, skip it as it appears only once. has one for each param
+        resp.advance(1);
+    }
+
+    // Asserts that the next 8 bytes are the start of the columns data
+    if resp.remaining() < 8
+        || resp[..2]
+            != [
+                ibase::isc_info_sql_select as u8,        // Start of column data
+                ibase::isc_info_sql_describe_vars as u8, // Column count
+            ]
+    {
+        return err_invalid_xsqlda();
+    }
+    resp.advance(2);
+    // Column count
+
+    // Assume 0x04 0x00
+    resp.advance(2);
+
+    let col_len = resp.get_u32_le() as usize;
+    if xsqlda.is_empty() {
+        xsqlda.reserve(col_len);
+    }
+
+    let truncated = parse_select_items(resp, xsqlda)?;
 
     Ok(PrepareInfo {
         stmt_type,
@@ -398,11 +401,11 @@ pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result
                 }
             }
 
+            // End of this column data
+            ibase::isc_info_sql_describe_end => {}
+
             // Data truncated
             ibase::isc_info_truncated => break true,
-
-            // End of this column / param
-            ibase::isc_info_sql_describe_end => {}
 
             // End of the data
             ibase::isc_info_end => break false,

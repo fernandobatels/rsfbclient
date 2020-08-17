@@ -1,3 +1,5 @@
+//! Arc4 stream cipher implementation for the firebird wire encryption (Wire Protocol 13)
+
 use std::io::{Read, Write};
 
 #[derive(Clone)]

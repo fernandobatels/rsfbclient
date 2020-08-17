@@ -1,8 +1,4 @@
-//!
-//! Rust Firebird Client
-//!
 //! Wire protocol constants
-//!
 
 #![allow(dead_code)]
 

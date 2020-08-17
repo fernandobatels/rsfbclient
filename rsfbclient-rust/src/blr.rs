@@ -30,8 +30,8 @@ pub fn params_to_blr(
     // Message length, * 2 as there is 1 msg for the param type and another for the nullind
     blr.put_u16_le(params.len() as u16 * 2);
 
-    // Insert a null indicator bitmap
     if version >= consts::ProtocolVersion::V13 {
+        // Insert a null indicator bitmap
         null_bitmap(&mut values, params);
     }
 
@@ -51,6 +51,7 @@ pub fn params_to_blr(
                     values.put_slice(&[0; 4][..4 - (s.len() as usize % 4)])
                 }
             }
+
             Param::Integer(i) => {
                 blr.put_slice(&[
                     consts::blr::INT64,
@@ -59,17 +60,20 @@ pub fn params_to_blr(
 
                 values.put_i64(*i);
             }
+
             Param::Floating(f) => {
                 blr.put_u8(consts::blr::DOUBLE);
 
                 values.put_f64(*f);
             }
+
             Param::Timestamp(ts) => {
                 blr.put_u8(consts::blr::TIMESTAMP);
 
                 values.put_i32(ts.timestamp_date);
                 values.put_u32(ts.timestamp_time);
             }
+
             Param::Null => {
                 // Represent as empty text
                 blr.put_u8(consts::blr::TEXT);
@@ -103,16 +107,13 @@ pub fn params_to_blr(
 /// Needs to be aligned to 4 bytes, so processing in chunks of 32 parameters (4 bytes = 32 bits)
 fn null_bitmap(values: &mut BytesMut, params: &[Param]) {
     for bitmap in params.chunks(32).map(|params| {
-        params
-            .iter()
-            .fold((0, 0), |(bitmap, i), p| {
-                if p.is_null() {
-                    (bitmap | (1 << i), i + 1)
-                } else {
-                    (bitmap, i + 1)
-                }
-            })
-            .0
+        params.iter().enumerate().fold(0, |bitmap, (i, p)| {
+            if p.is_null() {
+                bitmap | (1 << i)
+            } else {
+                bitmap
+            }
+        })
     }) {
         values.put_u32_le(bitmap);
     }

@@ -1,8 +1,4 @@
-//!
-//! Rust Firebird Client
-//!
-//! Wire protocol packages
-//!
+//! Structs and functions to write and parse the firebird wire protocol messages
 
 #![allow(non_upper_case_globals)]
 

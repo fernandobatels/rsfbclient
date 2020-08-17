@@ -1,3 +1,5 @@
+//! `FirebirdConnection` implementation for the pure rust firebird client
+
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::{
     collections::HashMap,

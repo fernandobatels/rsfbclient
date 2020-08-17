@@ -1,63 +1,6 @@
-//! SRP client implementation.
-//!
-//! # Usage
-//! First create SRP client struct by passing to it SRP parameters (shared
-//! between client and server) and randomly generated `a`:
-//!
-//! ```ignore
-//! use srp::groups::G_2048;
-//! use sha2::Sha256;
-//!
-//! let mut a = [0u8; 64];
-//! rng.fill_bytes(&mut a);
-//! let client = SrpClient::<Sha256>::new(&a, &G_2048);
-//! ```
-//!
-//! Next send handshake data (username and `a_pub`) to the server and receive
-//! `salt` and `b_pub`:
-//!
-//! ```ignore
-//! let a_pub = client.get_a_pub();
-//! let (salt, b_pub) = conn.send_handshake(username, a_pub);
-//! ```
-//!
-//! Compute private key using `salt` with any password hashing function.
-//! You can use method from SRP-6a, but it's recommended to use specialized
-//! password hashing algorithm instead (e.g. PBKDF2, argon2 or scrypt).
-//! Next create verifier instance, note that `get_verifier` consumes client and
-//! can return error in case of malicious `b_pub`.
-//!
-//! ```ignore
-//! let private_key = srp_private_key::<Sha256>(username, password, salt);
-//! let verifier = client.get_verifier(&private_key, &b_pub)?;
-//! ```
-//!
-//! Finally verify the server: first generate user proof,
-//! send it to the server and verify server proof in the reply. Note that
-//! `verify_server` method will return error in case of incorrect server reply.
-//!
-//! ```ignore
-//! let user_proof = verifier.get_proof();
-//! let server_proof = conn.send_proof(user_proof);
-//! let key = verifier.verify_server(server_proof)?;
-//! ```
-//!
-//! `key` contains shared secret key between user and the server. Alternatively
-//! you can directly extract shared secret key using `get_key()` method and
-//! handle authentication through different (secure!) means (e.g. by using
-//! authenticated cipher mode).
-//!
-//! For user registration on the server first generate salt (e.g. 32 bytes long)
-//! and get password verifier which depends on private key. Send useranme, salt
-//! and password verifier over protected channel to protect against
-//! Man-in-the-middle (MITM) attack for registration.
-//!
-//! ```ignore
-//! let pwd_verifier = client.get_password_verifier(&private_key);
-//! conn.send_registration_data(username, salt, pwd_verifier);
-//! ```
+//! SRP client implementation for the firebird authentication (Wire Protocol 13)
 
-#![allow(dead_code, clippy::many_single_char_names)]
+#![allow(clippy::many_single_char_names)]
 
 use std::{error, fmt, marker::PhantomData};
 
@@ -128,13 +71,6 @@ impl<'a, D: Digest> SrpClient<'a, D> {
             a_pub,
             d: Default::default(),
         }
-    }
-
-    /// Get password verfier for user registration on the server
-    pub fn get_password_verifier(&self, private_key: &[u8]) -> Vec<u8> {
-        let x = BigUint::from_bytes_be(private_key);
-        let v = self.params.powm(&x);
-        v.to_bytes_be()
     }
 
     // Firebird hashes this with SHA1 for some reason
