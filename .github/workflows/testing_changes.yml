@@ -188,7 +188,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: -vv --features '${{ matrix.features }}'
+          args: -vv --no-default-features --features '${{ matrix.features }}'
           # Searching for fbclient.lib in rsfbclient-native/build.rs
 
       - name: Run cargo test
@@ -196,7 +196,7 @@ jobs:
         if: matrix.plataform != 'macos' || matrix.build != 'linking'
         with:
           command: test
-          args: --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
+          args: -vv --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
           # TODO: args: --features '${{ matrix.features }}'
 
       - name: Run cargo-tarpaulin
