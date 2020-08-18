@@ -1,0 +1,18 @@
+# https://github.com/actions-rs/audit-check#scheduled-audit
+
+name: Weekly Security Audit
+on:
+  schedule:
+    - cron: '0 0 * * 1'
+    # would run a command only on Mondays.
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Run security audit
+        uses: actions-rs/audit-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

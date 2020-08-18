@@ -48,14 +48,14 @@ macro_rules! mk_tests_default {
                 $( $tests )*
             }
 
-            #[cfg(feature = "linking")]
+            #[cfg(all(feature = "linking", not(feature = "embedded_tests")))]
             for linking -> Connection<rsfbclient_native::NativeFbClient> {
                 crate::ConnectionBuilder::linked()
                         .connect()
                         .expect("Error on connect the test database")
             }
 
-            #[cfg(feature = "linking")]
+            #[cfg(all(feature = "linking", feature = "embedded_tests"))]
             for linking_embedded -> Connection<rsfbclient_native::NativeFbClient> {
                 crate::ConnectionBuilder::linked()
                         .embedded()
@@ -64,16 +64,28 @@ macro_rules! mk_tests_default {
                         .expect("Error on connect the test database")
             }
 
-            #[cfg(feature = "dynamic_loading")]
+            #[cfg(all(feature = "dynamic_loading", not(feature = "embedded_tests")))]
             for dynamic_loading -> Connection<rsfbclient_native::NativeFbClient> {
-                crate::ConnectionBuilder::with_client("libfbclient.so")
+
+                #[cfg(target_os = "linux")]
+                let libfbclient = "libfbclient.so";
+                #[cfg(target_os = "windows")]
+                let libfbclient = "fbclient.dll";
+
+                crate::ConnectionBuilder::with_client(libfbclient)
                         .connect()
                         .expect("Error on connect the test database")
             }
 
-            #[cfg(feature = "dynamic_loading")]
+            #[cfg(all(feature = "dynamic_loading", feature = "embedded_tests"))]
             for dynamic_loading_embedded -> Connection<rsfbclient_native::NativeFbClient> {
-                crate::ConnectionBuilder::with_client("libfbclient.so")
+
+                #[cfg(target_os = "linux")]
+                let libfbclient = "libfbclient.so";
+                #[cfg(target_os = "windows")]
+                let libfbclient = "fbclient.dll";
+
+                crate::ConnectionBuilder::with_client(libfbclient)
                         .embedded()
                         .db_name("/tmp/embedded_tests.fdb")
                         .connect()
