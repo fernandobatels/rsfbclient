@@ -55,13 +55,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ "ubuntu-20.04", "windows-latest" ]
+        os: ["ubuntu-20.04", "windows-latest"]
         firebird: [v3, v2, v4]
-        build: [linking, dynamic_loading]
+        build: [linking, dynamic_loading, pure_rust]
         exclude:
-          - os: "windows-latest" 
+          - os: "windows-latest"
             firebird: v2
-          - os: "windows-latest" 
+          - os: "windows-latest"
             firebird: v4
         include:
           - os: "ubuntu-20.04"
@@ -78,6 +78,8 @@ jobs:
             features: linking date_time pool
           - build: dynamic_loading
             features: dynamic_loading date_time pool
+          - build: pure_rust
+            features: pure_rust date_time pool
     runs-on: "${{ matrix.os }}"
     needs: linting
     steps:
@@ -223,10 +225,10 @@ jobs:
       matrix:
         build: [linking, dynamic_loading]
         include:
-        - build: linking
-          features: linking date_time pool embedded_tests
-        - build: dynamic_loading
-          features: dynamic_loading date_time pool embedded_tests
+          - build: linking
+            features: linking date_time pool embedded_tests
+          - build: dynamic_loading
+            features: dynamic_loading date_time pool embedded_tests
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -265,5 +267,4 @@ jobs:
         uses: actions-rs/audit-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-
 # end of file
