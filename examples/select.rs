@@ -31,6 +31,14 @@ fn main() -> Result<(), FbError> {
         .pass("masterkey")
         .connect()?;
 
+    #[cfg(feature = "pure_rust")]
+    let mut conn = ConnectionBuilder::pure_rust()
+        .host("localhost")
+        .db_name("examples.fdb")
+        .user("SYSDBA")
+        .pass("masterkey")
+        .connect()?;
+
     // `query_iter` for large quantities of rows, will allocate space for one row at a time
     let rows = conn.query_iter("select col_a, col_b, col_c from test", ())?;
 
