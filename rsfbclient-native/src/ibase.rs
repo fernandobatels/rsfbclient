@@ -42,6 +42,8 @@ macro_rules! parse_functions {
                         Self::DynamicLoading(lib) => {
                             *lib.get( stringify!($name).as_bytes() ).unwrap()
                         }
+                        #[allow(unreachable_patterns)]
+                        _ => panic!("No feature enabled, enable `native` or `dynamic_loading`"),
                     }
                 }
             )*

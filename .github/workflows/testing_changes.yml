@@ -177,11 +177,27 @@ jobs:
         with:
           command: test
           args: --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
-          # TODO: args: --features '${{ matrix.features }}'
 
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         if: matrix.plataform == 'linux'
+        # TODO: #[error]The process 'C:\Rust\.cargo\bin\cargo.exe' failed with exit code 101: error: no such subcommand: `tarpaulin`
+        with:
+          version: "latest"
+          run-types: "AllTargets"
+          out-type: "Lcov"
+          args: -v --line --count --branch --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
+
+      - name: Run cargo test for rsfbclient_rust crate
+        uses: actions-rs/cargo@v1
+        if: matrix.build == 'pure_rust'
+        with:
+          command: test
+          args: --no-default-features --features '${{ matrix.features }}'
+
+      - name: Run cargo-tarpaulin for rsfbclient_rust crate
+        uses: actions-rs/tarpaulin@v0.1
+        if: matrix.plataform == 'linux' && matrix.build == 'pure_rust'
         # TODO: #[error]The process 'C:\Rust\.cargo\bin\cargo.exe' failed with exit code 101: error: no such subcommand: `tarpaulin`
         with:
           version: "latest"

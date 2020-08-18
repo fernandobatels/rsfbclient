@@ -687,6 +687,7 @@ impl Write for FbStream {
 }
 
 #[test]
+#[ignore]
 fn connection_test() {
     let db_name = "test.fdb";
     let user = "SYSDBA";
