@@ -193,7 +193,7 @@ jobs:
         if: matrix.build == 'pure_rust'
         with:
           command: test
-          args: --no-default-features --features '${{ matrix.features }}'
+          args: -p rsfbclient_rust
 
       - name: Run cargo-tarpaulin for rsfbclient_rust crate
         uses: actions-rs/tarpaulin@v0.1
@@ -203,7 +203,7 @@ jobs:
           version: "latest"
           run-types: "AllTargets"
           out-type: "Lcov"
-          args: -v --line --count --branch --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
+          args: -v --line --count --branch -p rsfbclient_rust
 
       - name: Coveralls Parallel
         uses: coverallsapp/github-action@master
