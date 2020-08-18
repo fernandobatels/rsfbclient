@@ -188,14 +188,14 @@ jobs:
           out-type: "Lcov"
           args: -v --line --count --branch --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
 
-      - name: Run cargo test for rsfbclient_rust crate
+      - name: Run cargo test for rsfbclient-rust crate
         uses: actions-rs/cargo@v1
         if: matrix.build == 'pure_rust'
         with:
           command: test
-          args: -p rsfbclient_rust
+          args: -p rsfbclient-rust
 
-      - name: Run cargo-tarpaulin for rsfbclient_rust crate
+      - name: Run cargo-tarpaulin for rsfbclient-rust crate
         uses: actions-rs/tarpaulin@v0.1
         if: matrix.plataform == 'linux' && matrix.build == 'pure_rust'
         # TODO: #[error]The process 'C:\Rust\.cargo\bin\cargo.exe' failed with exit code 101: error: no such subcommand: `tarpaulin`
@@ -203,7 +203,7 @@ jobs:
           version: "latest"
           run-types: "AllTargets"
           out-type: "Lcov"
-          args: -v --line --count --branch -p rsfbclient_rust
+          args: -v --line --count --branch -p rsfbclient-rust
 
       - name: Coveralls Parallel
         uses: coverallsapp/github-action@master
