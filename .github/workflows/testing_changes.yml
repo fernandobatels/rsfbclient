@@ -271,14 +271,12 @@ jobs:
 
       - name: Run cargo test for rsfbclient-rust crate
         uses: actions-rs/cargo@v1
-        if: matrix.build == 'pure_rust'
         with:
           command: test
           args: -p rsfbclient-rust
 
       - name: Run cargo-tarpaulin for rsfbclient-rust crate
         uses: actions-rs/tarpaulin@v0.1
-        if: matrix.plataform == 'linux' && matrix.build == 'pure_rust'
         with:
           version: "latest"
           run-types: "AllTargets"
