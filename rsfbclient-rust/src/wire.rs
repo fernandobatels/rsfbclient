@@ -348,6 +348,61 @@ pub fn fetch(stmt_handle: u32, blr: &[u8]) -> Bytes {
     req.freeze()
 }
 
+/// Create blob request
+pub fn create_blob(stmt_handle: u32) -> Bytes {
+    let mut req = BytesMut::with_capacity(16);
+
+    req.put_u32(WireOp::CreateBlob as u32);
+    req.put_u32(stmt_handle);
+    req.put_u64(0); // Blob id, but we are creating one!?
+
+    req.freeze()
+}
+
+/// Open blob request
+pub fn open_blob(stmt_handle: u32, blob_id: u64) -> Bytes {
+    let mut req = BytesMut::with_capacity(16);
+
+    req.put_u32(WireOp::OpenBlob as u32);
+    req.put_u32(stmt_handle);
+    req.put_u64(blob_id);
+
+    req.freeze()
+}
+
+/// Get blob segment request
+pub fn get_segment(blob_handle: u32, length: u32) -> Bytes {
+    let mut req = BytesMut::with_capacity(16);
+
+    req.put_u32(WireOp::GetSegment as u32);
+    req.put_u32(blob_handle);
+    req.put_u32(length);
+    req.put_u32(0); // Data segment, apparently unused
+
+    req.freeze()
+}
+
+/// Put blob segment request
+pub fn put_segment(blob_handle: u32, segment: &[u8]) -> Bytes {
+    let mut req = BytesMut::with_capacity(8 + segment.len());
+
+    req.put_u32(WireOp::PutSegment as u32);
+    req.put_u32(blob_handle);
+    req.put_wire_bytes(segment);
+
+    req.freeze()
+}
+
+/// Close blob segment request
+pub fn close_blob(blob_handle: u32) -> Bytes {
+    let mut req = BytesMut::with_capacity(8);
+
+    req.put_u32(WireOp::CloseBlob as u32);
+    req.put_u32(blob_handle);
+
+    req.freeze()
+}
+
 #[derive(Debug)]
 /// `WireOp::Response` response
 pub struct Response {
