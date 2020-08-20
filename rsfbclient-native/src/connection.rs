@@ -384,11 +384,19 @@ impl FirebirdClient for NativeFbClient {
 
     fn execute(
         &mut self,
+        mut db_handle: Self::DbHandle,
         mut tr_handle: Self::TrHandle,
         mut stmt_handle: Self::StmtHandle,
         params: Vec<Param>,
     ) -> Result<(), FbError> {
-        let params = Params::new(&self.ibase, &mut self.status, &mut stmt_handle, params)?;
+        let params = Params::new(
+            &mut db_handle,
+            &mut tr_handle,
+            &self.ibase,
+            &mut self.status,
+            &mut stmt_handle,
+            params,
+        )?;
 
         unsafe {
             if self.ibase.isc_dsql_execute()(
@@ -413,7 +421,12 @@ impl FirebirdClient for NativeFbClient {
         Ok(())
     }
 
-    fn fetch(&mut self, mut stmt_handle: Self::StmtHandle) -> Result<Option<Vec<Column>>, FbError> {
+    fn fetch(
+        &mut self,
+        mut db_handle: Self::DbHandle,
+        mut tr_handle: Self::TrHandle,
+        mut stmt_handle: Self::StmtHandle,
+    ) -> Result<Option<Vec<Column>>, FbError> {
         let (xsqlda, col_buf) = self
             .stmt_data_map
             .get(&stmt_handle)
@@ -438,7 +451,7 @@ impl FirebirdClient for NativeFbClient {
 
         let cols = col_buf
             .iter()
-            .map(|cb| cb.to_column())
+            .map(|cb| cb.to_column(&mut db_handle, &mut tr_handle, &self.ibase))
             .collect::<Result<_, _>>()?;
 
         Ok(Some(cols))

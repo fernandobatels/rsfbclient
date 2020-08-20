@@ -15,6 +15,8 @@ pub enum Param {
     Timestamp(ibase::ISC_TIMESTAMP),
 
     Null,
+
+    Binary(Vec<u8>),
 }
 
 impl Param {
@@ -26,6 +28,7 @@ impl Param {
             Floating(_) => ibase::SQL_DOUBLE + 1,
             Timestamp(_) => ibase::SQL_TIMESTAMP + 1,
             Null => ibase::SQL_TEXT + 1,
+            Binary(_) => ibase::SQL_BLOB + 1,
         }
     }
 }
@@ -33,6 +36,12 @@ impl Param {
 /// Implemented for types that can be sent as parameters
 pub trait IntoParam {
     fn into_param(self) -> Param;
+}
+
+impl IntoParam for Vec<u8> {
+    fn into_param(self) -> Param {
+        Binary(self)
+    }
 }
 
 impl IntoParam for String {

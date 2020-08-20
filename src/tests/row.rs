@@ -7,6 +7,40 @@
 mk_tests_default! {
     use crate::{prelude::*, Connection, FbError};
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+    use std::str;
+
+    #[test]
+    fn blob_binary_subtype() -> Result<(), FbError> {
+        let mut conn = connect();
+
+        let (a,): (Vec<u8>,) = conn.query_first("select cast(x'61626320c3a462c3a720313233' as blob SUB_TYPE 0) from rdb$database;", ())?
+            .unwrap();
+
+        assert_eq!(13, a.len());
+        assert_eq!("abc äbç 123", str::from_utf8(&a).expect("Invalid UTF-8 sequence"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn blob_text_subtype() -> Result<(), FbError> {
+        let mut conn = connect();
+
+        let (a,): (String,) = conn.query_first("select cast('abc äbç 123' as BLOB sub_type 1) from rdb$database", ())?
+            .unwrap();
+
+        assert_eq!("abc äbç 123", a);
+
+        // With a big string....
+
+        let (b,): (String,) = conn.query_first("select cast('Mussum Ipsum, cacilds vidis litro abertis. Admodum accumsan disputationi eu sit. Vide electram sadipscing et per. Delegadis gente finis, bibendum egestas augue arcu ut est. Paisis, filhis, espiritis santis. Quem manda na minha terra sou euzis!' as BLOB sub_type 1) from rdb$database", ())?
+            .unwrap();
+
+        assert_eq!("Mussum Ipsum, cacilds vidis litro abertis. Admodum accumsan disputationi eu sit. Vide electram sadipscing et per. Delegadis gente finis, bibendum egestas augue arcu ut est. Paisis, filhis, espiritis santis. Quem manda na minha terra sou euzis!", b);
+
+
+        Ok(())
+    }
 
     #[test]
     fn dates() -> Result<(), FbError> {
