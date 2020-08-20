@@ -402,7 +402,7 @@ where
             .as_mut()
             .unwrap()
             .stmt
-            .fetch(&self.tr.conn)
+            .fetch(&self.tr.conn, &self.tr.data)
             .and_then(|row| row.map(FromRow::try_from).transpose())
             .transpose()
     }

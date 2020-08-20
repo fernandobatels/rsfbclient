@@ -168,6 +168,7 @@ impl FirebirdClient for RustFbClient {
 
     fn execute(
         &mut self,
+        _db_handle: Self::DbHandle,
         tr_handle: Self::TrHandle,
         stmt_handle: Self::StmtHandle,
         params: Vec<Param>,
@@ -178,7 +179,12 @@ impl FirebirdClient for RustFbClient {
             .unwrap_or_else(err_client_not_connected)
     }
 
-    fn fetch(&mut self, stmt_handle: Self::StmtHandle) -> Result<Option<Vec<Column>>, FbError> {
+    fn fetch(
+        &mut self,
+        _db_handle: Self::DbHandle,
+        _tr_handle: Self::TrHandle,
+        stmt_handle: Self::StmtHandle,
+    ) -> Result<Option<Vec<Column>>, FbError> {
         self.conn
             .as_mut()
             .map(|conn| conn.fetch(stmt_handle))

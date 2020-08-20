@@ -3,7 +3,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use rsfbclient_core::{FbError, Param};
 
 /// Maximum parameter data length
-const MAX_DATA_LENGTH: usize = 32767;
+pub const MAX_DATA_LENGTH: usize = 32767;
 
 /// Data for the parameters to send in the wire
 pub struct ParamsBlr {
@@ -72,6 +72,11 @@ pub fn params_to_blr(
 
                 values.put_i32(ts.timestamp_date);
                 values.put_u32(ts.timestamp_time);
+            }
+
+            Param::Binary(_) => {
+                // TODO: Implement blob type 0
+                return Err("Blob type 0 not yet supported".into());
             }
 
             Param::Null => {

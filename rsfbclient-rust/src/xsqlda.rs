@@ -62,6 +62,7 @@ impl XSqlVar {
     pub fn coerce(&mut self) -> Result<(), FbError> {
         // Remove nullable type indicator
         let sqltype = self.sqltype & (!1);
+        let sqlsubtype = self.sqlsubtype;
 
         // var.null_ind = 1;
 
@@ -92,6 +93,19 @@ impl XSqlVar {
                 self.data_length = mem::size_of::<ibase::ISC_TIMESTAMP>() as i16;
 
                 self.sqltype = ibase::SQL_TIMESTAMP as i16 + 1;
+            }
+
+            // TODO: proper blob support
+            ibase::SQL_BLOB if (sqlsubtype == 0 || sqlsubtype == 1) => {
+                self.sqltype = ibase::SQL_BLOB as i16 + 1;
+
+                if sqlsubtype == 0 {
+                    return Err("Blob type 0 not yet supported".into());
+                } else {
+                    // Coerce as varchar for now
+                    self.sqltype = ibase::SQL_VARYING as i16 + 1;
+                    self.data_length = crate::blr::MAX_DATA_LENGTH as i16;
+                }
             }
 
             sqltype => {

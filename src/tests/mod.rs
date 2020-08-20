@@ -71,6 +71,8 @@ macro_rules! mk_tests_default {
                 let libfbclient = "libfbclient.so";
                 #[cfg(target_os = "windows")]
                 let libfbclient = "fbclient.dll";
+                #[cfg(target_os = "macos")]
+                let libfbclient = "libfbclient.dylib";
 
                 crate::ConnectionBuilder::with_client(libfbclient)
                         .connect()
@@ -84,6 +86,8 @@ macro_rules! mk_tests_default {
                 let libfbclient = "libfbclient.so";
                 #[cfg(target_os = "windows")]
                 let libfbclient = "fbclient.dll";
+                #[cfg(target_os = "macos")]
+                let libfbclient = "libfbclient.dylib";
 
                 crate::ConnectionBuilder::with_client(libfbclient)
                         .embedded()

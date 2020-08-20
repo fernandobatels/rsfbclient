@@ -83,6 +83,7 @@ pub trait FirebirdClient: Send {
     /// Execute the prepared statement with parameters
     fn execute(
         &mut self,
+        db_handle: Self::DbHandle,
         tr_handle: Self::TrHandle,
         stmt_handle: Self::StmtHandle,
         params: Vec<Param>,
@@ -90,7 +91,12 @@ pub trait FirebirdClient: Send {
 
     /// Fetch rows from the executed statement, coercing the types
     /// according to the provided blr
-    fn fetch(&mut self, stmt_handle: Self::StmtHandle) -> Result<Option<Vec<Column>>, FbError>;
+    fn fetch(
+        &mut self,
+        db_handle: Self::DbHandle,
+        tr_handle: Self::TrHandle,
+        stmt_handle: Self::StmtHandle,
+    ) -> Result<Option<Vec<Column>>, FbError>;
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]

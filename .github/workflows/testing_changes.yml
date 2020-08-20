@@ -5,10 +5,12 @@
 #   - https://github.com/actions-rs/toolchain   -> https://github.com/marketplace/actions/rust-toolchain
 #   - https://github.com/actions-rs/cargo       -> https://github.com/marketplace/actions/rust-cargo
 #
-# for simplicity we are checking compilation and testing everything on the Ubuntu environment only.
-#
 # TODO:
-#   - Run in arm little-endian architecture
+#   - Run tests in arm little-endian architecture (travis-ci?)
+#   - Test cross compilation to many arch (E.g ripgrep)
+#   - cargo tarpaulin does not work on windows
+#   - cargo tarpaulin does not work on macos
+#   - cargo test fails with linking on macos
 
 on: [push, pull_request]
 
@@ -55,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu-20.04", "windows-latest"]
+        os: ["ubuntu-20.04", "windows-latest", "macos-latest"]
         firebird: [v3, v2, v4]
         build: [linking, dynamic_loading, pure_rust]
         exclude:
@@ -63,11 +65,17 @@ jobs:
             firebird: v2
           - os: "windows-latest"
             firebird: v4
+          - os: "macos-latest"
+            firebird: v2
+          - os: "macos-latest"
+            firebird: v4
         include:
           - os: "ubuntu-20.04"
             plataform: linux
           - os: "windows-latest"
             plataform: windows
+          - os: "macos-latest"
+            plataform: macos
           - firebird: v2
             image: "2.5-ss"
           - firebird: v3
@@ -97,6 +105,14 @@ jobs:
         if: matrix.plataform == 'windows'
         run: |
           choco install firebird -params '/SuperClassic'
+
+      - name: Setup FirebirdSQL ${{ matrix.firebird }} on MacOSX
+        if: matrix.plataform == 'macos'
+        shell: bash
+        run: |
+          wget https://github.com/FirebirdSQL/firebird/releases/download/R3_0_6/Firebird-3.0.6-33328-x86_64.pkg -O /tmp/firebird.pkg
+          sudo installer -verbose -pkg /tmp/firebird.pkg -target /
+          sudo ln -s /Library/Frameworks/Firebird.framework/Versions/A/Libraries/libfbclient.dylib /usr/local/lib/libfbclient.dylib
 
       - name: Locating fbclient.lib Dir on Windows
         if: matrix.plataform == 'windows'
@@ -153,6 +169,11 @@ jobs:
         run: |
           echo "CREATE DATABASE 'localhost:test.fdb';" | & "C:\Program Files\Firebird\Firebird_3_0\isql.exe" -bail -quiet -z -user SYSDBA -password masterkey
 
+      - name: Create database test.fdb in fb ${{ matrix.firebird }} on MacOSX
+        if: matrix.plataform == 'macos'
+        run: |
+          echo "CREATE DATABASE 'localhost:test.fdb';" | /Library/Frameworks/Firebird.framework/Resources/bin/isql -bail -quiet -z -user SYSDBA -password masterkey
+
       - name: Testing Connection and Query on Linux
         if: matrix.firebird != 'v4' && matrix.plataform == 'linux'
         run: |
@@ -169,11 +190,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: -vv --features '${{ matrix.features }}'
+          args: -vv --no-default-features --features '${{ matrix.features }}'
           # Searching for fbclient.lib in rsfbclient-native/build.rs
 
       - name: Run cargo test
         uses: actions-rs/cargo@v1
+        if: matrix.plataform != 'macos' || matrix.build != 'linking'
         with:
           command: test
           args: --no-default-features --features '${{ matrix.features }}' -- --test-threads 1

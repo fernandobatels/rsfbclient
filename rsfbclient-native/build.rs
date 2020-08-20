@@ -5,10 +5,16 @@ fn main() {
         #[cfg(all(feature = "linking", target_os = "linux"))]
         search_on_linux();
 
+        #[cfg(all(feature = "linking", target_os = "macos"))]
+        search_on_macos();
+
         #[cfg(all(feature = "linking", target_os = "windows"))]
         search_on_windows();
     }
+    println!("cargo:rerun-if-env-changed=PROFILE");
+    println!("cargo:rerun-if-env-changed=TARGET");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src/tests/mod.rs");
 }
 
 fn search_on_environment_var() -> bool {
@@ -26,6 +32,26 @@ fn search_on_linux() {
     // https://doc.rust-lang.org/rustc/command-line-arguments.html#option-l-link-lib
 
     println!("cargo:rustc-link-lib=dylib=fbclient");
+}
+
+#[cfg(all(feature = "linking", target_os = "macos"))]
+fn search_on_macos() {
+    let def_fbclient_sys = "/usr/local/lib/libfbclient.dylib";
+    let fb3_lib_path_sys = std::path::Path::new(def_fbclient_sys);
+    if fb3_lib_path_sys.exists() {
+        println!("cargo:rustc-link-search=/usr/local/lib/");
+    }
+    let def_fbclient_lib =
+        "/Library/Frameworks/Firebird.framework/Versions/A/Libraries/libfbclient.dylib";
+    let fb3_lib_path_lib = std::path::Path::new(def_fbclient_lib);
+    if fb3_lib_path_lib.exists() {
+        println!(
+            "cargo:rustc-link-search=/Library/Frameworks/Firebird.framework/Versions/A/Libraries/"
+        );
+    }
+    println!("cargo:rustc-link-lib=dylib=libfbclient");
+    // println!("cargo:rustc-link-lib=dylib=libfbclient.dylib");
+    // println!("cargo:rustc-link-lib=framework=Firebird.framework");
 }
 
 #[cfg(all(feature = "linking", target_os = "windows"))]
