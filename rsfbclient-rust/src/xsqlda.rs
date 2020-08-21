@@ -95,15 +95,17 @@ impl XSqlVar {
                 self.sqltype = ibase::SQL_TIMESTAMP as i16 + 1;
             }
 
-            // TODO: proper blob support
             ibase::SQL_BLOB if (sqlsubtype == 0 || sqlsubtype == 1) => {
                 self.sqltype = ibase::SQL_BLOB as i16 + 1;
 
                 if sqlsubtype == 0 {
-                    return Err("Blob type 0 not yet supported".into());
+                    // Generic blob
+                    // no coercing necessary
                 } else {
+                    // Text blob
                     // Coerce as varchar for now
                     self.sqltype = ibase::SQL_VARYING as i16 + 1;
+                    self.sqlsubtype = 0;
                     self.data_length = crate::blr::MAX_DATA_LENGTH as i16;
                 }
             }
@@ -147,6 +149,11 @@ pub fn xsqlda_to_blr(xsqlda: &[XSqlVar]) -> Result<Bytes, FbError> {
             ibase::SQL_DOUBLE => blr.put_u8(consts::blr::DOUBLE),
 
             ibase::SQL_TIMESTAMP => blr.put_u8(consts::blr::TIMESTAMP),
+
+            ibase::SQL_BLOB => blr.put_slice(&[
+                consts::blr::QUAD,
+                0, // Subtype
+            ]),
 
             sqltype => {
                 return Err(format!("Conversion from sql type {} not implemented", sqltype).into());

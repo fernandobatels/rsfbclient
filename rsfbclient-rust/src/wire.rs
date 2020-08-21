@@ -6,6 +6,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::convert::TryFrom;
 
 use crate::{
+    client::{BlobId, FirebirdWireConnection},
     consts::{gds_to_msg, AuthPluginType, Cnct, ProtocolVersion, WireOp},
     srp::*,
     xsqlda::{XSqlVar, XSQLDA_DESCRIBE_VARS},
@@ -360,23 +361,23 @@ pub fn create_blob(stmt_handle: u32) -> Bytes {
 }
 
 /// Open blob request
-pub fn open_blob(stmt_handle: u32, blob_id: u64) -> Bytes {
+pub fn open_blob(tr_handle: u32, blob_id: u64) -> Bytes {
     let mut req = BytesMut::with_capacity(16);
 
     req.put_u32(WireOp::OpenBlob as u32);
-    req.put_u32(stmt_handle);
+    req.put_u32(tr_handle);
     req.put_u64(blob_id);
 
     req.freeze()
 }
 
 /// Get blob segment request
-pub fn get_segment(blob_handle: u32, length: u32) -> Bytes {
+pub fn get_segment(blob_handle: u32) -> Bytes {
     let mut req = BytesMut::with_capacity(16);
 
     req.put_u32(WireOp::GetSegment as u32);
     req.put_u32(blob_handle);
-    req.put_u32(length);
+    req.put_u32(BUFFER_LENGTH);
     req.put_u32(0); // Data segment, apparently unused
 
     req.freeze()
@@ -435,7 +436,7 @@ pub fn parse_fetch_response(
     resp: &mut Bytes,
     xsqlda: &[XSqlVar],
     version: ProtocolVersion,
-) -> Result<Option<Vec<Column>>, FbError> {
+) -> Result<Option<Vec<ParsedColumn>>, FbError> {
     const END_OF_STREAM: u32 = 100;
 
     if resp.remaining() < 8 {
@@ -491,7 +492,7 @@ pub fn parse_fetch_response(
     for (col_index, var) in xsqlda.iter().enumerate() {
         if version >= ProtocolVersion::V13 && read_null(resp, col_index)? {
             // There is no data in protocol 13 if null, so just continue
-            data.push(Column(None));
+            data.push(ParsedColumn::Complete(Column(None)));
             continue;
         }
 
@@ -504,13 +505,13 @@ pub fn parse_fetch_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(Column(None))
+                    data.push(ParsedColumn::Complete(Column(None)))
                 } else {
-                    data.push(Column(Some(ColumnType::Text(
+                    data.push(ParsedColumn::Complete(Column(Some(ColumnType::Text(
                         String::from_utf8(d.to_vec()).map_err(|_| {
                             FbError::from("Invalid UTF8 string received from server")
                         })?,
-                    ))))
+                    )))))
                 }
             }
 
@@ -523,9 +524,9 @@ pub fn parse_fetch_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(Column(None))
+                    data.push(ParsedColumn::Complete(Column(None)))
                 } else {
-                    data.push(Column(Some(ColumnType::Integer(i))))
+                    data.push(ParsedColumn::Complete(Column(Some(ColumnType::Integer(i)))))
                 }
             }
 
@@ -538,9 +539,9 @@ pub fn parse_fetch_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(Column(None))
+                    data.push(ParsedColumn::Complete(Column(None)))
                 } else {
-                    data.push(Column(Some(ColumnType::Float(f))))
+                    data.push(ParsedColumn::Complete(Column(Some(ColumnType::Float(f)))))
                 }
             }
 
@@ -556,19 +557,92 @@ pub fn parse_fetch_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(Column(None))
+                    data.push(ParsedColumn::Complete(Column(None)))
                 } else {
-                    data.push(Column(Some(ColumnType::Timestamp(ts))))
+                    data.push(ParsedColumn::Complete(Column(Some(ColumnType::Timestamp(
+                        ts,
+                    )))))
+                }
+            }
+
+            ibase::SQL_BLOB if var.sqlsubtype == 0 || var.sqlsubtype == 1 => {
+                if resp.remaining() < 8 {
+                    return err_invalid_response();
+                }
+
+                let id = resp.get_u64();
+
+                let null = read_null(resp, col_index)?;
+                if null {
+                    data.push(ParsedColumn::Complete(Column(None)))
+                } else {
+                    data.push(ParsedColumn::Blob {
+                        binary: var.sqlsubtype == 0,
+                        id: BlobId(id),
+                    })
                 }
             }
 
             sqltype => {
-                return Err(format!("Conversion from sql type {} not implemented", sqltype).into());
+                return Err(format!(
+                    "Conversion from sql type {} (subtype {}) not implemented",
+                    sqltype, var.sqlsubtype
+                )
+                .into());
             }
         }
     }
 
     Ok(Some(data))
+}
+
+/// Column data parsed from a fetch response
+pub enum ParsedColumn {
+    /// All data received
+    Complete(Column),
+    /// Blobs need more requests to get the actual data
+    Blob {
+        /// True if blob type 0
+        binary: bool,
+        /// Blob id
+        id: BlobId,
+    },
+}
+
+impl ParsedColumn {
+    /// Get the rest of the data needed for the columns if necessary
+    pub fn into_column(
+        self,
+        conn: &mut FirebirdWireConnection,
+        tr_handle: crate::TrHandle,
+    ) -> Result<Column, FbError> {
+        Ok(match self {
+            ParsedColumn::Complete(c) => c,
+            ParsedColumn::Blob { binary, id } => {
+                let mut data = BytesMut::new();
+
+                let blob_handle = conn.open_blob(tr_handle, id)?;
+
+                loop {
+                    let (mut segment, end) = conn.get_segment(blob_handle)?;
+
+                    data.put(&mut segment);
+
+                    if end {
+                        break;
+                    }
+                }
+
+                Column(Some(if binary {
+                    ColumnType::Binary(data.freeze().to_vec())
+                } else {
+                    let text = String::from_utf8(data.freeze().to_vec())
+                        .map_err(|_| FbError::from("Invalid utf8 data in blob column"))?;
+                    ColumnType::Text(text)
+                }))
+            }
+        })
+    }
 }
 
 /// Parses the error messages from the response

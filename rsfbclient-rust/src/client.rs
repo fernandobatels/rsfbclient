@@ -27,7 +27,7 @@ pub struct RustFbClient {
 }
 
 /// A Connection to a firebird server
-struct FirebirdWireConnection {
+pub struct FirebirdWireConnection {
     /// Connection socket
     socket: FbStream,
 
@@ -182,12 +182,12 @@ impl FirebirdClient for RustFbClient {
     fn fetch(
         &mut self,
         _db_handle: Self::DbHandle,
-        _tr_handle: Self::TrHandle,
+        tr_handle: Self::TrHandle,
         stmt_handle: Self::StmtHandle,
     ) -> Result<Option<Vec<Column>>, FbError> {
         self.conn
             .as_mut()
-            .map(|conn| conn.fetch(stmt_handle))
+            .map(|conn| conn.fetch(tr_handle, stmt_handle))
             .unwrap_or_else(err_client_not_connected)
     }
 }
@@ -520,7 +520,11 @@ impl FirebirdWireConnection {
 
     /// Fetch rows from the executed statement, coercing the types
     /// according to the provided blr
-    pub fn fetch(&mut self, stmt_handle: StmtHandle) -> Result<Option<Vec<Column>>, FbError> {
+    pub fn fetch(
+        &mut self,
+        tr_handle: TrHandle,
+        stmt_handle: StmtHandle,
+    ) -> Result<Option<Vec<Column>>, FbError> {
         if let Some(StmtData { blr, xsqlda, .. }) = self.stmt_data_map.get_mut(&stmt_handle) {
             self.socket.write_all(&fetch(stmt_handle.0, &blr))?;
             self.socket.flush()?;
@@ -536,10 +540,61 @@ impl FirebirdWireConnection {
                 return err_conn_rejected(op_code);
             }
 
-            parse_fetch_response(&mut resp, xsqlda, self.version)
+            if let Some(parsed_cols) = parse_fetch_response(&mut resp, xsqlda, self.version)? {
+                let mut cols = Vec::with_capacity(parsed_cols.len());
+
+                for pc in parsed_cols {
+                    cols.push(pc.into_column(self, tr_handle)?);
+                }
+
+                Ok(Some(cols))
+            } else {
+                Ok(None)
+            }
         } else {
             Err("Tried to fetch a dropped statement".into())
         }
+    }
+
+    /// Create a new blob, returning the blob handle and id
+    pub fn create_blob(
+        &mut self,
+        stmt_handle: StmtHandle,
+    ) -> Result<(BlobHandle, BlobId), FbError> {
+        self.socket.write_all(&create_blob(stmt_handle.0))?;
+        self.socket.flush();
+
+        let resp = self.read_response()?;
+
+        Ok((BlobHandle(resp.handle), BlobId(resp.object_id)))
+    }
+
+    /// Open a blob, returning the blob handle
+    pub fn open_blob(
+        &mut self,
+        tr_handle: TrHandle,
+        blob_id: BlobId,
+    ) -> Result<BlobHandle, FbError> {
+        self.socket.write_all(&open_blob(tr_handle.0, blob_id.0))?;
+        self.socket.flush()?;
+
+        let resp = self.read_response()?;
+
+        Ok(BlobHandle(resp.handle))
+    }
+
+    /// Get a blob segment, returns the bytes and true if there is more data
+    pub fn get_segment(&mut self, blob_handle: BlobHandle) -> Result<(Bytes, bool), FbError> {
+        self.socket.write_all(&get_segment(blob_handle.0))?;
+        self.socket.flush()?;
+
+        let resp = self.read_response()?;
+        let mut data = resp.data;
+
+        let len = data.get_u16();
+        data.truncate(len as usize);
+
+        Ok((data, resp.handle == 2))
     }
 
     /// Read a server response
@@ -658,6 +713,14 @@ pub struct TrHandle(u32);
 /// A statement handle
 pub struct StmtHandle(u32);
 
+#[derive(Debug, Clone, Copy)]
+/// A blob handle
+pub struct BlobHandle(u32);
+
+#[derive(Debug, Clone, Copy)]
+/// A blob Identificator
+pub struct BlobId(pub(crate) u64);
+
 /// Firebird tcp stream, may be encrypted
 enum FbStream {
     /// Plaintext stream
@@ -734,7 +797,7 @@ fn connection_test() {
     conn.execute(tr_handle, stmt_handle, &params).unwrap();
 
     loop {
-        let resp = conn.fetch(stmt_handle).unwrap();
+        let resp = conn.fetch(tr_handle, stmt_handle).unwrap();
 
         if resp.is_none() {
             break;
