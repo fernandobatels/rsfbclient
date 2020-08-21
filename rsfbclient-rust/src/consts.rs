@@ -44,14 +44,16 @@ pub enum WireOp {
     /// Rollback transaction
     Rollback = 31,
 
+    /// Create a blob
+    CreateBlob = 34,
     /// Open a blob
     OpenBlob = 35,
     /// Get blob segment
     GetSegment = 36,
     /// Put blob segment
     PutSegment = 37,
-    /// Create blob
-    CreateBlob = 38,
+    /// Cancel a blob
+    CancelBlob = 38,
     /// Close a blob
     CloseBlob = 39,
 

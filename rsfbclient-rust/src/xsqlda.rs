@@ -97,17 +97,6 @@ impl XSqlVar {
 
             ibase::SQL_BLOB if (sqlsubtype == 0 || sqlsubtype == 1) => {
                 self.sqltype = ibase::SQL_BLOB as i16 + 1;
-
-                if sqlsubtype == 0 {
-                    // Generic blob
-                    // no coercing necessary
-                } else {
-                    // Text blob
-                    // Coerce as varchar for now
-                    self.sqltype = ibase::SQL_VARYING as i16 + 1;
-                    self.sqlsubtype = 0;
-                    self.data_length = crate::blr::MAX_DATA_LENGTH as i16;
-                }
             }
 
             sqltype => {

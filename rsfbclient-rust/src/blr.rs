@@ -1,10 +1,11 @@
-use crate::consts;
+use crate::{client::FirebirdWireConnection, consts};
 use bytes::{BufMut, Bytes, BytesMut};
 use rsfbclient_core::{FbError, Param};
 
 /// Maximum parameter data length
 pub const MAX_DATA_LENGTH: usize = 32767;
 
+#[derive(Debug)]
 /// Data for the parameters to send in the wire
 pub struct ParamsBlr {
     /// Definitions of the data types
@@ -15,8 +16,9 @@ pub struct ParamsBlr {
 
 /// Convert the parameters to a blr (binary representation)
 pub fn params_to_blr(
+    conn: &mut FirebirdWireConnection,
+    tr_handle: crate::TrHandle,
     params: &[Param],
-    version: consts::ProtocolVersion,
 ) -> Result<ParamsBlr, FbError> {
     let mut blr = BytesMut::with_capacity(256);
     let mut values = BytesMut::with_capacity(256);
@@ -30,27 +32,49 @@ pub fn params_to_blr(
     // Message length, * 2 as there is 1 msg for the param type and another for the nullind
     blr.put_u16_le(params.len() as u16 * 2);
 
-    if version >= consts::ProtocolVersion::V13 {
+    if conn.version >= consts::ProtocolVersion::V13 {
         // Insert a null indicator bitmap
         null_bitmap(&mut values, params);
     }
+
+    // Handle blob creation and blr conversion
+    let handle_blob = |conn: &mut FirebirdWireConnection,
+                       blr: &mut BytesMut,
+                       values: &mut BytesMut,
+                       data: &[u8]| {
+        let (blob_handle, id) = conn.create_blob(tr_handle)?;
+
+        conn.put_segments(blob_handle, &data)?;
+
+        conn.close_blob(blob_handle)?;
+
+        blr.put_u8(consts::blr::QUAD);
+        blr.put_u8(0); // Blob type
+
+        values.put_u64(id.0);
+
+        Ok::<_, FbError>(())
+    };
 
     for p in params {
         match p {
             Param::Text(s) => {
                 if s.len() > MAX_DATA_LENGTH {
-                    return Err("Parameter too big! Not supported yet".into());
-                }
+                    // Data too large, send as blob
+                    handle_blob(conn, &mut blr, &mut values, s.as_bytes())?;
+                } else {
+                    blr.put_u8(consts::blr::TEXT);
+                    blr.put_u16_le(s.len() as u16);
 
-                blr.put_u8(consts::blr::TEXT);
-                blr.put_u16_le(s.len() as u16);
-
-                values.put_slice(s.as_bytes());
-                if s.len() % 4 != 0 {
-                    // 4 byte align
-                    values.put_slice(&[0; 4][..4 - (s.len() as usize % 4)])
+                    values.put_slice(s.as_bytes());
+                    if s.len() % 4 != 0 {
+                        // 4 byte align
+                        values.put_slice(&[0; 4][..4 - (s.len() as usize % 4)])
+                    }
                 }
             }
+
+            Param::Binary(data) => handle_blob(conn, &mut blr, &mut values, &data)?,
 
             Param::Integer(i) => {
                 blr.put_slice(&[
@@ -74,11 +98,6 @@ pub fn params_to_blr(
                 values.put_u32(ts.timestamp_time);
             }
 
-            Param::Binary(_) => {
-                // TODO: Implement blob type 0
-                return Err("Blob type 0 not yet supported".into());
-            }
-
             Param::Null => {
                 // Represent as empty text
                 blr.put_u8(consts::blr::TEXT);
@@ -86,7 +105,7 @@ pub fn params_to_blr(
             }
         }
 
-        if version < consts::ProtocolVersion::V13 {
+        if conn.version < consts::ProtocolVersion::V13 {
             // Null indicator
             values.put_i32_le(if p.is_null() { -1 } else { 0 });
         }

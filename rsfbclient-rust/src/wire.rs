@@ -350,11 +350,11 @@ pub fn fetch(stmt_handle: u32, blr: &[u8]) -> Bytes {
 }
 
 /// Create blob request
-pub fn create_blob(stmt_handle: u32) -> Bytes {
+pub fn create_blob(tr_handle: u32) -> Bytes {
     let mut req = BytesMut::with_capacity(16);
 
     req.put_u32(WireOp::CreateBlob as u32);
-    req.put_u32(stmt_handle);
+    req.put_u32(tr_handle);
     req.put_u64(0); // Blob id, but we are creating one!?
 
     req.freeze()
@@ -389,6 +389,7 @@ pub fn put_segment(blob_handle: u32, segment: &[u8]) -> Bytes {
 
     req.put_u32(WireOp::PutSegment as u32);
     req.put_u32(blob_handle);
+    req.put_u32(segment.len() as u32);
     req.put_wire_bytes(segment);
 
     req.freeze()
@@ -632,6 +633,8 @@ impl ParsedColumn {
                         break;
                     }
                 }
+
+                conn.close_blob(blob_handle)?;
 
                 Column(Some(if binary {
                     ColumnType::Binary(data.freeze().to_vec())

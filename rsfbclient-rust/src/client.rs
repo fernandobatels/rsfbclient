@@ -32,7 +32,7 @@ pub struct FirebirdWireConnection {
     socket: FbStream,
 
     /// Wire protocol version
-    version: ProtocolVersion,
+    pub(crate) version: ProtocolVersion,
 
     /// Buffer to read the network data
     buff: Box<[u8]>,
@@ -498,7 +498,7 @@ impl FirebirdWireConnection {
                 .into());
             }
 
-            let params = blr::params_to_blr(params, self.version)?;
+            let params = blr::params_to_blr(self, tr_handle, params)?;
 
             self.socket
                 .write_all(&execute(
@@ -510,7 +510,7 @@ impl FirebirdWireConnection {
                 .unwrap();
             self.socket.flush()?;
 
-            self.read_response()?;
+            dbg!(self.read_response())?;
 
             Ok(())
         } else {
@@ -557,16 +557,26 @@ impl FirebirdWireConnection {
     }
 
     /// Create a new blob, returning the blob handle and id
-    pub fn create_blob(
-        &mut self,
-        stmt_handle: StmtHandle,
-    ) -> Result<(BlobHandle, BlobId), FbError> {
-        self.socket.write_all(&create_blob(stmt_handle.0))?;
-        self.socket.flush();
+    pub fn create_blob(&mut self, tr_handle: TrHandle) -> Result<(BlobHandle, BlobId), FbError> {
+        self.socket.write_all(&create_blob(tr_handle.0))?;
+        self.socket.flush()?;
 
         let resp = self.read_response()?;
 
         Ok((BlobHandle(resp.handle), BlobId(resp.object_id)))
+    }
+
+    /// Put blob segments
+    pub fn put_segments(&mut self, blob_handle: BlobHandle, data: &[u8]) -> Result<(), FbError> {
+        for segment in data.chunks(crate::blr::MAX_DATA_LENGTH) {
+            self.socket
+                .write_all(&put_segment(blob_handle.0, segment))?;
+            self.socket.flush()?;
+
+            self.read_response()?;
+        }
+
+        Ok(())
     }
 
     /// Open a blob, returning the blob handle
@@ -591,10 +601,26 @@ impl FirebirdWireConnection {
         let resp = self.read_response()?;
         let mut data = resp.data;
 
-        let len = data.get_u16();
+        if data.remaining() < 2 {
+            return err_invalid_response();
+        }
+        let len = data.get_u16_le();
+        if data.remaining() < len as usize {
+            return err_invalid_response();
+        }
         data.truncate(len as usize);
 
         Ok((data, resp.handle == 2))
+    }
+
+    /// Closes a blob handle
+    pub fn close_blob(&mut self, blob_handle: BlobHandle) -> Result<(), FbError> {
+        self.socket.write_all(&close_blob(blob_handle.0))?;
+        self.socket.flush()?;
+
+        dbg!(self.read_response())?;
+
+        Ok(())
     }
 
     /// Read a server response
@@ -622,7 +648,7 @@ fn read_response(socket: &mut impl Read, buff: &mut [u8]) -> Result<Response, Fb
 /// Reads a packet from the socket
 fn read_packet(socket: &mut impl Read, buff: &mut [u8]) -> Result<(u32, Bytes), FbError> {
     let mut len = socket.read(buff)?;
-    let mut resp = BytesMut::from(&buff[..len]);
+    let mut resp = dbg!(BytesMut::from(&buff[..len]));
 
     loop {
         if len == buff.len() {
