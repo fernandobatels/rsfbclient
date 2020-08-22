@@ -18,7 +18,7 @@ num-bigint = "0.3.0"
 num_enum = "0.5.1"
 pwhash = "0.3"
 rand = "0.7.3"
-rsfbclient-core = { version = "0.5.1", path = "../rsfbclient-core" }
+rsfbclient-core = { version = "0.6.0", path = "../rsfbclient-core" }
 sha-1 = "0.9.1"
 sha2 = "0.9.1"
 

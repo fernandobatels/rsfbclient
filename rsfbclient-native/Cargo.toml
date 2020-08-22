@@ -1,6 +1,6 @@
 [package]
 name = "rsfbclient-native"
-version = "0.5.1"
+version = "0.6.0"
 description = "Native(using fbclient) implementation of firebird client lib"
 authors = ["Luis Fernando Batels <luisfbatels@gmail.com>", "Jairo H Wiethan <jairinhowiethan@gmail.com>"]
 edition = "2018"
@@ -10,7 +10,7 @@ categories = ["database"]
 license = "MIT"
 
 [dependencies]
-rsfbclient-core = { version = "0.5.1", path = "../rsfbclient-core" }
+rsfbclient-core = { version = "0.6.0", path = "../rsfbclient-core" }
 libloading = { version = "0.6", optional = true }
 
 [features]
