@@ -13,6 +13,14 @@ mk_tests_default! {
     fn boolean() -> Result<(), FbError> {
         let mut conn = connect();
 
+        let (engine_version,): (String,) = conn.query_first(
+            "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') from rdb$database;",
+            (),
+        )?.unwrap();
+        if !engine_version.starts_with("3.") {
+            return Ok(());
+        }
+
         let (a, b,): (bool, bool,) = conn.query_first("select false, true from rdb$database;", ())?
             .unwrap();
 
