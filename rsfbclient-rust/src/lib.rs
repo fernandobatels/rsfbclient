@@ -9,3 +9,6 @@ mod wire;
 mod xsqlda;
 
 pub use client::{DbHandle, RustFbClient, StmtHandle, TrHandle};
+
+#[cfg(feature = "fuzz_testing")]
+pub use self::{blr::*, wire::*, xsqlda::*};

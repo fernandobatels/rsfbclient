@@ -668,6 +668,9 @@ pub fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
         match resp.get_u32() {
             // New error message
             ibase::isc_arg_gds => {
+                if resp.remaining() < 4 {
+                    return err_invalid_response();
+                }
                 gds_code = resp.get_u32();
 
                 if gds_code != 0 {
@@ -678,6 +681,9 @@ pub fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
 
             // Error message arg number
             ibase::isc_arg_number => {
+                if resp.remaining() < 4 {
+                    return err_invalid_response();
+                }
                 let num = resp.get_i32();
                 // Sql error code
                 if gds_code == 335544436 {
@@ -920,7 +926,11 @@ impl BytesWireExt for Bytes {
 
         self.advance(len);
         if len % 4 != 0 {
-            self.advance(4 - (len % 4));
+            let pad = 4 - (len % 4);
+            if self.remaining() < pad {
+                return err_invalid_response();
+            }
+            self.advance(pad);
         }
 
         Ok(bytes)

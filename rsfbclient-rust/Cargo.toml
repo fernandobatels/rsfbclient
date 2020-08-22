@@ -21,3 +21,6 @@ rand = "0.7.3"
 rsfbclient-core = { version = "0.5.1", path = "../rsfbclient-core" }
 sha-1 = "0.9.1"
 sha2 = "0.9.1"
+
+[features]
+fuzz_testing = []

@@ -220,6 +220,10 @@ pub fn parse_xsqlda(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<Prepa
     resp.advance(2);
 
     let col_len = resp.get_u32_le() as usize;
+    if col_len > 1024 {
+        // Absurd quantity of rows, so must be an error (or else could panic trying to allocate too much RAM)
+        return err_invalid_xsqlda();
+    }
     if xsqlda.is_empty() {
         xsqlda.reserve(col_len);
     }
@@ -255,12 +259,17 @@ pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result
                 // Assume 0x04 0x00
                 resp.advance(2);
 
-                // Index received starts on 1
-                col_index = resp.get_u32_le() as usize - 1;
+                let col = resp.get_u32_le();
+                if col == 0 {
+                    // Index received starts on 1
+                    return err_invalid_xsqlda();
+                }
+                col_index = col as usize - 1;
 
                 if col_index >= xsqlda.len() {
                     xsqlda.push(Default::default());
                     // Must be the same
+                    #[cfg(not(feature = "fuzz_testing"))]
                     debug_assert_eq!(xsqlda.len() - 1, col_index);
                 }
             }
