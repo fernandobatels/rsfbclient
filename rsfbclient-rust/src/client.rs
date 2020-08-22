@@ -510,7 +510,7 @@ impl FirebirdWireConnection {
                 .unwrap();
             self.socket.flush()?;
 
-            dbg!(self.read_response())?;
+            self.read_response()?;
 
             Ok(())
         } else {
@@ -618,7 +618,7 @@ impl FirebirdWireConnection {
         self.socket.write_all(&close_blob(blob_handle.0))?;
         self.socket.flush()?;
 
-        dbg!(self.read_response())?;
+        self.read_response()?;
 
         Ok(())
     }
@@ -648,7 +648,7 @@ fn read_response(socket: &mut impl Read, buff: &mut [u8]) -> Result<Response, Fb
 /// Reads a packet from the socket
 fn read_packet(socket: &mut impl Read, buff: &mut [u8]) -> Result<(u32, Bytes), FbError> {
     let mut len = socket.read(buff)?;
-    let mut resp = dbg!(BytesMut::from(&buff[..len]));
+    let mut resp = BytesMut::from(&buff[..len]);
 
     loop {
         if len == buff.len() {
