@@ -19,7 +19,7 @@ pub enum Param {
     Binary(Vec<u8>),
 
     /// Only works in fb >= 3.0
-    Boolean(bool)
+    Boolean(bool),
 }
 
 impl Param {

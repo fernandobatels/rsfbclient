@@ -10,6 +10,19 @@ mk_tests_default! {
     use std::str;
 
     #[test]
+    fn boolean() -> Result<(), FbError> {
+        let mut conn = connect();
+
+        let (a, b,): (bool, bool,) = conn.query_first("select false, true from rdb$database;", ())?
+            .unwrap();
+
+        assert_eq!(false, a);
+        assert_eq!(true, b);
+
+        Ok(())
+    }
+
+    #[test]
     fn blob_binary_subtype() -> Result<(), FbError> {
         let mut conn = connect();
 
