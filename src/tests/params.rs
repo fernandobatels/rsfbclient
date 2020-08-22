@@ -9,6 +9,26 @@ mk_tests_default! {
     use chrono::{NaiveDate, NaiveTime};
 
     #[test]
+    fn boolean() -> Result<(), FbError> {
+        let mut conn = connect();
+
+        let res: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where true = ? ",
+            (true,),
+        )?;
+        assert!(res.is_some());
+
+
+        let res: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where true = ? ",
+            (false,),
+        )?;
+        assert!(res.is_none());
+
+        Ok(())
+    }
+
+    #[test]
     fn blob_binary_subtype() -> Result<(), FbError> {
         let mut conn = connect();
 

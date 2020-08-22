@@ -17,6 +17,9 @@ pub enum Param {
     Null,
 
     Binary(Vec<u8>),
+
+    /// Only works in fb >= 3.0
+    Boolean(bool)
 }
 
 impl Param {
@@ -29,6 +32,7 @@ impl Param {
             Timestamp(_) => ibase::SQL_TIMESTAMP + 1,
             Null => ibase::SQL_TEXT + 1,
             Binary(_) => ibase::SQL_BLOB + 1,
+            Boolean(_) => ibase::SQL_BOOLEAN + 1,
         }
     }
 }
@@ -53,6 +57,12 @@ impl IntoParam for String {
 impl IntoParam for i64 {
     fn into_param(self) -> Param {
         Integer(self)
+    }
+}
+
+impl IntoParam for bool {
+    fn into_param(self) -> Param {
+        Boolean(self)
     }
 }
 
