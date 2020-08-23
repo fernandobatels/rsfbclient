@@ -1,7 +1,7 @@
 [package]
 name = "rsfbclient"
 description = "Binds to official firebird client lib"
-version = "0.6.0"
+version = "0.7.0"
 authors = ["Luis Fernando Batels <luisfbatels@gmail.com>", "Jairo H Wiethan <jairinhowiethan@gmail.com>"]
 edition = "2018"
 repository = "https://github.com/fernandobatels/rsfbclient"
@@ -14,8 +14,8 @@ readme = "README.md"
 chrono = { version = "0.4", optional = true }
 lru-cache = "0.1.2"
 r2d2 = { version = "0.8.9", optional = true }
-rsfbclient-core = { version = "0.6.0", path = "rsfbclient-core" }
-rsfbclient-native = { version = "0.6.0", path = "rsfbclient-native", optional = true }
+rsfbclient-core = { version = "0.7.0", path = "rsfbclient-core" }
+rsfbclient-native = { version = "0.7.0", path = "rsfbclient-native", optional = true }
 
 [features]
 default = ["linking", "date_time", "pool"]
