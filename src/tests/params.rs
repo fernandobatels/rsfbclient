@@ -16,7 +16,7 @@ mk_tests_default! {
             "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') from rdb$database;",
             (),
         )?.unwrap();
-        if !engine_version.starts_with("3.") {
+        if engine_version.starts_with("2.") {
             return Ok(());
         }
 
