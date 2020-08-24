@@ -198,7 +198,7 @@ jobs:
         if: matrix.plataform != 'macos' || matrix.build != 'linking'
         with:
           command: test
-          args: --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
+          args: --no-default-features --features '${{ matrix.features }}' --workspace -- --test-threads 1
 
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
@@ -208,7 +208,7 @@ jobs:
           version: "latest"
           run-types: "AllTargets"
           out-type: "Lcov"
-          args: -v --line --count --branch --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
+          args: -v --line --count --branch --no-default-features --features '${{ matrix.features }}' --workspace -- --test-threads 1
 
       - name: Coveralls Parallel
         uses: coverallsapp/github-action@master
@@ -275,35 +275,6 @@ jobs:
         with:
           command: test
           args: --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
-
-  rsfbclient-rust:
-    name: rsfbclient-rust tests
-    needs: linting
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v2
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: default
-          toolchain: stable
-          default: true
-
-      - name: Run cargo test for rsfbclient-rust crate
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -p rsfbclient-rust
-
-      - name: Run cargo-tarpaulin for rsfbclient-rust crate
-        uses: actions-rs/tarpaulin@v0.1
-        with:
-          version: "latest"
-          run-types: "AllTargets"
-          out-type: "Lcov"
-          args: -v --line --count --branch -p rsfbclient-rust
 
   security:
     name: security
