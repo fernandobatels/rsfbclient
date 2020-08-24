@@ -26,6 +26,8 @@ pub enum SqlType {
     BlobText,
     /// Coerces to Blob sub_type 0
     BlobBinary,
+    /// Coerces to boolean. Fb >= 3
+    Boolean,
 }
 
 #[derive(Debug)]
@@ -52,6 +54,16 @@ impl ColumnBuffer {
         var.sqlind = &mut *nullind;
 
         let (kind, mut buffer) = match sqltype as u32 {
+            ibase::SQL_BOOLEAN => {
+                var.sqllen = mem::size_of::<i8>() as i16;
+
+                let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
+
+                var.sqltype = ibase::SQL_BOOLEAN as i16 + 1;
+
+                (Boolean, buffer)
+            }
+
             // BLOB sql_type text are considered a normal text on read
             ibase::SQL_BLOB if (sqlsubtype == 0 || sqlsubtype == 1) => {
                 let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
@@ -148,10 +160,22 @@ impl ColumnBuffer {
             BlobText => ColumnType::Text(blobtext_to_string(&self.buffer, db, tr, ibase)?),
 
             BlobBinary => ColumnType::Binary(blobbinary_to_vec(&self.buffer, db, tr, ibase)?),
+
+            Boolean => ColumnType::Boolean(boolean_from_buffer(&self.buffer)?),
         };
 
         Ok(Column(Some(col_type)))
     }
+}
+
+/// Interprets a boolean value from a buffer
+fn boolean_from_buffer(buffer: &[u8]) -> Result<bool, FbError> {
+    let len = mem::size_of::<i8>();
+    if buffer.len() < len {
+        return err_buffer_len(len, buffer.len(), "bool");
+    }
+
+    Ok(i8::from_ne_bytes(buffer.try_into().unwrap()) != 0)
 }
 
 /// Converts a binary blob to a vec<u8>

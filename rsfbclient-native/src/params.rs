@@ -129,6 +129,7 @@ impl ParamBuffer {
                 vec![]
             }
             Param::Binary(bin) => binary_to_blob(bin, db, tr, ibase)?,
+            Param::Boolean(bo) => (bo as i8).to_ne_bytes().to_vec(),
         };
 
         let mut nullind = Box::new(null);

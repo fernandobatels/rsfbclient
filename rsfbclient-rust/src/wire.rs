@@ -584,6 +584,22 @@ pub fn parse_fetch_response(
                 }
             }
 
+            ibase::SQL_BOOLEAN => {
+                if resp.remaining() < 4 {
+                    return err_invalid_response();
+                }
+                let b = resp.get_u8() == 1;
+                resp.advance(3); // Pad to 4 bytes
+
+                let null = read_null(resp, col_index)?;
+
+                if null {
+                    data.push(ParsedColumn::Complete(Column(None)))
+                } else {
+                    data.push(ParsedColumn::Complete(Column(Some(ColumnType::Boolean(b)))))
+                }
+            }
+
             sqltype => {
                 return Err(format!(
                     "Conversion from sql type {} (subtype {}) not implemented",

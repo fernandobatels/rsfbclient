@@ -98,6 +98,12 @@ pub fn params_to_blr(
                 values.put_u32(ts.timestamp_time);
             }
 
+            Param::Boolean(b) => {
+                blr.put_u8(consts::blr::BOOL);
+
+                values.put_slice(if *b { &[1, 0, 0, 0] } else { &[0, 0, 0, 0] });
+            }
+
             Param::Null => {
                 // Represent as empty text
                 blr.put_u8(consts::blr::TEXT);

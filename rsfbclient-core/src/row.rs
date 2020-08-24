@@ -58,6 +58,9 @@ pub enum ColumnType {
     Timestamp(ibase::ISC_TIMESTAMP),
 
     Binary(Vec<u8>),
+
+    /// Only works in fb >= 3.0
+    Boolean(bool),
 }
 
 /// Define the conversion from the buffer to a value
@@ -87,6 +90,8 @@ impl ColumnToVal<String> for Column {
             }
 
             Binary(_) => Err("This is a binary column. You cannot use string to access".into()),
+
+            Boolean(bo) => Ok(bo.to_string()),
         }
     }
 }
@@ -141,6 +146,18 @@ impl ColumnToVal<Vec<u8>> for Column {
             Binary(b) => Ok(b),
 
             _ => err_type_conv(col, "Vec<u8>"),
+        }
+    }
+}
+
+impl ColumnToVal<bool> for Column {
+    fn to_val(self) -> Result<bool, FbError> {
+        let col = self.0.ok_or_else(|| err_column_null("bool"))?;
+
+        match col {
+            Boolean(bo) => Ok(bo),
+
+            _ => err_type_conv(col, "bool"),
         }
     }
 }

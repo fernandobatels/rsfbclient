@@ -99,6 +99,10 @@ impl XSqlVar {
                 self.sqltype = ibase::SQL_BLOB as i16 + 1;
             }
 
+            ibase::SQL_BOOLEAN => {
+                self.sqltype = ibase::SQL_BOOLEAN as i16 + 1;
+            }
+
             sqltype => {
                 return Err(format!("Unsupported column type ({})", sqltype).into());
             }
@@ -139,10 +143,9 @@ pub fn xsqlda_to_blr(xsqlda: &[XSqlVar]) -> Result<Bytes, FbError> {
 
             ibase::SQL_TIMESTAMP => blr.put_u8(consts::blr::TIMESTAMP),
 
-            ibase::SQL_BLOB => blr.put_slice(&[
-                consts::blr::QUAD,
-                0, // Subtype
-            ]),
+            ibase::SQL_BLOB => blr.put_slice(&[consts::blr::QUAD, var.sqlsubtype as u8]),
+
+            ibase::SQL_BOOLEAN => blr.put_u8(consts::blr::BOOL),
 
             sqltype => {
                 return Err(format!("Conversion from sql type {} not implemented", sqltype).into());
