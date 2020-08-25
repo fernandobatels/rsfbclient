@@ -132,7 +132,7 @@ impl IntoParam for NaiveTime {
 
 impl ColumnToVal<chrono::NaiveDate> for Column {
     fn to_val(self) -> Result<chrono::NaiveDate, FbError> {
-        let col = self.0.ok_or_else(|| err_column_null("NaiveDate"))?;
+        let col = self.value.ok_or_else(|| err_column_null("NaiveDate"))?;
 
         match col {
             ColumnType::Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts).date()),
@@ -144,7 +144,7 @@ impl ColumnToVal<chrono::NaiveDate> for Column {
 
 impl ColumnToVal<chrono::NaiveTime> for Column {
     fn to_val(self) -> Result<chrono::NaiveTime, FbError> {
-        let col = self.0.ok_or_else(|| err_column_null("NaiveTime"))?;
+        let col = self.value.ok_or_else(|| err_column_null("NaiveTime"))?;
 
         match col {
             ColumnType::Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts).time()),
@@ -156,7 +156,7 @@ impl ColumnToVal<chrono::NaiveTime> for Column {
 
 impl ColumnToVal<chrono::NaiveDateTime> for Column {
     fn to_val(self) -> Result<chrono::NaiveDateTime, FbError> {
-        let col = self.0.ok_or_else(|| err_column_null("NaiveDateTime"))?;
+        let col = self.value.ok_or_else(|| err_column_null("NaiveDateTime"))?;
 
         match col {
             ColumnType::Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts)),
