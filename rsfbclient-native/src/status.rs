@@ -70,7 +70,7 @@ impl Status {
     }
 
     pub fn as_error(&self, ibase: &ibase::IBase) -> FbError {
-        FbError {
+        FbError::Sql {
             code: self.sql_code(ibase),
             msg: self.message(ibase),
         }

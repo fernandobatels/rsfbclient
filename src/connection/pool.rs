@@ -13,7 +13,7 @@ pub struct FirebirdConnectionManager<C: FirebirdClient> {
 
 impl<C> FirebirdConnectionManager<C>
 where
-    C: FirebirdClient + FirebirdClientRemoteAttach<C>,
+    C: FirebirdClient,
 {
     pub fn new(conn_builder: ConnectionBuilder<C>) -> Self {
         Self { conn_builder }
@@ -22,7 +22,7 @@ where
 
 impl<C> r2d2::ManageConnection for FirebirdConnectionManager<C>
 where
-    C: FirebirdClient + 'static + FirebirdClientRemoteAttach<C>,
+    C: FirebirdClient + FirebirdClientRemoteAttach + 'static, // TODO: Allow embedded database
 {
     type Connection = Connection<C>;
     type Error = FbError;

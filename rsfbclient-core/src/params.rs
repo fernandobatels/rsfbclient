@@ -35,6 +35,15 @@ impl Param {
             Boolean(_) => ibase::SQL_BOOLEAN + 1,
         }
     }
+
+    /// Return true if null
+    pub fn is_null(&self) -> bool {
+        if let Self::Null = self {
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// Implemented for types that can be sent as parameters

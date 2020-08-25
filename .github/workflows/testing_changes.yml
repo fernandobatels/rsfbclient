@@ -57,17 +57,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ "ubuntu-20.04", "windows-latest", "macos-latest" ]
+        os: ["ubuntu-20.04", "windows-latest", "macos-latest"]
         firebird: [v3, v2, v4]
-        build: [linking, dynamic_loading]
+        build: [linking, dynamic_loading, pure_rust]
         exclude:
-          - os: "windows-latest" 
+          - os: "windows-latest"
             firebird: v2
-          - os: "windows-latest" 
+          - os: "windows-latest"
             firebird: v4
-          - os: "macos-latest" 
+          - os: "macos-latest"
             firebird: v2
-          - os: "macos-latest" 
+          - os: "macos-latest"
             firebird: v4
         include:
           - os: "ubuntu-20.04"
@@ -86,6 +86,8 @@ jobs:
             features: linking date_time pool
           - build: dynamic_loading
             features: dynamic_loading date_time pool
+          - build: pure_rust
+            features: pure_rust date_time pool
     runs-on: "${{ matrix.os }}"
     needs: linting
     steps:
@@ -196,8 +198,7 @@ jobs:
         if: matrix.plataform != 'macos' || matrix.build != 'linking'
         with:
           command: test
-          args: -vv --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
-          # TODO: args: --features '${{ matrix.features }}'
+          args: --no-default-features --features '${{ matrix.features }}' --workspace -- --test-threads 1
 
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
@@ -207,7 +208,7 @@ jobs:
           version: "latest"
           run-types: "AllTargets"
           out-type: "Lcov"
-          args: -v --line --count --branch --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
+          args: -v --line --count --branch --no-default-features --features '${{ matrix.features }}' --workspace -- --test-threads 1
 
       - name: Coveralls Parallel
         uses: coverallsapp/github-action@master
@@ -245,10 +246,10 @@ jobs:
       matrix:
         build: [linking, dynamic_loading]
         include:
-        - build: linking
-          features: linking date_time pool embedded_tests
-        - build: dynamic_loading
-          features: dynamic_loading date_time pool embedded_tests
+          - build: linking
+            features: linking date_time pool embedded_tests
+          - build: dynamic_loading
+            features: dynamic_loading date_time pool embedded_tests
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -287,5 +288,4 @@ jobs:
         uses: actions-rs/audit-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-
 # end of file

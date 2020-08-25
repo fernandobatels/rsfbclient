@@ -5,8 +5,9 @@
 //!
 
 mk_tests_default! {
-    use crate::{prelude::*, Connection, FbError};
+    use crate::{prelude::*, Connection, FbError, Row};
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+    use rsfbclient_core::ColumnToVal;
     use std::str;
 
     #[test]
@@ -228,6 +229,37 @@ mk_tests_default! {
             .unwrap();
         assert_eq!(i16::MIN, min);
         assert_eq!(i16::MAX, max);
+
+        Ok(())
+    }
+
+    #[test]
+    fn lots_of_columns() -> Result<(), FbError> {
+        let mut conn = connect();
+
+        let vals = -250..250;
+
+        let sql = format!(
+            "select {} from rdb$database",
+            vals.clone().fold(String::new(), |mut acc, v| {
+                if acc.is_empty() {
+                    acc += &format!("{}", v);
+                } else {
+                    acc += &format!(", {}", v);
+                }
+                acc
+            })
+        );
+
+        let resp: Row = conn.query_first(&sql, ())?.expect("No row returned");
+
+        assert_eq!(vals.clone().count(), resp.cols.len());
+
+        for (res, col) in vals.zip(resp.cols) {
+            let col: i64 = col.to_val()?;
+
+            assert_eq!(res, col);
+        }
 
         Ok(())
     }

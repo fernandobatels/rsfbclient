@@ -16,6 +16,7 @@ lru-cache = "0.1.2"
 r2d2 = { version = "0.8.9", optional = true }
 rsfbclient-core = { version = "0.7.0", path = "rsfbclient-core" }
 rsfbclient-native = { version = "0.7.0", path = "rsfbclient-native", optional = true }
+rsfbclient-rust = { version = "0.1.0", path = "rsfbclient-rust", optional = true }
 
 [features]
 default = ["linking", "date_time", "pool"]
@@ -24,6 +25,7 @@ dynamic_loading = ["rsfbclient-native/dynamic_loading"]
 linking = ["rsfbclient-native/linking"]
 embedded_tests = []
 pool = ["r2d2"]
+pure_rust = ["rsfbclient-rust"]
 
 [workspace]
-members = ["rsfbclient-core", "rsfbclient-native"]
+members = ["rsfbclient-core", "rsfbclient-native", "rsfbclient-rust"]

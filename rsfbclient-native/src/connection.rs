@@ -24,12 +24,8 @@ pub enum Args {
     DynamicLoading { lib_path: String },
 }
 
-impl FirebirdClientEmbeddedAttach<NativeFbClient> for NativeFbClient {
-    fn attach_database(
-        &mut self,
-        db_name: &str,
-        user: &str,
-    ) -> Result<<NativeFbClient as FirebirdClient>::DbHandle, FbError> {
+impl FirebirdClientEmbeddedAttach for NativeFbClient {
+    fn attach_database(&mut self, db_name: &str, user: &str) -> Result<Self::DbHandle, FbError> {
         let mut handle = 0;
 
         let dpb = {
@@ -70,7 +66,7 @@ impl FirebirdClientEmbeddedAttach<NativeFbClient> for NativeFbClient {
     }
 }
 
-impl FirebirdClientRemoteAttach<NativeFbClient> for NativeFbClient {
+impl FirebirdClientRemoteAttach for NativeFbClient {
     fn attach_database(
         &mut self,
         host: &str,
@@ -78,7 +74,7 @@ impl FirebirdClientRemoteAttach<NativeFbClient> for NativeFbClient {
         db_name: &str,
         user: &str,
         pass: &str,
-    ) -> Result<<NativeFbClient as FirebirdClient>::DbHandle, FbError> {
+    ) -> Result<Self::DbHandle, FbError> {
         let mut handle = 0;
 
         let dpb = {
@@ -142,10 +138,7 @@ impl FirebirdClient for NativeFbClient {
 
             #[cfg(feature = "dynamic_loading")]
             Args::DynamicLoading { lib_path } => Ok(Self {
-                ibase: IBase::with_client(lib_path).map_err(|e| FbError {
-                    code: -1,
-                    msg: e.to_string(),
-                })?,
+                ibase: IBase::with_client(lib_path).map_err(|e| FbError::from(e.to_string()))?,
                 status: Default::default(),
                 stmt_data_map: Default::default(),
             }),
@@ -340,10 +333,8 @@ impl FirebirdClient for NativeFbClient {
             }
         }
 
-        let stmt_type = StmtType::try_from(stmt_type as u8).map_err(|_| FbError {
-            code: -1,
-            msg: format!("Invalid statement type: {}", stmt_type),
-        })?;
+        let stmt_type = StmtType::try_from(stmt_type as u8)
+            .map_err(|_| FbError::from(format!("Invalid statement type: {}", stmt_type)))?;
 
         // Create the column buffers and set the xsqlda conercions
         let col_buffers = (0..xsqlda.sqld)
@@ -389,6 +380,11 @@ impl FirebirdClient for NativeFbClient {
         mut stmt_handle: Self::StmtHandle,
         params: Vec<Param>,
     ) -> Result<(), FbError> {
+        let _ = self
+            .stmt_data_map
+            .get(&stmt_handle)
+            .ok_or_else(|| FbError::from("Tried to fetch a dropped statement"))?;
+
         let params = Params::new(
             &mut db_handle,
             &mut tr_handle,
@@ -430,10 +426,7 @@ impl FirebirdClient for NativeFbClient {
         let (xsqlda, col_buf) = self
             .stmt_data_map
             .get(&stmt_handle)
-            .ok_or_else(|| FbError {
-                code: -1,
-                msg: "Tried to fetch a dropped statement".into(),
-            })?;
+            .ok_or_else(|| FbError::from("Tried to fetch a dropped statement"))?;
 
         unsafe {
             let fetch_status =

@@ -124,10 +124,7 @@ impl ColumnBuffer {
             }
 
             sqltype => {
-                return Err(FbError {
-                    code: -1,
-                    msg: format!("Unsupported column type ({} {})", sqltype, sqlsubtype),
-                })
+                return Err(format!("Unsupported column type ({} {})", sqltype, sqlsubtype).into())
             }
         };
 
@@ -224,10 +221,9 @@ fn blobtext_to_string(
         |_blob_seg_loaded, _blob_seg_vec, blob_seg| {
             let blob_seg_cstr = unsafe { ffi::CStr::from_ptr(blob_seg) };
 
-            let blob_seg_str = blob_seg_cstr.to_str().map_err(|_| FbError {
-                code: -1,
-                msg: "Found column with an invalid utf-8 string".to_owned(),
-            })?;
+            let blob_seg_str = blob_seg_cstr
+                .to_str()
+                .map_err(|_| FbError::from("Found column with an invalid utf-8 string"))?;
 
             final_string.push_str(blob_seg_str);
 
@@ -315,10 +311,7 @@ fn varchar_to_string(buffer: &[u8]) -> Result<String, FbError> {
 
     str::from_utf8(&buffer[2..(len + 2)])
         .map(|str| str.to_string())
-        .map_err(|_| FbError {
-            code: -1,
-            msg: "Found column with an invalid utf-8 string".to_owned(),
-        })
+        .map_err(|_| "Found column with an invalid utf-8 string".into())
 }
 
 /// Interprets an integer value from a buffer
@@ -358,11 +351,9 @@ pub fn timestamp_from_buffer(buffer: &[u8]) -> Result<ibase::ISC_TIMESTAMP, FbEr
 }
 
 pub fn err_buffer_len<T>(expected: usize, found: usize, type_name: &str) -> Result<T, FbError> {
-    Err(FbError {
-        code: -1,
-        msg: format!(
-            "Invalid buffer size for type {:?} (expected: {}, found: {})",
-            type_name, expected, found
-        ),
-    })
+    Err(format!(
+        "Invalid buffer size for type {:?} (expected: {}, found: {})",
+        type_name, expected, found
+    )
+    .into())
 }

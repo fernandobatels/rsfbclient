@@ -31,10 +31,11 @@ impl Params {
             }
 
             if xsqlda.sqld != xsqlda.sqln {
-                return Err(FbError {
-                    code: -1,
-                    msg: format!("Wrong parameter count, you passed {}, but the sql contains needs {} params", xsqlda.sqln, xsqlda.sqld)
-                });
+                return Err(format!(
+                    "Wrong parameter count, you passed {}, but the sql contains needs {} params",
+                    xsqlda.sqln, xsqlda.sqld
+                )
+                .into());
             }
 
             let mut buffers = vec![];

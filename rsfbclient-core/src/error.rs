@@ -1,36 +1,43 @@
 //! Error type for the connection
 
-use std::fmt::Display;
+use thiserror::Error;
 
 use crate::ColumnType;
 
-#[derive(Debug)]
-pub struct FbError {
-    pub msg: String,
-    pub code: i32,
+#[derive(Debug, Error)]
+pub enum FbError {
+    #[error("sql error {code}: {msg}")]
+    Sql { msg: String, code: i32 },
+
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("error: {0}")]
+    Other(String),
 }
 
-impl Display for FbError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.code, self.msg)
+impl From<String> for FbError {
+    fn from(msg: String) -> Self {
+        Self::Other(msg)
     }
 }
 
-impl std::error::Error for FbError {}
+impl From<&str> for FbError {
+    fn from(msg: &str) -> Self {
+        Self::Other(msg.to_string())
+    }
+}
 
 pub fn err_column_null(type_name: &str) -> FbError {
-    FbError {
-        code: -1,
-        msg: format!(
-            "This is a null value. Use the Option<{}> to safe access this column and avoid errors",
-            type_name
-        ),
-    }
+    FbError::Other(format!(
+        "This is a null value. Use the Option<{}> to safe access this column and avoid errors",
+        type_name
+    ))
 }
 
 pub fn err_type_conv<T>(from: ColumnType, to: &str) -> Result<T, FbError> {
-    Err(FbError {
-        code: -1,
-        msg: format!("Can't convert {:?} column to {}", from, to),
-    })
+    Err(FbError::Other(format!(
+        "Can't convert {:?} column to {}",
+        from, to
+    )))
 }

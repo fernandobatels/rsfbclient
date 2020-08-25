@@ -81,7 +81,6 @@ pub struct StatementFetch<'s, R, C: FirebirdClient> {
     _marker: std::marker::PhantomData<R>,
 }
 
-// TODO: Make it an iterator directly
 impl<'s, R, C> StatementFetch<'s, R, C>
 where
     R: FromRow,
@@ -230,34 +229,8 @@ static TABLE_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU3
 
 #[cfg(test)]
 mk_tests_default! {
-    use crate::{prelude::*, Connection, Row, Transaction};
+    use crate::{prelude::*, Connection, Row};
     use rsfbclient_core::FirebirdClient;
-
-    #[test]
-    fn statements() {
-        let conn1 = connect();
-
-        let conn2 = connect();
-
-        let mut t1c1 = Transaction::new(&conn1).unwrap();
-        let mut t2c2 = Transaction::new(&conn2).unwrap();
-        let mut t3c1 = Transaction::new(&conn1).unwrap();
-
-        println!("T1 {}", t1c1.data.handle);
-        println!("T2 {}", t2c2.data.handle);
-        println!("T3 {}", t3c1.data.handle);
-
-        let mut stmt = t1c1.prepare("SELECT 1 FROM RDB$DATABASE").unwrap();
-
-        stmt.execute(&mut t1c1, ())
-            .expect("Error on execute with t1 from conn1");
-
-        stmt.execute(&mut t2c2, ())
-            .expect_err("Can't use a transaction from conn2 in a statement of the conn1");
-
-        stmt.execute(&mut t3c1, ())
-            .expect("Error on execute with t3 from conn1");
-    }
 
     #[test]
     fn new_api_select() {

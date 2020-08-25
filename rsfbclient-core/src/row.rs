@@ -22,10 +22,7 @@ impl Row {
         if let Some(col) = self.cols.get(idx) {
             col.clone().to_val()
         } else {
-            Err(FbError {
-                code: -1,
-                msg: "This index doesn't exists".to_string(),
-            })
+            Err("This index doesn't exists".into())
         }
     }
 
@@ -88,16 +85,11 @@ impl ColumnToVal<String> for Column {
             Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts).to_string()),
 
             #[cfg(not(feature = "date_time"))]
-            Timestamp(_) => Err(FbError {
-                code: -1,
-                msg: "Enable the `date_time` feature to use Timestamp, Date and Time types"
-                    .to_string(),
-            }),
+            Timestamp(_) => {
+                Err("Enable the `date_time` feature to use Timestamp, Date and Time types".into())
+            }
 
-            Binary(_) => Err(FbError {
-                code: -1,
-                msg: "This is a binary column. You cannot use string to access.".to_string(),
-            }),
+            Binary(_) => Err("This is a binary column. You cannot use string to access".into()),
 
             Boolean(bo) => Ok(bo.to_string()),
         }
@@ -228,10 +220,9 @@ macro_rules! impl_from_row {
                         iter
                             .next()
                             .ok_or_else(|| {
-                                FbError {
-                                    code: -1,
-                                    msg: format!("The sql returned less columns than the {} expected", len),
-                                }
+                                FbError::Other(
+                                    format!("The sql returned less columns than the {} expected", len),
+                                )
                             })?
                     )?,
                 )+ ))

@@ -30,6 +30,14 @@ fn main() -> Result<(), FbError> {
         .pass("masterkey")
         .connect()?;
 
+    #[cfg(feature = "pure_rust")]
+    let mut conn = ConnectionBuilder::pure_rust()
+        .host("localhost")
+        .db_name("examples.fdb")
+        .user("SYSDBA")
+        .pass("masterkey")
+        .connect()?;
+
     conn.with_transaction(|tr| {
         // First alternative (Recommended) (Prepares if needed and executes automatically)
         tr.execute(SQL_INSERT, (94, "Banana"))?;

@@ -1,7 +1,6 @@
 [package]
-name = "rsfbclient-core"
-version = "0.7.0"
-description = "Core of firebird client lib"
+name = "rsfbclient-rust"
+version = "0.1.0"
 authors = ["Luis Fernando Batels <luisfbatels@gmail.com>", "Jairo H Wiethan <jairinhowiethan@gmail.com>"]
 edition = "2018"
 repository = "https://github.com/fernandobatels/rsfbclient"
@@ -10,9 +9,18 @@ categories = ["database"]
 license = "MIT"
 
 [dependencies]
-chrono = { version = "0.4.13", optional = true }
+bytes = "0.5"
+digest = "0.9.0"
+generic-array = "0.14.4"
+hex = "0.4.2"
+lazy_static = "1.4.0"
+num-bigint = "0.3.0"
 num_enum = "0.5.1"
-thiserror = "1.0.20"
+pwhash = "0.3"
+rand = "0.7.3"
+rsfbclient-core = { version = "0.7.0", path = "../rsfbclient-core" }
+sha-1 = "0.9.1"
+sha2 = "0.9.1"
 
 [features]
-date_time = ["chrono"]
+fuzz_testing = []

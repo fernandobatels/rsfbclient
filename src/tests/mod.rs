@@ -95,6 +95,13 @@ macro_rules! mk_tests_default {
                         .connect()
                         .expect("Error on connect the test database")
             }
+
+            #[cfg(feature = "pure_rust")]
+            for pure_rust -> Connection<rsfbclient_rust::RustFbClient> {
+                crate::ConnectionBuilder::pure_rust()
+                        .connect()
+                        .expect("Error on connect the test database")
+            }
         }
     };
 }

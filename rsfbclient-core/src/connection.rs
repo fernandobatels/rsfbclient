@@ -4,16 +4,12 @@ use num_enum::TryFromPrimitive;
 
 use crate::*;
 
-pub trait FirebirdClientEmbeddedAttach<T: FirebirdClient> {
+pub trait FirebirdClientEmbeddedAttach: FirebirdClient {
     /// Connect to a database, returning a database handle
-    fn attach_database(
-        &mut self,
-        db_name: &str,
-        user: &str,
-    ) -> Result<<T as FirebirdClient>::DbHandle, FbError>;
+    fn attach_database(&mut self, db_name: &str, user: &str) -> Result<Self::DbHandle, FbError>;
 }
 
-pub trait FirebirdClientRemoteAttach<T: FirebirdClient> {
+pub trait FirebirdClientRemoteAttach: FirebirdClient {
     /// Connect to a database, returning a database handle
     fn attach_database(
         &mut self,
@@ -22,7 +18,7 @@ pub trait FirebirdClientRemoteAttach<T: FirebirdClient> {
         db_name: &str,
         user: &str,
         pass: &str,
-    ) -> Result<<T as FirebirdClient>::DbHandle, FbError>;
+    ) -> Result<Self::DbHandle, FbError>;
 }
 
 pub trait FirebirdClient: Send {

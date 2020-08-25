@@ -130,9 +130,27 @@ impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
     }
 }
 
+#[cfg(feature = "pure_rust")]
+impl ConnectionBuilder<rsfbclient_rust::RustFbClient> {
+    /// Uses the pure rust implementation of the firebird client
+    pub fn pure_rust() -> Self {
+        Self {
+            host: "localhost".to_string(),
+            port: 3050,
+            db_name: "test.fdb".to_string(),
+            user: "SYSDBA".to_string(),
+            pass: "masterkey".to_string(),
+            dialect: Dialect::D3,
+            stmt_cache_size: 20,
+            cli_args: (),
+            _cli_type: Default::default(),
+        }
+    }
+}
+
 impl<C> ConnectionBuilder<C>
 where
-    C: FirebirdClient + FirebirdClientRemoteAttach<C>,
+    C: FirebirdClient + FirebirdClientRemoteAttach,
 {
     /// Hostname or IP address of the server. Default: localhost
     pub fn host<S: Into<String>>(&mut self, host: S) -> &mut Self {
@@ -184,7 +202,7 @@ where
 
 impl<C> ConnectionBuilderEmbedded<C>
 where
-    C: FirebirdClientEmbeddedAttach<C> + FirebirdClient,
+    C: FirebirdClient + FirebirdClientEmbeddedAttach,
 {
     /// Database name or path. Default: test.fdb
     pub fn db_name<S: Into<String>>(&mut self, db_name: S) -> &mut Self {
@@ -236,7 +254,7 @@ where
 
 impl<C> Connection<C>
 where
-    C: FirebirdClientRemoteAttach<C> + FirebirdClient,
+    C: FirebirdClient + FirebirdClientRemoteAttach,
 {
     /// Open a new connection to the database
     fn open_remote(builder: &ConnectionBuilder<C>, mut cli: C) -> Result<Connection<C>, FbError> {
@@ -261,7 +279,7 @@ where
 
 impl<C> Connection<C>
 where
-    C: FirebirdClientEmbeddedAttach<C> + FirebirdClient,
+    C: FirebirdClient + FirebirdClientEmbeddedAttach,
 {
     /// Open a new connection to the database
     fn open_embedded(

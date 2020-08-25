@@ -19,6 +19,9 @@ fn main() {
         #[cfg(feature = "dynamic_loading")]
         let mut builder = ConnectionBuilder::with_client("./fbclient.lib");
 
+        #[cfg(feature = "pure_rust")]
+        let mut builder = ConnectionBuilder::pure_rust();
+
         builder
             .host("localhost")
             .db_name("test.fdb")
