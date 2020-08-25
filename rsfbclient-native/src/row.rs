@@ -43,7 +43,7 @@ pub struct ColumnBuffer {
     nullind: Box<i16>,
 
     /// Column name
-    col_name: String
+    col_name: String,
 }
 
 impl ColumnBuffer {
@@ -134,9 +134,7 @@ impl ColumnBuffer {
         var.sqldata = buffer.as_mut_ptr() as _;
 
         let col_name = {
-            let bname = var.aliasname.iter()
-                .map(|b| *b as u8)
-                .collect::<Vec<u8>>();
+            let bname = var.aliasname.iter().map(|b| *b as u8).collect::<Vec<u8>>();
 
             str::from_utf8(&bname)
                 .map(|str| str.to_string())
@@ -147,7 +145,7 @@ impl ColumnBuffer {
             kind,
             buffer,
             nullind,
-            col_name
+            col_name,
         })
     }
 
@@ -159,10 +157,7 @@ impl ColumnBuffer {
         ibase: &IBase,
     ) -> Result<Column, FbError> {
         if *self.nullind != 0 {
-            return Ok(Column {
-                value: None,
-                name: String::new()
-            });
+            return Ok(Column::new(self.col_name.clone(), None));
         }
 
         let col_type = match self.kind {
@@ -181,10 +176,7 @@ impl ColumnBuffer {
             Boolean => ColumnType::Boolean(boolean_from_buffer(&self.buffer)?),
         };
 
-        Ok(Column {
-            value: Some(col_type),
-            name: self.col_name.clone()
-        })
+        Ok(Column::new(self.col_name.clone(), Some(col_type)))
     }
 }
 

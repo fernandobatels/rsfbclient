@@ -38,7 +38,16 @@ impl Row {
 #[derive(Debug, Clone)]
 pub struct Column {
     pub value: Option<ColumnType>,
-    pub name: String
+    pub name: String,
+}
+
+impl Column {
+    pub fn new(name: String, value: Option<ColumnType>) -> Self {
+        Column {
+            name: name,
+            value: value,
+        }
+    }
 }
 
 impl Deref for Column {
