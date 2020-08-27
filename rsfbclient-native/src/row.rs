@@ -134,10 +134,13 @@ impl ColumnBuffer {
         var.sqldata = buffer.as_mut_ptr() as _;
 
         let col_name = {
-            let bname = var.aliasname.iter().map(|b| *b as u8).collect::<Vec<u8>>();
+            let len = usize::min(var.aliasname_length as usize, var.aliasname.len());
+            let bname = var.aliasname[..len]
+                .iter()
+                .map(|b| *b as u8)
+                .collect::<Vec<u8>>();
 
-            str::from_utf8(&bname)
-                .map(|str| str.to_string())
+            String::from_utf8(bname)
                 .map_err(|_| FbError::from("Found a column name with an invalid utf-8 string"))
         }?;
 

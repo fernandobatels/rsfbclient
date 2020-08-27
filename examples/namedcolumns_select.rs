@@ -44,7 +44,7 @@ fn main() -> Result<(), FbError> {
     for row in rows {
         println!("------------------------------------");
 
-        for col in row.get_all::<Row>()?.cols {
+        for col in row.cols {
             println!("{}: {:?}", col.name, col.value);
         }
     }

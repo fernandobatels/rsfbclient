@@ -43,10 +43,7 @@ pub struct Column {
 
 impl Column {
     pub fn new(name: String, value: Option<ColumnType>) -> Self {
-        Column {
-            name: name,
-            value: value,
-        }
+        Column { name, value }
     }
 }
 
