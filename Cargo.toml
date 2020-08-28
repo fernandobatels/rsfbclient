@@ -18,6 +18,9 @@ rsfbclient-core = { version = "0.7.0", path = "rsfbclient-core" }
 rsfbclient-native = { version = "0.7.0", path = "rsfbclient-native", optional = true }
 rsfbclient-rust = { version = "0.1.0", path = "rsfbclient-rust", optional = true }
 
+[dev-dependencies]
+rand = "0.7.3"
+
 [features]
 default = ["linking", "date_time", "pool"]
 date_time = ["rsfbclient-core/date_time", "chrono"]
@@ -29,3 +32,4 @@ pure_rust = ["rsfbclient-rust"]
 
 [workspace]
 members = ["rsfbclient-core", "rsfbclient-native", "rsfbclient-rust"]
+
