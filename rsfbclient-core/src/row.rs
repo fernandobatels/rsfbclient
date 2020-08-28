@@ -36,13 +36,22 @@ impl Row {
 }
 
 #[derive(Debug, Clone)]
-pub struct Column(pub Option<ColumnType>);
+pub struct Column {
+    pub value: Option<ColumnType>,
+    pub name: String,
+}
+
+impl Column {
+    pub fn new(name: String, value: Option<ColumnType>) -> Self {
+        Column { name, value }
+    }
+}
 
 impl Deref for Column {
     type Target = Option<ColumnType>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.value
     }
 }
 
@@ -72,7 +81,7 @@ pub trait ColumnToVal<T> {
 
 impl ColumnToVal<String> for Column {
     fn to_val(self) -> Result<String, FbError> {
-        let col = self.0.ok_or_else(|| err_column_null("String"))?;
+        let col = self.value.ok_or_else(|| err_column_null("String"))?;
 
         match col {
             Text(t) => Ok(t),
@@ -98,7 +107,7 @@ impl ColumnToVal<String> for Column {
 
 impl ColumnToVal<i64> for Column {
     fn to_val(self) -> Result<i64, FbError> {
-        let col = self.0.ok_or_else(|| err_column_null("i64"))?;
+        let col = self.value.ok_or_else(|| err_column_null("i64"))?;
 
         match col {
             Integer(i) => Ok(i),
@@ -122,7 +131,7 @@ impl ColumnToVal<i16> for Column {
 
 impl ColumnToVal<f64> for Column {
     fn to_val(self) -> Result<f64, FbError> {
-        let col = self.0.ok_or_else(|| err_column_null("f64"))?;
+        let col = self.value.ok_or_else(|| err_column_null("f64"))?;
 
         match col {
             Float(f) => Ok(f),
@@ -140,7 +149,7 @@ impl ColumnToVal<f32> for Column {
 
 impl ColumnToVal<Vec<u8>> for Column {
     fn to_val(self) -> Result<Vec<u8>, FbError> {
-        let col = self.0.ok_or_else(|| err_column_null("Vec<u8>"))?;
+        let col = self.value.ok_or_else(|| err_column_null("Vec<u8>"))?;
 
         match col {
             Binary(b) => Ok(b),
@@ -152,7 +161,7 @@ impl ColumnToVal<Vec<u8>> for Column {
 
 impl ColumnToVal<bool> for Column {
     fn to_val(self) -> Result<bool, FbError> {
-        let col = self.0.ok_or_else(|| err_column_null("bool"))?;
+        let col = self.value.ok_or_else(|| err_column_null("bool"))?;
 
         match col {
             Boolean(bo) => Ok(bo),

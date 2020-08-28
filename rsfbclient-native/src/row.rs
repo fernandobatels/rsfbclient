@@ -41,6 +41,9 @@ pub struct ColumnBuffer {
 
     /// Null indicator
     nullind: Box<i16>,
+
+    /// Column name
+    col_name: String,
 }
 
 impl ColumnBuffer {
@@ -130,10 +133,22 @@ impl ColumnBuffer {
 
         var.sqldata = buffer.as_mut_ptr() as _;
 
+        let col_name = {
+            let len = usize::min(var.aliasname_length as usize, var.aliasname.len());
+            let bname = var.aliasname[..len]
+                .iter()
+                .map(|b| *b as u8)
+                .collect::<Vec<u8>>();
+
+            String::from_utf8(bname)
+                .map_err(|_| FbError::from("Found a column name with an invalid utf-8 string"))
+        }?;
+
         Ok(ColumnBuffer {
             kind,
             buffer,
             nullind,
+            col_name,
         })
     }
 
@@ -145,7 +160,7 @@ impl ColumnBuffer {
         ibase: &IBase,
     ) -> Result<Column, FbError> {
         if *self.nullind != 0 {
-            return Ok(Column(None));
+            return Ok(Column::new(self.col_name.clone(), None));
         }
 
         let col_type = match self.kind {
@@ -164,7 +179,7 @@ impl ColumnBuffer {
             Boolean => ColumnType::Boolean(boolean_from_buffer(&self.buffer)?),
         };
 
-        Ok(Column(Some(col_type)))
+        Ok(Column::new(self.col_name.clone(), Some(col_type)))
     }
 }
 

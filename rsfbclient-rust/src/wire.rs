@@ -3,7 +3,7 @@
 #![allow(non_upper_case_globals)]
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use std::convert::TryFrom;
+use std::{convert::TryFrom, str};
 
 use crate::{
     client::{BlobId, FirebirdWireConnection},
@@ -493,7 +493,10 @@ pub fn parse_fetch_response(
     for (col_index, var) in xsqlda.iter().enumerate() {
         if version >= ProtocolVersion::V13 && read_null(resp, col_index)? {
             // There is no data in protocol 13 if null, so just continue
-            data.push(ParsedColumn::Complete(Column(None)));
+            data.push(ParsedColumn::Complete(Column::new(
+                var.alias_name.clone(),
+                None,
+            )));
             continue;
         }
 
@@ -506,13 +509,17 @@ pub fn parse_fetch_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(ParsedColumn::Complete(Column(None)))
+                    data.push(ParsedColumn::Complete(Column::new(
+                        var.alias_name.clone(),
+                        None,
+                    )))
                 } else {
-                    data.push(ParsedColumn::Complete(Column(Some(ColumnType::Text(
-                        String::from_utf8(d.to_vec()).map_err(|_| {
-                            FbError::from("Invalid UTF8 string received from server")
-                        })?,
-                    )))))
+                    data.push(ParsedColumn::Complete(Column::new(
+                        var.alias_name.clone(),
+                        Some(ColumnType::Text(String::from_utf8(d.to_vec()).map_err(
+                            |_| FbError::from("Invalid UTF8 string received from server"),
+                        )?)),
+                    )))
                 }
             }
 
@@ -525,9 +532,15 @@ pub fn parse_fetch_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(ParsedColumn::Complete(Column(None)))
+                    data.push(ParsedColumn::Complete(Column::new(
+                        var.alias_name.clone(),
+                        None,
+                    )))
                 } else {
-                    data.push(ParsedColumn::Complete(Column(Some(ColumnType::Integer(i)))))
+                    data.push(ParsedColumn::Complete(Column::new(
+                        var.alias_name.clone(),
+                        Some(ColumnType::Integer(i)),
+                    )))
                 }
             }
 
@@ -540,9 +553,15 @@ pub fn parse_fetch_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(ParsedColumn::Complete(Column(None)))
+                    data.push(ParsedColumn::Complete(Column::new(
+                        var.alias_name.clone(),
+                        None,
+                    )))
                 } else {
-                    data.push(ParsedColumn::Complete(Column(Some(ColumnType::Float(f)))))
+                    data.push(ParsedColumn::Complete(Column::new(
+                        var.alias_name.clone(),
+                        Some(ColumnType::Float(f)),
+                    )))
                 }
             }
 
@@ -558,11 +577,15 @@ pub fn parse_fetch_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(ParsedColumn::Complete(Column(None)))
+                    data.push(ParsedColumn::Complete(Column::new(
+                        var.alias_name.clone(),
+                        None,
+                    )))
                 } else {
-                    data.push(ParsedColumn::Complete(Column(Some(ColumnType::Timestamp(
-                        ts,
-                    )))))
+                    data.push(ParsedColumn::Complete(Column::new(
+                        var.alias_name.clone(),
+                        Some(ColumnType::Timestamp(ts)),
+                    )))
                 }
             }
 
@@ -575,11 +598,15 @@ pub fn parse_fetch_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(ParsedColumn::Complete(Column(None)))
+                    data.push(ParsedColumn::Complete(Column::new(
+                        var.alias_name.clone(),
+                        None,
+                    )))
                 } else {
                     data.push(ParsedColumn::Blob {
                         binary: var.sqlsubtype == 0,
                         id: BlobId(id),
+                        col_name: var.alias_name.clone(),
                     })
                 }
             }
@@ -594,9 +621,15 @@ pub fn parse_fetch_response(
                 let null = read_null(resp, col_index)?;
 
                 if null {
-                    data.push(ParsedColumn::Complete(Column(None)))
+                    data.push(ParsedColumn::Complete(Column::new(
+                        var.alias_name.clone(),
+                        None,
+                    )))
                 } else {
-                    data.push(ParsedColumn::Complete(Column(Some(ColumnType::Boolean(b)))))
+                    data.push(ParsedColumn::Complete(Column::new(
+                        var.alias_name.clone(),
+                        Some(ColumnType::Boolean(b)),
+                    )))
                 }
             }
 
@@ -623,6 +656,8 @@ pub enum ParsedColumn {
         binary: bool,
         /// Blob id
         id: BlobId,
+        /// Column name
+        col_name: String,
     },
 }
 
@@ -635,7 +670,11 @@ impl ParsedColumn {
     ) -> Result<Column, FbError> {
         Ok(match self {
             ParsedColumn::Complete(c) => c,
-            ParsedColumn::Blob { binary, id } => {
+            ParsedColumn::Blob {
+                binary,
+                id,
+                col_name,
+            } => {
                 let mut data = BytesMut::new();
 
                 let blob_handle = conn.open_blob(tr_handle, id)?;
@@ -652,13 +691,16 @@ impl ParsedColumn {
 
                 conn.close_blob(blob_handle)?;
 
-                Column(Some(if binary {
-                    ColumnType::Binary(data.freeze().to_vec())
-                } else {
-                    let text = String::from_utf8(data.freeze().to_vec())
-                        .map_err(|_| FbError::from("Invalid utf8 data in blob column"))?;
-                    ColumnType::Text(text)
-                }))
+                Column::new(
+                    col_name,
+                    Some(if binary {
+                        ColumnType::Binary(data.freeze().to_vec())
+                    } else {
+                        let text = String::from_utf8(data.freeze().to_vec())
+                            .map_err(|_| FbError::from("Invalid utf8 data in blob column"))?;
+                        ColumnType::Text(text)
+                    }),
+                )
             }
         })
     }
