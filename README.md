@@ -22,7 +22,7 @@ Binds to official firebird client lib
 - https://firebirdsql.org/manual/ufb-cs-clientlib.html
 - http://www.ibase.ru/files/interbase/ib6/ApiGuide.pdf
 - http://www.firebirdsql.org/pdfrefdocs/Firebird-2.1-ErrorCodes.pdf
-- https://firebirdsql.org/file/documentation/reference_manuals/fblangref25-en/html/fblangref25-appx02-sqlstates.html
+- https://www.firebirdsql.org/file/documentation/html/en/refdocs/fblangref25/firebird-25-language-reference.html#fblangref25-appx02-sqlstates
 
 ## Contributions 
 
