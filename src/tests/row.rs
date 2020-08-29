@@ -96,7 +96,7 @@ mk_tests_default! {
             .collect();
 
         conn.execute("DROP TABLE RBIGBLOBTEXT", ()).ok();
-        conn.execute("CREATE TABLE RBIGBLOBTEXT (content blob sub_type 1)", ())?;
+        conn.execute("CREATE TABLE RBIGBLOBTEXT (content blob sub_type 1 character set utf8)", ())?;
 
         conn.execute("insert into rbigblobtext (content) values (?)", (&rstr,))?;
 
