@@ -200,17 +200,7 @@ fn blobbinary_to_vec(
     tr: &mut ibase::isc_tr_handle,
     ibase: &IBase,
 ) -> Result<Vec<u8>, FbError> {
-    let mut final_bin = vec![];
-
-    read_blob(buffer, db, tr, ibase, |blob_seg_loaded, blob_seg_vec| {
-        for byte in &blob_seg_vec[0..(blob_seg_loaded as usize)] {
-            final_bin.push(*byte as u8);
-        }
-
-        Ok(())
-    })?;
-
-    Ok(final_bin)
+    read_blob(buffer, db, tr, ibase)
 }
 
 /// Converts a text blob to a string
@@ -220,33 +210,23 @@ fn blobtext_to_string(
     tr: &mut ibase::isc_tr_handle,
     ibase: &IBase,
 ) -> Result<String, FbError> {
-    let mut blob_bytes = vec![];
-
-    read_blob(buffer, db, tr, ibase, |blob_seg_loaded, blob_seg_vec| {
-        for byte in &blob_seg_vec[0..(blob_seg_loaded as usize)] {
-            blob_bytes.push(*byte as u8);
-        }
-
-        Ok(())
-    })?;
+    let blob_bytes = read_blob(buffer, db, tr, ibase)?;
 
     Ok(String::from_utf8(blob_bytes)
         .map_err(|_| FbError::from("Found column with an invalid utf-8 string"))?)
 }
 
 /// Read the blob type
-fn read_blob<F>(
+fn read_blob(
     buffer: &[u8],
     db: &mut ibase::isc_db_handle,
     tr: &mut ibase::isc_tr_handle,
     ibase: &IBase,
-    mut on_read_segment: F,
-) -> Result<(), FbError>
-where
-    F: FnMut(u16, Vec<i8>) -> Result<(), FbError>,
-{
+) -> Result<Vec<u8>, FbError> {
     let mut status = Status::default();
     let mut handle = 0;
+
+    let mut blob_bytes = Vec::with_capacity(256);
 
     let len = mem::size_of::<ibase::GDS_QUAD_t>();
     assert_eq!(len, 8);
@@ -272,8 +252,7 @@ where
 
     while blob_stat == 0 || status[1] == (ibase::isc_segment as isize) {
         let mut blob_seg_loaded = 0 as u16;
-        let mut blob_seg_slice = [0; 255];
-        let blob_seg = blob_seg_slice.as_mut_ptr();
+        let mut blob_seg_slice = [0_u8; 255];
 
         blob_stat = unsafe {
             ibase.isc_get_segment()(
@@ -281,11 +260,11 @@ where
                 &mut handle,
                 &mut blob_seg_loaded,
                 blob_seg_slice.len() as u16,
-                blob_seg,
+                blob_seg_slice.as_mut_ptr() as *mut i8,
             )
         };
 
-        on_read_segment(blob_seg_loaded, blob_seg_slice.to_vec())?;
+        blob_bytes.extend_from_slice(&blob_seg_slice[..blob_seg_loaded as usize]);
     }
 
     unsafe {
@@ -294,7 +273,7 @@ where
         }
     }
 
-    Ok(())
+    Ok(blob_bytes)
 }
 
 /// Converts a varchar in a buffer to a String
