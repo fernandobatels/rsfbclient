@@ -260,7 +260,7 @@ fn read_blob(
                 &mut handle,
                 &mut blob_seg_loaded,
                 blob_seg_slice.len() as u16,
-                blob_seg_slice.as_mut_ptr() as *mut i8,
+                blob_seg_slice.as_mut_ptr() as *mut std::os::raw::c_char,
             )
         };
 
