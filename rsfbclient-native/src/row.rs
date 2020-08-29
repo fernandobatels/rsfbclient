@@ -5,7 +5,7 @@
 //!
 
 use rsfbclient_core::{Column, ColumnType, FbError};
-use std::{convert::TryInto, ffi, mem, result::Result, str};
+use std::{convert::TryInto, mem, result::Result, str};
 
 use crate::{ibase, ibase::IBase, status::Status};
 
@@ -202,19 +202,13 @@ fn blobbinary_to_vec(
 ) -> Result<Vec<u8>, FbError> {
     let mut final_bin = vec![];
 
-    read_blob(
-        buffer,
-        db,
-        tr,
-        ibase,
-        |blob_seg_loaded, blob_seg_vec, _blob_seg| {
-            for byte in &blob_seg_vec[0..(blob_seg_loaded as usize)] {
-                final_bin.push(*byte as u8);
-            }
+    read_blob(buffer, db, tr, ibase, |blob_seg_loaded, blob_seg_vec| {
+        for byte in &blob_seg_vec[0..(blob_seg_loaded as usize)] {
+            final_bin.push(*byte as u8);
+        }
 
-            Ok(())
-        },
-    )?;
+        Ok(())
+    })?;
 
     Ok(final_bin)
 }
@@ -226,27 +220,18 @@ fn blobtext_to_string(
     tr: &mut ibase::isc_tr_handle,
     ibase: &IBase,
 ) -> Result<String, FbError> {
-    let mut final_string = String::new();
+    let mut blob_bytes = vec![];
 
-    read_blob(
-        buffer,
-        db,
-        tr,
-        ibase,
-        |_blob_seg_loaded, _blob_seg_vec, blob_seg| {
-            let blob_seg_cstr = unsafe { ffi::CStr::from_ptr(blob_seg) };
+    read_blob(buffer, db, tr, ibase, |blob_seg_loaded, blob_seg_vec| {
+        for byte in &blob_seg_vec[0..(blob_seg_loaded as usize)] {
+            blob_bytes.push(*byte as u8);
+        }
 
-            let blob_seg_str = blob_seg_cstr
-                .to_str()
-                .map_err(|_| FbError::from("Found column with an invalid utf-8 string"))?;
+        Ok(())
+    })?;
 
-            final_string.push_str(blob_seg_str);
-
-            Ok(())
-        },
-    )?;
-
-    Ok(final_string)
+    Ok(String::from_utf8(blob_bytes)
+        .map_err(|_| FbError::from("Found column with an invalid utf-8 string"))?)
 }
 
 /// Read the blob type
@@ -258,7 +243,7 @@ fn read_blob<F>(
     mut on_read_segment: F,
 ) -> Result<(), FbError>
 where
-    F: FnMut(u16, Vec<i8>, *mut i8) -> Result<(), FbError>,
+    F: FnMut(u16, Vec<i8>) -> Result<(), FbError>,
 {
     let mut status = Status::default();
     let mut handle = 0;
@@ -300,7 +285,7 @@ where
             )
         };
 
-        on_read_segment(blob_seg_loaded, blob_seg_slice.to_vec(), blob_seg)?;
+        on_read_segment(blob_seg_loaded, blob_seg_slice.to_vec())?;
     }
 
     unsafe {
