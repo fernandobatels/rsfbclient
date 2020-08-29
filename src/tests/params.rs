@@ -7,6 +7,7 @@
 mk_tests_default! {
     use crate::{prelude::*, Connection, FbError, Param};
     use chrono::{NaiveDate, NaiveTime};
+    use rand::{distributions::Standard, Rng};
 
     #[test]
     fn boolean() -> Result<(), FbError> {
@@ -43,7 +44,7 @@ mk_tests_default! {
         conn.execute("DROP TABLE PBLOBBIN", ()).ok();
         conn.execute("CREATE TABLE PBLOBBIN (content blob sub_type 0)", ())?;
 
-        let bin: Vec<u8> = vec![97, 98, 99, 32, 195, 164, 98, 195, 167, 32, 49, 50, 51]; //abc äbç 123
+        let bin: Vec<u8> = Vec::from("abc äbç 123".as_bytes());
         conn.execute("insert into pblobbin (content) values (?)", (bin,))?;
         let val_exists: Option<(i16,)> = conn.query_first("select 1 from pblobbin where content = x'61626320c3a462c3a720313233'", ())?;
         assert!(val_exists.is_some());
@@ -61,6 +62,40 @@ mk_tests_default! {
         conn.execute("insert into pblobtext (content) values (?)", ("abc äbç 123",))?;
         let val_exists: Option<(i16,)> = conn.query_first("select 1 from pblobtext where content = 'abc äbç 123'", ())?;
         assert!(val_exists.is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn big_blob_binary() -> Result<(), FbError> {
+        let mut conn = connect();
+
+        let rstr: Vec<u8> = rand::thread_rng()
+            .sample_iter::<u8, _>(Standard)
+            .take(10000)
+            .collect();
+
+        conn.execute("DROP TABLE PBIGBLOBBIN", ()).ok();
+        conn.execute("CREATE TABLE PBIGBLOBBIN (content blob sub_type 0)", ())?;
+
+        conn.execute("insert into pbigblobbin (content) values (?)", (rstr,))?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn big_blob_text() -> Result<(), FbError> {
+        let mut conn = connect();
+
+        let rstr: String = rand::thread_rng()
+            .sample_iter::<char, _>(Standard)
+            .take(10000)
+            .collect();
+
+        conn.execute("DROP TABLE PBIGBLOBTEXT", ()).ok();
+        conn.execute("CREATE TABLE PBIGBLOBTEXT (content blob sub_type 1)", ())?;
+
+        conn.execute("insert into pbigblobtext (content) values (?)", (rstr,))?;
 
         Ok(())
     }

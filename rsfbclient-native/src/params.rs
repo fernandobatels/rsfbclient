@@ -1,5 +1,5 @@
 use crate::{ibase, ibase::IBase, status::Status, xsqlda::XSqlDa};
-use rsfbclient_core::{FbError, Param};
+use rsfbclient_core::{FbError, Param, MAX_TEXT_LENGTH};
 
 /// Stores the data needed to send the parameters
 pub struct Params {
@@ -112,11 +112,19 @@ impl ParamBuffer {
     ) -> Result<Self, FbError> {
         let mut null = 0;
 
-        var.sqltype = info.sql_type() as i16;
+        let (sqltype, sqlsubtype) = info.sql_type_and_subtype();
+        var.sqltype = sqltype as i16;
+        var.sqlsubtype = sqlsubtype as i16;
         var.sqlscale = 0;
 
         let mut buffer = match info {
-            Param::Text(s) => s.into_bytes(),
+            Param::Text(s) => {
+                if s.len() > MAX_TEXT_LENGTH {
+                    binary_to_blob(s.into_bytes(), db, tr, ibase)?
+                } else {
+                    s.into_bytes()
+                }
+            }
             Param::Integer(i) => i.to_ne_bytes().to_vec(),
             Param::Floating(f) => f.to_ne_bytes().to_vec(),
             Param::Timestamp(ts) => [
@@ -130,7 +138,8 @@ impl ParamBuffer {
             }
             Param::Binary(bin) => binary_to_blob(bin, db, tr, ibase)?,
             Param::Boolean(bo) => (bo as i8).to_ne_bytes().to_vec(),
-        };
+        }
+        .into_boxed_slice();
 
         let mut nullind = Box::new(null);
         var.sqlind = &mut *nullind;
@@ -139,7 +148,7 @@ impl ParamBuffer {
         var.sqllen = buffer.len() as i16;
 
         Ok(ParamBuffer {
-            _buffer: buffer.into_boxed_slice(),
+            _buffer: buffer,
             _nullind: nullind,
         })
     }

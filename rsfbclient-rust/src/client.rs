@@ -598,19 +598,24 @@ impl FirebirdWireConnection {
         self.socket.write_all(&get_segment(blob_handle.0))?;
         self.socket.flush()?;
 
+        let mut blob_data = BytesMut::with_capacity(256);
+
         let resp = self.read_response()?;
         let mut data = resp.data;
 
-        if data.remaining() < 2 {
-            return err_invalid_response();
+        loop {
+            if data.remaining() < 2 {
+                break;
+            }
+            let len = data.get_u16_le() as usize;
+            if data.remaining() < len {
+                return err_invalid_response();
+            }
+            blob_data.put_slice(&data[..len]);
+            data.advance(len);
         }
-        let len = data.get_u16_le();
-        if data.remaining() < len as usize {
-            return err_invalid_response();
-        }
-        data.truncate(len as usize);
 
-        Ok((data, resp.handle == 2))
+        Ok((blob_data.freeze(), resp.handle == 2))
     }
 
     /// Closes a blob handle

@@ -4,6 +4,9 @@ use crate::ibase;
 
 use Param::*;
 
+/// Max length that can be sent without creating a BLOB
+pub const MAX_TEXT_LENGTH: usize = 32767;
+
 /// Sql parameter data
 pub enum Param {
     Text(String),
@@ -24,15 +27,21 @@ pub enum Param {
 
 impl Param {
     /// Return the sql type to coerce the data
-    pub fn sql_type(&self) -> u32 {
+    pub fn sql_type_and_subtype(&self) -> (u32, u32) {
         match self {
-            Text(_) => ibase::SQL_TEXT + 1,
-            Integer(_) => ibase::SQL_INT64 + 1,
-            Floating(_) => ibase::SQL_DOUBLE + 1,
-            Timestamp(_) => ibase::SQL_TIMESTAMP + 1,
-            Null => ibase::SQL_TEXT + 1,
-            Binary(_) => ibase::SQL_BLOB + 1,
-            Boolean(_) => ibase::SQL_BOOLEAN + 1,
+            Text(s) => {
+                if s.len() > MAX_TEXT_LENGTH {
+                    (ibase::SQL_BLOB + 1, 1)
+                } else {
+                    (ibase::SQL_TEXT + 1, 0)
+                }
+            }
+            Integer(_) => (ibase::SQL_INT64 + 1, 0),
+            Floating(_) => (ibase::SQL_DOUBLE + 1, 0),
+            Timestamp(_) => (ibase::SQL_TIMESTAMP + 1, 0),
+            Null => (ibase::SQL_TEXT + 1, 0),
+            Binary(_) => (ibase::SQL_BLOB + 1, 0),
+            Boolean(_) => (ibase::SQL_BOOLEAN + 1, 0),
         }
     }
 

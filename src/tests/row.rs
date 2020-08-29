@@ -9,6 +9,7 @@ mk_tests_default! {
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
     use rsfbclient_core::ColumnToVal;
     use std::str;
+    use rand::{distributions::{Alphanumeric, Standard}, Rng};
 
     #[test]
     fn boolean() -> Result<(), FbError> {
@@ -60,6 +61,48 @@ mk_tests_default! {
 
         assert_eq!("Mussum Ipsum, cacilds vidis litro abertis. Admodum accumsan disputationi eu sit. Vide electram sadipscing et per. Delegadis gente finis, bibendum egestas augue arcu ut est. Paisis, filhis, espiritis santis. Quem manda na minha terra sou euzis!", b);
 
+
+        Ok(())
+    }
+
+    #[test]
+    fn big_blob_binary() -> Result<(), FbError> {
+        let mut conn = connect();
+
+        let rvec: Vec<u8> = rand::thread_rng()
+            .sample_iter(Standard)
+            .take(10000)
+            .collect();
+
+        conn.execute("DROP TABLE RBIGBLOBBIN", ()).ok();
+        conn.execute("CREATE TABLE RBIGBLOBBIN (content blob sub_type 0)", ())?;
+
+        conn.execute("insert into rbigblobbin (content) values (?)", (&rvec,))?;
+
+        let (s,): (Vec<u8>,) = conn.query_first("select content from rbigblobbin", ())?.unwrap();
+
+        assert_eq!(rvec, s);
+
+        Ok(())
+    }
+
+    #[test]
+    fn big_blob_text() -> Result<(), FbError> {
+        let mut conn = connect();
+
+        let rstr: String = rand::thread_rng()
+            .sample_iter(Alphanumeric)
+            .take(10000)
+            .collect();
+
+        conn.execute("DROP TABLE RBIGBLOBTEXT", ()).ok();
+        conn.execute("CREATE TABLE RBIGBLOBTEXT (content blob sub_type 1 character set utf8)", ())?;
+
+        conn.execute("insert into rbigblobtext (content) values (?)", (&rstr,))?;
+
+        let (s,): (String,) = conn.query_first("select content from rbigblobtext", ())?.unwrap();
+
+        assert_eq!(rstr, s);
 
         Ok(())
     }
