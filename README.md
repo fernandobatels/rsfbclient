@@ -14,7 +14,7 @@ Binds to official firebird client lib
 - [x] Dynamic loading the fbclient(.dll or .so)
 - [ ] ARM support
 - [x] Firebird embedded support
-- [ ] Extern this api to ruby (in a new repo)
+- [x] Extern this [api to ruby](https://github.com/fernandobatels/rbfbclient)
 - [ ] Extern this api to lua (in a new repo)
 
 ## Firebird Reference
