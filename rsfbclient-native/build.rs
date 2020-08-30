@@ -1,5 +1,10 @@
 // build.rs
 
+#[cfg(feature = "static_linking")]
+static LINKING_KIND: &'static str = "static";
+#[cfg(not(feature = "static_linking"))]
+static LINKING_KIND: &'static str = "dylib";
+
 fn main() {
     if search_on_environment_var() {
         #[cfg(all(feature = "linking", target_os = "linux"))]
@@ -31,7 +36,7 @@ fn search_on_environment_var() -> bool {
 fn search_on_linux() {
     // https://doc.rust-lang.org/rustc/command-line-arguments.html#option-l-link-lib
 
-    println!("cargo:rustc-link-lib=dylib=fbclient");
+    println!("cargo:rustc-link-lib={}=fbclient", LINKING_KIND);
 }
 
 #[cfg(all(feature = "linking", target_os = "macos"))]
@@ -49,9 +54,7 @@ fn search_on_macos() {
             "cargo:rustc-link-search=/Library/Frameworks/Firebird.framework/Versions/A/Libraries/"
         );
     }
-    println!("cargo:rustc-link-lib=dylib=libfbclient");
-    // println!("cargo:rustc-link-lib=dylib=libfbclient.dylib");
-    // println!("cargo:rustc-link-lib=framework=Firebird.framework");
+    println!("cargo:rustc-link-lib={}=libfbclient", LINKING_KIND);
 }
 
 #[cfg(all(feature = "linking", target_os = "windows"))]
@@ -63,7 +66,7 @@ fn search_on_windows() {
     let fb3_lib_path = std::path::Path::new(def_fbclient_lib);
     if fb3_lib_path.exists() {
         println!("cargo:rustc-link-search=C:\\Program Files\\Firebird\\Firebird_3_0\\lib");
-        println!("cargo:rustc-link-lib=dylib=fbclient_ms");
+        println!("cargo:rustc-link-lib={}=fbclient_ms", LINKING_KIND);
     } else if search_on_windows_for_lib("fbclient", "fbclient.lib") {
         if search_on_windows_for_lib("fbclient_ms", "fbclient_ms.lib") {
             println!("warning:fbclient.lib not found!");
@@ -76,7 +79,7 @@ fn search_on_windows_for_lib(libname: &str, filename: &str) -> bool {
     if let Some(fbclient_lib) = search_for_file(filename) {
         let dir = fbclient_lib.parent().unwrap().to_str().unwrap();
         println!("cargo:rustc-link-search={}", dir);
-        println!("cargo:rustc-link-lib=dylib={}", libname);
+        println!("cargo:rustc-link-lib={}={}", LINKING_KIND, libname);
         return true;
     }
     false
