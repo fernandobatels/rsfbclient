@@ -309,7 +309,7 @@ impl FirebirdClient for NativeFbClient {
             }
 
             // Get the statement type
-            let info_req = [ibase::isc_info_sql_stmt_type as i8];
+            let info_req = [ibase::isc_info_sql_stmt_type as std::os::raw::c_char];
             let mut info_buf = [0; 10];
 
             if self.ibase.isc_dsql_sql_info()(

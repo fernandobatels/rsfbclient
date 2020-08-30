@@ -190,7 +190,7 @@ fn binary_to_blob(
             &mut status[0],
             &mut handle,
             buffer.len() as u16,
-            buffer.as_ptr() as *mut i8,
+            buffer.as_ptr() as *mut std::os::raw::c_char,
         ) != 0
         {
             return Err(status.as_error(&ibase));
