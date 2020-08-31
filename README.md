@@ -9,7 +9,6 @@ Binds to official firebird client lib
 ## Goals 
 
 - [x] Rust Api
-- [ ] Static link with fbclient
 - [x] Dynamic link with fbclient
 - [x] Dynamic loading the fbclient(.dll or .so)
 - [x] ARM support
