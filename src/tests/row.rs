@@ -15,14 +15,23 @@ mk_tests_default! {
     fn charsets() -> Result<(), FbError> {
         let mut conn = connect();
 
-        let (win, iso, utf,): (String, String, String,) = conn.query_first("select CAST('olá abc ë' AS VARCHAR(10) CHARACTER SET WIN_1252), CAST('olá abc ë' AS VARCHAR(10) CHARACTER SET ISO8859_1), CAST('olá abc ë' AS VARCHAR(10) CHARACTER SET utf8) from RDB$DATABASE;", ())?
+        let qsql = "select
+                            CAST('olá abc ë' AS VARCHAR(10) CHARACTER SET WIN_1252),
+                            CAST('olá abc ë' AS VARCHAR(10) CHARACTER SET ISO8859_1),
+                            CAST('olá abc ë' AS VARCHAR(10) CHARACTER SET utf8),
+                            CAST('olá abc ë' AS VARCHAR(11) CHARACTER SET none)
+                       from RDB$DATABASE;";
+
+        let (win, iso, utf, none,): (String, String, String, String,) = conn.query_first(qsql, ())?
             .unwrap();
 
         assert_eq!("olá abc ë", win);
         assert_eq!("olá abc ë", iso);
         assert_eq!("olá abc ë", utf);
+        assert_eq!("olá abc ë", none);
         assert_eq!(win, iso);
         assert_eq!(win, utf);
+        assert_eq!(win, none);
 
         Ok(())
     }
