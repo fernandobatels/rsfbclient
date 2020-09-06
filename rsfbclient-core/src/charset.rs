@@ -125,7 +125,7 @@ pub const WIN_1251: Charset = Charset {
     str: Some(all::WINDOWS_1251),
 };
 
-/// Western Europe, America. Latin-1 with Windows extensions. Brasilian Portuguese
+/// Western Europe, America. Latin-1 with Windows extensions. Brazilian Portuguese
 pub const WIN_1252: Charset = Charset {
     fb: "WIN1252",
     str: Some(all::WINDOWS_1252),
