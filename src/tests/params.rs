@@ -5,13 +5,15 @@
 //!
 
 mk_tests_default! {
-    use crate::{prelude::*, Connection, FbError, Param, ConnectionBuilder, charset::ISO_8859_1};
+    use crate::{prelude::*, Connection, FbError, Param};
     use chrono::{NaiveDate, NaiveTime};
     use rand::{distributions::Standard, Rng};
 
+    #[cfg(feature = "linking")]
     #[cfg(not(feature = "embedded_tests"))]
     #[test]
     fn charsets() -> Result<(), FbError> {
+        use crate::{ConnectionBuilder, charset::ISO_8859_1};
 
         let mut conn = ConnectionBuilder::linked()
             .charset(ISO_8859_1)

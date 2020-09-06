@@ -133,7 +133,7 @@ impl FirebirdClient for NativeFbClient {
                 ibase: IBase::Linking,
                 status: Default::default(),
                 stmt_data_map: Default::default(),
-                charset: charset,
+                charset,
             }),
 
             #[cfg(feature = "dynamic_loading")]

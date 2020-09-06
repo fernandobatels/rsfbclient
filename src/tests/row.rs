@@ -5,15 +5,18 @@
 //!
 
 mk_tests_default! {
-    use crate::{prelude::*, Connection, FbError, Row, ConnectionBuilder, charset::ISO_8859_1};
+    use crate::{prelude::*, Connection, FbError, Row};
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
     use rsfbclient_core::ColumnToVal;
     use std::str;
     use rand::{distributions::{Alphanumeric, Standard}, Rng};
 
+    #[cfg(feature = "linking")]
     #[cfg(not(feature = "embedded_tests"))]
     #[test]
     fn column_with_charset_none() -> Result<(), FbError> {
+        use crate::{ConnectionBuilder, charset::ISO_8859_1};
+
         // This test reproduce the of using a diferent
         // charset of column in insert.
         // When we read the data, even using the UTF8,

@@ -18,17 +18,14 @@ impl Charset {
     /// Decode the bytes using the current charset
     pub fn decode(&self, bytes: &[u8]) -> Result<String, FbError> {
         if let Some(charset) = self.str {
-            charset
-                .decode(bytes, DecoderTrap::Strict)
-                .map(|str| str.to_string())
-                .map_err(|e| {
-                    format!(
-                        "Found column with an invalid {} string: {}",
-                        charset.name(),
-                        e
-                    )
-                    .into()
-                })
+            charset.decode(bytes, DecoderTrap::Strict).map_err(|e| {
+                format!(
+                    "Found column with an invalid {} string: {}",
+                    charset.name(),
+                    e
+                )
+                .into()
+            })
         } else {
             str::from_utf8(bytes)
                 .map(|str| str.to_string())
@@ -56,8 +53,8 @@ impl Charset {
 impl Clone for Charset {
     fn clone(&self) -> Self {
         Self {
-            fb: self.fb.clone(),
-            str: self.str.clone(),
+            fb: self.fb,
+            str: self.str,
         }
     }
 }
