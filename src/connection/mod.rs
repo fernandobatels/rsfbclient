@@ -9,8 +9,8 @@ pub mod pool;
 pub mod stmt_cache;
 
 use rsfbclient_core::{
-    Dialect, FbError, FirebirdClient, FirebirdClientEmbeddedAttach, FirebirdClientRemoteAttach,
-    FromRow, IntoParams,
+    charset::Charset, charset::UTF_8, Dialect, FbError, FirebirdClient,
+    FirebirdClientEmbeddedAttach, FirebirdClientRemoteAttach, FromRow, IntoParams,
 };
 use std::{cell::RefCell, marker};
 
@@ -28,6 +28,7 @@ pub struct ConnectionBuilder<C: FirebirdClient> {
     stmt_cache_size: usize,
     cli_args: C::Args,
     _cli_type: marker::PhantomData<C>,
+    charset: Charset,
 }
 
 /// The builder for creating database connections using the embedded firebird
@@ -38,6 +39,7 @@ pub struct ConnectionBuilderEmbedded<C: FirebirdClient> {
     stmt_cache_size: usize,
     cli_args: C::Args,
     _cli_type: marker::PhantomData<C>,
+    charset: Charset,
 }
 
 /// The `PhantomMarker` makes it not Sync, but it is not true,
@@ -60,6 +62,7 @@ where
             stmt_cache_size: self.stmt_cache_size,
             cli_args: self.cli_args.clone(),
             _cli_type: Default::default(),
+            charset: self.charset.clone(),
         }
     }
 }
@@ -79,6 +82,7 @@ impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
             stmt_cache_size: 20,
             cli_args: rsfbclient_native::Args::Linking,
             _cli_type: Default::default(),
+            charset: UTF_8,
         }
     }
 
@@ -113,6 +117,7 @@ impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
                 lib_path: fbclient.into(),
             },
             _cli_type: Default::default(),
+            charset: UTF_8,
         }
     }
 
@@ -126,6 +131,7 @@ impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
             stmt_cache_size: self.stmt_cache_size,
             cli_args: self.cli_args,
             _cli_type: Default::default(),
+            charset: UTF_8,
         }
     }
 }
@@ -194,9 +200,15 @@ where
         self
     }
 
+    /// Charset. Default: UTF_8
+    pub fn charset(&mut self, charset: Charset) -> &mut Self {
+        self.charset = charset;
+        self
+    }
+
     /// Open a new connection to the database
     pub fn connect(&self) -> Result<Connection<C>, FbError> {
-        Connection::open_remote(self, C::new(self.cli_args.clone())?)
+        Connection::open_remote(self, C::new(self.charset.clone(), self.cli_args.clone())?)
     }
 }
 
@@ -228,9 +240,15 @@ where
         self
     }
 
+    /// Charset. Default: UTF_8
+    pub fn charset(&mut self, charset: Charset) -> &mut Self {
+        self.charset = charset;
+        self
+    }
+
     /// Open a new connection to the database
     pub fn connect(&self) -> Result<Connection<C>, FbError> {
-        Connection::open_embedded(self, C::new(self.cli_args.clone())?)
+        Connection::open_embedded(self, C::new(self.charset.clone(), self.cli_args.clone())?)
     }
 }
 

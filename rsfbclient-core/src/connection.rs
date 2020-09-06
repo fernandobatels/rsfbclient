@@ -32,7 +32,7 @@ pub trait FirebirdClient: Send {
     /// Arguments to instantiate the client
     type Args: Send + Sync + Clone;
 
-    fn new(args: Self::Args) -> Result<Self, FbError>
+    fn new(charset: Charset, args: Self::Args) -> Result<Self, FbError>
     where
         Self: Sized;
 
