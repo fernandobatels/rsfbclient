@@ -5,9 +5,39 @@
 //!
 
 mk_tests_default! {
-    use crate::{prelude::*, Connection, FbError, Param};
+    use crate::{prelude::*, Connection, FbError, Param, ConnectionBuilder, charset::ISO_8859_1};
     use chrono::{NaiveDate, NaiveTime};
     use rand::{distributions::Standard, Rng};
+
+    #[cfg(not(feature = "embedded_tests"))]
+    #[test]
+    fn charsets() -> Result<(), FbError> {
+
+        let mut conn = ConnectionBuilder::linked()
+            .charset(ISO_8859_1)
+            .connect()
+            .expect("Error on connect the test database using the ISO8859_1");
+
+        conn.execute("DROP TABLE pCHARSETS", ()).ok();
+        conn.execute(
+            "CREATE TABLE pCHARSETS (a Varchar(30) CHARACTER SET none)",
+            (),
+        )?;
+
+        conn.execute("insert into pCHARSETS (a) values (?)", ("Pão de queijo",))?;
+
+        let (pao,): (String,) = conn.query_first("select * from pCHARSETS", ())?
+            .unwrap();
+        assert_eq!("Pão de queijo", pao);
+
+        let mut conn = connect(); // utf8
+
+        let err: Result<Option<(String,)>, FbError> = conn.query_first("select * from PCHARSETS", ());
+        assert!(err.is_err());
+        assert_eq!("error: Found column with an invalid UTF-8 string: invalid utf-8 sequence of 1 bytes from index 1", err.err().unwrap().to_string());
+
+        Ok(())
+    }
 
     #[test]
     fn boolean() -> Result<(), FbError> {

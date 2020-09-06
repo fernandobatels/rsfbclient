@@ -5,14 +5,52 @@
 //!
 
 mk_tests_default! {
-    use crate::{prelude::*, Connection, FbError, Row};
+    use crate::{prelude::*, Connection, FbError, Row, ConnectionBuilder, charset::ISO_8859_1};
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
     use rsfbclient_core::ColumnToVal;
     use std::str;
     use rand::{distributions::{Alphanumeric, Standard}, Rng};
 
+    #[cfg(not(feature = "embedded_tests"))]
     #[test]
-    fn charsets() -> Result<(), FbError> {
+    fn column_with_charset_none() -> Result<(), FbError> {
+        // This test reproduce the of using a diferent
+        // charset of column in insert.
+        // When we read the data, even using the UTF8,
+        // we got an "invalid utf-8" error.
+        // In this cases, we must use the same charset
+        // of data inserted
+
+        let mut conn = connect(); // utf-8, but is not used
+
+        conn.execute("DROP TABLE RCHARSETS", ()).ok();
+        conn.execute(
+            "CREATE TABLE RCHARSETS (a Varchar(30) CHARACTER SET none)",
+            (),
+        )?;
+
+        conn.execute("insert into RCHARSETS (a) values (cast('pão de queijo' as Varchar(30) CHARACTER SET ISO8859_1))", ())?;
+
+        let err: Result<Option<(String,)>, FbError> = conn.query_first("select * from RCHARSETS", ());
+        assert!(err.is_err());
+        assert_eq!("error: Found column with an invalid UTF-8 string: invalid utf-8 sequence of 1 bytes from index 1", err.err().unwrap().to_string());
+
+        // Hmm, I need use the same charset of inserted content
+        let mut conn = ConnectionBuilder::linked()
+            .charset(ISO_8859_1)
+            .connect()
+            .expect("Error on connect the test database using the ISO8859_1");
+
+        let (pao,): (String,) = conn.query_first("select * from RCHARSETS", ())?
+            .unwrap();
+
+        assert_eq!("pão de queijo", pao);
+
+        Ok(())
+    }
+
+    #[test]
+    fn cast_charsets() -> Result<(), FbError> {
         let mut conn = connect();
 
         let qsql = "select
