@@ -19,8 +19,8 @@ mk_tests_default! {
 
         // This test reproduce the of using a diferent
         // charset of column in insert.
-        // When we read the data, even using the UTF8,
-        // we got an "invalid utf-8" error.
+        // When we read an ISO8859_1(or others) data using
+        // the UTF8, we will get an "invalid utf-8" error.
         // In this cases, we must use the same charset
         // of data inserted
 
