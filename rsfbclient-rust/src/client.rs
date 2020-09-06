@@ -314,7 +314,7 @@ impl FirebirdWireConnection {
             version,
             buff,
             stmt_data_map: Default::default(),
-            charset: charset.clone(),
+            charset,
         })
     }
 
