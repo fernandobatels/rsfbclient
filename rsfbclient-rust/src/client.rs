@@ -103,7 +103,7 @@ impl FirebirdClient for RustFbClient {
     {
         Ok(Self {
             conn: None,
-            charset: charset,
+            charset,
         })
     }
 
