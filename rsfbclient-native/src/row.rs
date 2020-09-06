@@ -173,7 +173,9 @@ impl ColumnBuffer {
 
             Timestamp => ColumnType::Timestamp(timestamp_from_buffer(&self.buffer)?),
 
-            BlobText => ColumnType::Text(blobtext_to_string(&self.buffer, db, tr, ibase)?),
+            BlobText => {
+                ColumnType::Text(blobtext_to_string(&self.buffer, db, tr, ibase, &charset)?)
+            }
 
             BlobBinary => ColumnType::Binary(blobbinary_to_vec(&self.buffer, db, tr, ibase)?),
 
@@ -210,11 +212,11 @@ fn blobtext_to_string(
     db: &mut ibase::isc_db_handle,
     tr: &mut ibase::isc_tr_handle,
     ibase: &IBase,
+    charset: &Charset,
 ) -> Result<String, FbError> {
     let blob_bytes = read_blob(buffer, db, tr, ibase)?;
 
-    Ok(String::from_utf8(blob_bytes)
-        .map_err(|_| FbError::from("Found column with an invalid utf-8 string"))?)
+    charset.decode(&blob_bytes)
 }
 
 /// Read the blob type

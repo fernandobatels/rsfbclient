@@ -150,6 +150,7 @@ impl ConnectionBuilder<rsfbclient_rust::RustFbClient> {
             stmt_cache_size: 20,
             cli_args: (),
             _cli_type: Default::default(),
+            charset: UTF_8,
         }
     }
 }

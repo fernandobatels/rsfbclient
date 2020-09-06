@@ -11,7 +11,7 @@ use crate::{
     srp::*,
     xsqlda::{XSqlVar, XSQLDA_DESCRIBE_VARS},
 };
-use rsfbclient_core::{ibase, Column, ColumnType, FbError, FreeStmtOp, TrOp};
+use rsfbclient_core::{ibase, Charset, Column, ColumnType, FbError, FreeStmtOp, TrOp};
 
 /// Buffer length to use in the connection
 pub const BUFFER_LENGTH: u32 = 1024;
@@ -142,13 +142,19 @@ pub fn crypt(algo: &str, kind: &str) -> Bytes {
 }
 
 /// Attach request
-pub fn attach(db_name: &str, user: &str, pass: &str, protocol: ProtocolVersion) -> Bytes {
+pub fn attach(
+    db_name: &str,
+    user: &str,
+    pass: &str,
+    protocol: ProtocolVersion,
+    charset: Charset,
+) -> Bytes {
     let dpb = {
         let mut dpb = BytesMut::with_capacity(64);
 
         dpb.put_u8(1); //Version
 
-        let charset = b"UTF8";
+        let charset = charset.fb.as_bytes();
 
         dpb.put_slice(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
         dpb.put_slice(charset);
@@ -437,6 +443,7 @@ pub fn parse_fetch_response(
     resp: &mut Bytes,
     xsqlda: &[XSqlVar],
     version: ProtocolVersion,
+    charset: &Charset,
 ) -> Result<Option<Vec<ParsedColumn>>, FbError> {
     const END_OF_STREAM: u32 = 100;
 
@@ -516,9 +523,7 @@ pub fn parse_fetch_response(
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        Some(ColumnType::Text(String::from_utf8(d.to_vec()).map_err(
-                            |_| FbError::from("Invalid UTF8 string received from server"),
-                        )?)),
+                        Some(ColumnType::Text(charset.decode(&d.to_vec())?)),
                     )))
                 }
             }
@@ -696,9 +701,7 @@ impl ParsedColumn {
                     Some(if binary {
                         ColumnType::Binary(data.freeze().to_vec())
                     } else {
-                        let text = String::from_utf8(data.freeze().to_vec())
-                            .map_err(|_| FbError::from("Invalid utf8 data in blob column"))?;
-                        ColumnType::Text(text)
+                        ColumnType::Text(conn.charset.decode(&data.freeze().to_vec())?)
                     }),
                 )
             }
