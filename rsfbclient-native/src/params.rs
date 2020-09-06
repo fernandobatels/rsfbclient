@@ -1,5 +1,5 @@
 use crate::{ibase, ibase::IBase, status::Status, xsqlda::XSqlDa};
-use rsfbclient_core::{FbError, Param, MAX_TEXT_LENGTH};
+use rsfbclient_core::{Charset, FbError, Param, MAX_TEXT_LENGTH};
 
 /// Stores the data needed to send the parameters
 pub struct Params {
@@ -19,6 +19,7 @@ impl Params {
         status: &mut Status,
         stmt_handle: &mut ibase::isc_stmt_handle,
         infos: Vec<Param>,
+        charset: &Charset,
     ) -> Result<Self, FbError> {
         let params = if !infos.is_empty() {
             let mut xsqlda = XSqlDa::new(infos.len() as i16);
@@ -47,6 +48,7 @@ impl Params {
                     db_handle,
                     tr_handle,
                     ibase,
+                    &charset,
                 )?);
             }
 
@@ -109,6 +111,7 @@ impl ParamBuffer {
         db: &mut ibase::isc_db_handle,
         tr: &mut ibase::isc_tr_handle,
         ibase: &IBase,
+        charset: &Charset,
     ) -> Result<Self, FbError> {
         let mut null = 0;
 
@@ -119,10 +122,13 @@ impl ParamBuffer {
 
         let mut buffer = match info {
             Param::Text(s) => {
-                if s.len() > MAX_TEXT_LENGTH {
-                    binary_to_blob(s.into_bytes(), db, tr, ibase)?
+                let len = s.len();
+                let bytes = charset.encode(s)?;
+
+                if len > MAX_TEXT_LENGTH {
+                    binary_to_blob(bytes, db, tr, ibase)?
                 } else {
-                    s.into_bytes()
+                    bytes
                 }
             }
             Param::Integer(i) => i.to_ne_bytes().to_vec(),

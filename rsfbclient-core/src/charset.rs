@@ -1,6 +1,6 @@
 //! Charset definitions and functions
 
-use encoding::{all, types::EncodingRef, DecoderTrap};
+use encoding::{all, types::EncodingRef, DecoderTrap, EncoderTrap};
 use std::str;
 
 use crate::FbError;
@@ -19,13 +19,34 @@ impl Charset {
             charset
                 .decode(bytes, DecoderTrap::Strict)
                 .map(|str| str.to_string())
-                .map_err(|_| {
-                    format!("Found column with an invalid {} string", charset.name()).into()
+                .map_err(|e| {
+                    format!(
+                        "Found column with an invalid {} string: {}",
+                        charset.name(),
+                        e
+                    )
+                    .into()
                 })
         } else {
             str::from_utf8(bytes)
                 .map(|str| str.to_string())
-                .map_err(|_| "Found column with an invalid UTF-8 string".into())
+                .map_err(|e| format!("Found column with an invalid UTF-8 string: {}", e).into())
+        }
+    }
+
+    // Encode the string into bytes using the current charset
+    pub fn encode(&self, str: String) -> Result<Vec<u8>, FbError> {
+        if let Some(charset) = self.str {
+            charset.encode(&str, EncoderTrap::Strict).map_err(|e| {
+                format!(
+                    "Found param with an invalid {} string: {}",
+                    charset.name(),
+                    e
+                )
+                .into()
+            })
+        } else {
+            Ok(str.into_bytes())
         }
     }
 }

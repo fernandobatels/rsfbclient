@@ -393,6 +393,7 @@ impl FirebirdClient for NativeFbClient {
             &mut self.status,
             &mut stmt_handle,
             params,
+            &self.charset,
         )?;
 
         unsafe {
