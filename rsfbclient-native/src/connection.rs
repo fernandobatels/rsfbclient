@@ -141,7 +141,7 @@ impl FirebirdClient for NativeFbClient {
                 ibase: IBase::with_client(lib_path).map_err(|e| FbError::from(e.to_string()))?,
                 status: Default::default(),
                 stmt_data_map: Default::default(),
-                charset: charset,
+                charset,
             }),
         }
     }
