@@ -241,7 +241,9 @@ where
         self
     }
 
-    /// Charset. Default: UTF_8
+    /// Connection charset. It is only necessary to specify a charset other than the default `UTF-8` if you
+    /// have text stored in the database using columns with charset `NONE` or `OCTETS`. Otherwise
+    /// the database will handle the charset conversion automatically
     pub fn charset(&mut self, charset: Charset) -> &mut Self {
         self.charset = charset;
         self
