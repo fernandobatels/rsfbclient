@@ -52,6 +52,29 @@ mk_tests_default! {
         Ok(())
     }
 
+    #[cfg(not(feature = "embedded_tests"))]
+    #[test]
+    fn stmt_charset() -> Result<(), FbError> {
+        use crate::{ConnectionBuilder, charset::ISO_8859_1};
+
+        #[cfg(feature = "linking")]
+        let mut conn = ConnectionBuilder::linked()
+            .charset(ISO_8859_1)
+            .connect()
+            .expect("Error on connect the test database using the ISO8859_1");
+
+        #[cfg(feature = "pure_rust")]
+        let mut conn = ConnectionBuilder::pure_rust()
+            .charset(ISO_8859_1)
+            .connect()
+            .expect("Error on connect the test database using the ISO8859_1");
+
+        let (pao,): (String,) = conn.query_first("SELECT cast('pão de queijo' as Varchar(30)) FROM RDB$DATABASE;", ())?.unwrap();
+        assert_eq!("pão de queijo", pao);
+
+        Ok(())
+    }
+
     #[test]
     fn cast_charsets() -> Result<(), FbError> {
         let mut conn = connect();

@@ -396,7 +396,12 @@ impl FirebirdWireConnection {
         sql: &str,
     ) -> Result<(), FbError> {
         self.socket
-            .write_all(&exec_immediate(tr_handle.0, dialect as u32, sql))
+            .write_all(&exec_immediate(
+                tr_handle.0,
+                dialect as u32,
+                sql,
+                &self.charset,
+            )?)
             .unwrap();
         self.socket.flush()?;
 
@@ -423,7 +428,8 @@ impl FirebirdWireConnection {
             u32::MAX,
             dialect as u32,
             sql,
-        ))?;
+            &self.charset,
+        )?)?;
         self.socket.flush()?;
 
         let (op_code, mut resp) = self.read_packet()?;

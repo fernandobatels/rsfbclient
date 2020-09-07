@@ -34,18 +34,20 @@ impl Charset {
     }
 
     // Encode the string into bytes using the current charset
-    pub fn encode(&self, str: String) -> Result<Vec<u8>, FbError> {
+    pub fn encode<S: Into<String>>(&self, str: S) -> Result<Vec<u8>, FbError> {
         if let Some(charset) = self.str {
-            charset.encode(&str, EncoderTrap::Strict).map_err(|e| {
-                format!(
-                    "Found param with an invalid {} string: {}",
-                    charset.name(),
-                    e
-                )
-                .into()
-            })
+            charset
+                .encode(&str.into(), EncoderTrap::Strict)
+                .map_err(|e| {
+                    format!(
+                        "Found param with an invalid {} string: {}",
+                        charset.name(),
+                        e
+                    )
+                    .into()
+                })
         } else {
-            Ok(str.into_bytes())
+            Ok(str.into().into_bytes())
         }
     }
 }

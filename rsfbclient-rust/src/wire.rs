@@ -247,18 +247,23 @@ pub fn transaction_operation(tr_handle: u32, op: TrOp) -> Bytes {
 }
 
 /// Execute immediate request
-pub fn exec_immediate(tr_handle: u32, dialect: u32, sql: &str) -> Bytes {
+pub fn exec_immediate(
+    tr_handle: u32,
+    dialect: u32,
+    sql: &str,
+    charset: &Charset,
+) -> Result<Bytes, FbError> {
     let mut req = BytesMut::with_capacity(28 + sql.len());
 
     req.put_u32(WireOp::ExecImmediate as u32);
     req.put_u32(tr_handle);
     req.put_u32(0); // Statement handle, apparently unused
     req.put_u32(dialect);
-    req.put_wire_bytes(sql.as_bytes());
+    req.put_wire_bytes(&charset.encode(sql)?);
     req.put_u32(0); // TODO: parameters
     req.put_u32(BUFFER_LENGTH);
 
-    req.freeze()
+    Ok(req.freeze())
 }
 
 /// Statement allocation request (lazy response)
@@ -273,19 +278,25 @@ pub fn allocate_statement(db_handle: u32) -> Bytes {
 
 /// Prepare statement request. Use u32::MAX as `stmt_handle` if the statement was allocated
 /// in the previous request
-pub fn prepare_statement(tr_handle: u32, stmt_handle: u32, dialect: u32, query: &str) -> Bytes {
+pub fn prepare_statement(
+    tr_handle: u32,
+    stmt_handle: u32,
+    dialect: u32,
+    query: &str,
+    charset: &Charset,
+) -> Result<Bytes, FbError> {
     let mut req = BytesMut::with_capacity(28 + query.len() + XSQLDA_DESCRIBE_VARS.len());
 
     req.put_u32(WireOp::PrepareStatement as u32);
     req.put_u32(tr_handle);
     req.put_u32(stmt_handle);
     req.put_u32(dialect);
-    req.put_wire_bytes(query.as_bytes());
+    req.put_wire_bytes(&charset.encode(query)?);
     req.put_wire_bytes(&XSQLDA_DESCRIBE_VARS); // Data to be returned
 
     req.put_u32(BUFFER_LENGTH);
 
-    req.freeze()
+    Ok(req.freeze())
 }
 
 /// Statement information request, to continue a truncated prepare statement xsqlda response

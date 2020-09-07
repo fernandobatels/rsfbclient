@@ -3,7 +3,7 @@
 use rsfbclient_core::*;
 
 use crate::{ibase::IBase, params::Params, row::ColumnBuffer, status::Status, xsqlda::XSqlDa};
-use std::{collections::HashMap, convert::TryFrom, ptr};
+use std::{collections::HashMap, convert::TryFrom, ffi::CString, ptr};
 
 /// Client that wraps the native fbclient library
 pub struct NativeFbClient {
@@ -243,12 +243,15 @@ impl FirebirdClient for NativeFbClient {
         dialect: Dialect,
         sql: &str,
     ) -> Result<(), FbError> {
+        let len = sql.len();
+        let sql = unsafe { CString::from_vec_unchecked(self.charset.encode(sql)?) };
+
         unsafe {
             if self.ibase.isc_dsql_execute_immediate()(
                 &mut self.status[0],
                 &mut db_handle,
                 &mut tr_handle,
-                sql.len() as u16,
+                len as u16,
                 sql.as_ptr() as *const _,
                 dialect as u16,
                 ptr::null(),
@@ -267,6 +270,9 @@ impl FirebirdClient for NativeFbClient {
         dialect: Dialect,
         sql: &str,
     ) -> Result<(StmtType, Self::StmtHandle), FbError> {
+        let len = sql.len();
+        let sql = unsafe { CString::from_vec_unchecked(self.charset.encode(sql)?) };
+
         let mut handle = 0;
 
         let mut xsqlda = XSqlDa::new(1);
@@ -287,7 +293,7 @@ impl FirebirdClient for NativeFbClient {
                 &mut self.status[0],
                 &mut tr_handle,
                 &mut handle,
-                sql.len() as u16,
+                len as u16,
                 sql.as_ptr() as *const _,
                 dialect as u16,
                 &mut *xsqlda,
