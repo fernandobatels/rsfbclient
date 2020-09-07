@@ -9,35 +9,6 @@ mk_tests_default! {
     use chrono::{NaiveDate, NaiveTime};
     use rand::{distributions::Standard, Rng};
 
-    #[cfg(not(feature = "pure_rust"))] // TODO: fix the pure_rust locking
-    #[test]
-    fn charsets() -> Result<(), FbError> {
-        use crate::charset::ISO_8859_1;
-
-        let mut conn = cbuilder().charset(ISO_8859_1)
-            .connect()?;
-
-        conn.execute("DROP TABLE pCHARSETS", ()).ok();
-        conn.execute(
-            "CREATE TABLE pCHARSETS (a Varchar(30) CHARACTER SET none)",
-            (),
-        )?;
-
-        conn.execute("insert into pCHARSETS (a) values (?)", ("Pão de queijo",))?;
-
-        let (pao,): (String,) = conn.query_first("select * from pCHARSETS", ())?
-            .unwrap();
-        assert_eq!("Pão de queijo", pao);
-
-        let mut conn = cbuilder().connect()?; // utf8
-
-        let err: Result<Option<(String,)>, FbError> = conn.query_first("select * from PCHARSETS", ());
-        assert!(err.is_err());
-        assert_eq!("error: Found column with an invalid UTF-8 string: invalid utf-8 sequence of 1 bytes from index 1", err.err().unwrap().to_string());
-
-        Ok(())
-    }
-
     #[test]
     fn boolean() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
