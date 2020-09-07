@@ -404,7 +404,8 @@ mk_tests_default! {
     // }
 
     fn setup() -> (Connection<impl FirebirdClient>, String) {
-        let conn = connect();
+        let conn = cbuilder().connect()
+            .expect("Error on connect in the test database");
 
         let table_num = super::TABLE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let table = format!("product{}", table_num);

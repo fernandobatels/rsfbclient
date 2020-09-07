@@ -5,17 +5,15 @@
 //!
 
 mk_tests_default! {
-    use crate::{prelude::*, Connection, FbError, Row};
+    use crate::{prelude::*, FbError, Row};
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
     use rsfbclient_core::ColumnToVal;
     use std::str;
     use rand::{distributions::{Alphanumeric, Standard}, Rng};
 
-    #[cfg(feature = "linking")]
-    #[cfg(not(feature = "embedded_tests"))]
     #[test]
     fn column_with_charset_none() -> Result<(), FbError> {
-        use crate::{ConnectionBuilder, charset::ISO_8859_1};
+        use crate::charset::ISO_8859_1;
 
         // This test reproduce the of using a diferent
         // charset of column in insert.
@@ -24,7 +22,7 @@ mk_tests_default! {
         // In this cases, we must use the same charset
         // of data inserted
 
-        let mut conn = connect(); // utf-8, but is not used
+        let mut conn = cbuilder().connect()?; // utf-8, but is not used
 
         conn.execute("DROP TABLE RCHARSETS", ()).ok();
         conn.execute(
@@ -39,10 +37,8 @@ mk_tests_default! {
         assert_eq!("error: Found column with an invalid UTF-8 string: invalid utf-8 sequence of 1 bytes from index 1", err.err().unwrap().to_string());
 
         // Hmm, I need use the same charset of inserted content
-        let mut conn = ConnectionBuilder::linked()
-            .charset(ISO_8859_1)
-            .connect()
-            .expect("Error on connect the test database using the ISO8859_1");
+        let mut conn = cbuilder().charset(ISO_8859_1)
+            .connect()?;
 
         let (pao,): (String,) = conn.query_first("select * from RCHARSETS", ())?
             .unwrap();
@@ -52,22 +48,12 @@ mk_tests_default! {
         Ok(())
     }
 
-    #[cfg(not(feature = "embedded_tests"))]
     #[test]
     fn stmt_charset() -> Result<(), FbError> {
-        use crate::{ConnectionBuilder, charset::ISO_8859_1};
+        use crate::charset::ISO_8859_1;
 
-        #[cfg(feature = "linking")]
-        let mut conn = ConnectionBuilder::linked()
-            .charset(ISO_8859_1)
-            .connect()
-            .expect("Error on connect the test database using the ISO8859_1");
-
-        #[cfg(feature = "pure_rust")]
-        let mut conn = ConnectionBuilder::pure_rust()
-            .charset(ISO_8859_1)
-            .connect()
-            .expect("Error on connect the test database using the ISO8859_1");
+        let mut conn = cbuilder().charset(ISO_8859_1)
+            .connect()?;
 
         let (pao,): (String,) = conn.query_first("SELECT cast('pão de queijo' as Varchar(30)) FROM RDB$DATABASE;", ())?.unwrap();
         assert_eq!("pão de queijo", pao);
@@ -77,7 +63,7 @@ mk_tests_default! {
 
     #[test]
     fn cast_charsets() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let qsql = "select
                             CAST('olá abc ë' AS VARCHAR(10) CHARACTER SET WIN_1252),
@@ -102,7 +88,7 @@ mk_tests_default! {
 
     #[test]
     fn boolean() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (engine_version,): (String,) = conn.query_first(
             "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') from rdb$database;",
@@ -123,7 +109,7 @@ mk_tests_default! {
 
     #[test]
     fn blob_binary_subtype() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a,): (Vec<u8>,) = conn.query_first("select cast(x'61626320c3a462c3a720313233' as blob SUB_TYPE 0) from rdb$database;", ())?
             .unwrap();
@@ -136,7 +122,7 @@ mk_tests_default! {
 
     #[test]
     fn blob_text_subtype() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a,): (String,) = conn.query_first("select cast('abc äbç 123' as BLOB sub_type 1) from rdb$database", ())?
             .unwrap();
@@ -156,7 +142,7 @@ mk_tests_default! {
 
     #[test]
     fn big_blob_binary() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let rvec: Vec<u8> = rand::thread_rng()
             .sample_iter(Standard)
@@ -177,7 +163,7 @@ mk_tests_default! {
 
     #[test]
     fn big_blob_text() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let rstr: String = rand::thread_rng()
             .sample_iter(Alphanumeric)
@@ -198,7 +184,7 @@ mk_tests_default! {
 
     #[test]
     fn dates() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a, b, c): (NaiveDate, NaiveDateTime, NaiveTime) = conn
                 .query_first(
@@ -215,7 +201,7 @@ mk_tests_default! {
 
     #[test]
     fn strings() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a, b): (String, String) = conn
             .query_first(
@@ -241,7 +227,7 @@ mk_tests_default! {
     #[test]
     #[allow(clippy::float_cmp, clippy::excessive_precision)]
     fn fixed_points() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a, b): (f32, f32) = conn
             .query_first(
@@ -276,7 +262,7 @@ mk_tests_default! {
     #[test]
     #[allow(clippy::float_cmp)]
     fn float_points() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a, b): (f32, f64) = conn
             .query_first(
@@ -317,7 +303,7 @@ mk_tests_default! {
 
     #[test]
     fn ints() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a, b, c): (i32, i16, i64) = conn
             .query_first(
@@ -367,7 +353,7 @@ mk_tests_default! {
 
     #[test]
     fn lots_of_columns() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let vals = -250..250;
 

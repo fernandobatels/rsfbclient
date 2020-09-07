@@ -67,6 +67,23 @@ where
     }
 }
 
+impl<C> Clone for ConnectionBuilderEmbedded<C>
+where
+    C: FirebirdClient,
+{
+    fn clone(&self) -> Self {
+        Self {
+            db_name: self.db_name.clone(),
+            user: self.user.clone(),
+            dialect: self.dialect,
+            stmt_cache_size: self.stmt_cache_size,
+            cli_args: self.cli_args.clone(),
+            _cli_type: Default::default(),
+            charset: self.charset.clone(),
+        }
+    }
+}
+
 #[cfg(any(feature = "linking", feature = "dynamic_loading"))]
 impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
     #[cfg(feature = "linking")]
@@ -513,23 +530,24 @@ mk_tests_default! {
     use crate::*;
 
     #[test]
-    fn remote_connection() {
-        let conn = connect();
+    fn remote_connection() -> Result<(), FbError> {
+        let conn = cbuilder().connect()?;
 
         conn.close().expect("error closing the connection");
+
+        Ok(())
     }
 
     #[test]
-    fn query_iter() {
-        let mut conn = connect();
+    fn query_iter() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
 
         let mut rows = 0;
 
         for row in conn
-            .query_iter("SELECT -3 FROM RDB$DATABASE WHERE 1 = ?", (1,))
-            .expect("Error on the query")
+            .query_iter("SELECT -3 FROM RDB$DATABASE WHERE 1 = ?", (1,))?
         {
-            let (v,): (i32,) = row.expect("");
+            let (v,): (i32,) = row?;
 
             assert_eq!(v, -3);
 
@@ -537,5 +555,7 @@ mk_tests_default! {
         }
 
         assert_eq!(rows, 1);
+
+        Ok(())
     }
 }

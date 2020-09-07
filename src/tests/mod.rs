@@ -17,7 +17,7 @@ macro_rules! mk_tests {
 
         $( #[$attr:meta] )*
         for $name:ident -> $type:ty {
-            $( $connect:tt )*
+            $( $cbuilder:tt )*
         }
 
         $( $tail:tt )*
@@ -26,8 +26,8 @@ macro_rules! mk_tests {
         mod $name {
             $( $tests )*
 
-            fn connect() -> $type {
-                $( $connect )*
+            fn cbuilder() -> $type {
+                $( $cbuilder )*
             }
         }
 
@@ -49,23 +49,20 @@ macro_rules! mk_tests_default {
             }
 
             #[cfg(all(feature = "linking", not(feature = "embedded_tests")))]
-            for linking -> Connection<rsfbclient_native::NativeFbClient> {
+            for linking -> crate::ConnectionBuilder<rsfbclient_native::NativeFbClient> {
                 crate::ConnectionBuilder::linked()
-                        .connect()
-                        .expect("Error on connect the test database")
             }
 
             #[cfg(all(feature = "linking", feature = "embedded_tests"))]
-            for linking_embedded -> Connection<rsfbclient_native::NativeFbClient> {
+            for linking_embedded -> crate::connection::ConnectionBuilderEmbedded<rsfbclient_native::NativeFbClient> {
                 crate::ConnectionBuilder::linked()
-                        .embedded()
-                        .db_name("/tmp/embedded_tests.fdb")
-                        .connect()
-                        .expect("Error on connect the test database")
+                    .embedded()
+                    .db_name("/tmp/embedded_tests.fdb")
+                    .clone()
             }
 
             #[cfg(all(feature = "dynamic_loading", not(feature = "embedded_tests")))]
-            for dynamic_loading -> Connection<rsfbclient_native::NativeFbClient> {
+            for dynamic_loading -> crate::ConnectionBuilder<rsfbclient_native::NativeFbClient> {
 
                 #[cfg(target_os = "linux")]
                 let libfbclient = "libfbclient.so";
@@ -75,12 +72,10 @@ macro_rules! mk_tests_default {
                 let libfbclient = "libfbclient.dylib";
 
                 crate::ConnectionBuilder::with_client(libfbclient)
-                        .connect()
-                        .expect("Error on connect the test database")
             }
 
             #[cfg(all(feature = "dynamic_loading", feature = "embedded_tests"))]
-            for dynamic_loading_embedded -> Connection<rsfbclient_native::NativeFbClient> {
+            for dynamic_loading_embedded -> crate::connection::ConnectionBuilderEmbedded<rsfbclient_native::NativeFbClient> {
 
                 #[cfg(target_os = "linux")]
                 let libfbclient = "libfbclient.so";
@@ -90,17 +85,14 @@ macro_rules! mk_tests_default {
                 let libfbclient = "libfbclient.dylib";
 
                 crate::ConnectionBuilder::with_client(libfbclient)
-                        .embedded()
-                        .db_name("/tmp/embedded_tests.fdb")
-                        .connect()
-                        .expect("Error on connect the test database")
+                    .embedded()
+                    .db_name("/tmp/embedded_tests.fdb")
+                    .clone()
             }
 
             #[cfg(feature = "pure_rust")]
-            for pure_rust -> Connection<rsfbclient_rust::RustFbClient> {
+            for pure_rust -> crate::ConnectionBuilder<rsfbclient_rust::RustFbClient> {
                 crate::ConnectionBuilder::pure_rust()
-                        .connect()
-                        .expect("Error on connect the test database")
             }
         }
     };
