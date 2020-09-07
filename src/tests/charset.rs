@@ -7,7 +7,6 @@ static TABLE_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU3
 mk_tests_default! {
     use crate::{prelude::*, FbError};
 
-    #[cfg(not(feature = "pure_rust"))] // TODO: fix the pure_rust locking
     #[test]
     fn params() -> Result<(), FbError> {
         use crate::charset::ISO_8859_1;

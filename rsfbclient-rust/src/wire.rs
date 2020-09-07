@@ -253,13 +253,14 @@ pub fn exec_immediate(
     sql: &str,
     charset: &Charset,
 ) -> Result<Bytes, FbError> {
-    let mut req = BytesMut::with_capacity(28 + sql.len());
+    let bytes = charset.encode(sql)?;
+    let mut req = BytesMut::with_capacity(28 + bytes.len());
 
     req.put_u32(WireOp::ExecImmediate as u32);
     req.put_u32(tr_handle);
     req.put_u32(0); // Statement handle, apparently unused
     req.put_u32(dialect);
-    req.put_wire_bytes(&charset.encode(sql)?);
+    req.put_wire_bytes(&bytes);
     req.put_u32(0); // TODO: parameters
     req.put_u32(BUFFER_LENGTH);
 
@@ -285,13 +286,14 @@ pub fn prepare_statement(
     query: &str,
     charset: &Charset,
 ) -> Result<Bytes, FbError> {
-    let mut req = BytesMut::with_capacity(28 + query.len() + XSQLDA_DESCRIBE_VARS.len());
+    let bytes = charset.encode(query)?;
+    let mut req = BytesMut::with_capacity(28 + bytes.len() + XSQLDA_DESCRIBE_VARS.len());
 
     req.put_u32(WireOp::PrepareStatement as u32);
     req.put_u32(tr_handle);
     req.put_u32(stmt_handle);
     req.put_u32(dialect);
-    req.put_wire_bytes(&charset.encode(query)?);
+    req.put_wire_bytes(&bytes);
     req.put_wire_bytes(&XSQLDA_DESCRIBE_VARS); // Data to be returned
 
     req.put_u32(BUFFER_LENGTH);

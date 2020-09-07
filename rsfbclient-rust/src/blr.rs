@@ -59,19 +59,18 @@ pub fn params_to_blr(
     for p in params {
         match p {
             Param::Text(s) => {
-                let len = s.len();
                 let bytes = conn.charset.encode(s.to_string())?;
-                if len > MAX_DATA_LENGTH {
+                if bytes.len() > MAX_DATA_LENGTH {
                     // Data too large, send as blob
                     handle_blob(conn, &mut blr, &mut values, &bytes)?;
                 } else {
                     blr.put_u8(consts::blr::TEXT);
-                    blr.put_u16_le(len as u16);
+                    blr.put_u16_le(bytes.len() as u16);
 
                     values.put_slice(&bytes);
-                    if len % 4 != 0 {
+                    if bytes.len() % 4 != 0 {
                         // 4 byte align
-                        values.put_slice(&[0; 4][..4 - (len as usize % 4)])
+                        values.put_slice(&[0; 4][..4 - (bytes.len() as usize % 4)])
                     }
                 }
             }

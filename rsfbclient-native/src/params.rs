@@ -122,10 +122,9 @@ impl ParamBuffer {
 
         let mut buffer = match info {
             Param::Text(s) => {
-                let len = s.len();
                 let bytes = charset.encode(s)?;
 
-                if len > MAX_TEXT_LENGTH {
+                if bytes.len() > MAX_TEXT_LENGTH {
                     binary_to_blob(bytes, db, tr, ibase)?
                 } else {
                     bytes
