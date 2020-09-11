@@ -59,7 +59,7 @@ pub fn params_to_blr(
     for p in params {
         match p {
             Param::Text(s) => {
-                let bytes = conn.charset.encode(s.to_string())?;
+                let bytes = conn.charset.encode(s)?;
                 if bytes.len() > MAX_DATA_LENGTH {
                     // Data too large, send as blob
                     handle_blob(conn, &mut blr, &mut values, &bytes)?;
