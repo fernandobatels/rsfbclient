@@ -154,7 +154,7 @@ pub fn attach(
 
         dpb.put_u8(1); //Version
 
-        let charset = charset.fb.as_bytes();
+        let charset = charset.on_firebird.as_bytes();
 
         dpb.put_slice(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
         dpb.put_slice(charset);

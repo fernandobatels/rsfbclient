@@ -37,7 +37,7 @@ impl FirebirdClientEmbeddedAttach for NativeFbClient {
             dpb.extend(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
             dpb.extend(user.bytes());
 
-            let charset = self.charset.fb.bytes();
+            let charset = self.charset.on_firebird.bytes();
 
             dpb.extend(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
             dpb.extend(charset);
@@ -88,7 +88,7 @@ impl FirebirdClientRemoteAttach for NativeFbClient {
             dpb.extend(&[ibase::isc_dpb_password as u8, pass.len() as u8]);
             dpb.extend(pass.bytes());
 
-            let charset = self.charset.fb.bytes();
+            let charset = self.charset.on_firebird.bytes();
 
             dpb.extend(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
             dpb.extend(charset);
