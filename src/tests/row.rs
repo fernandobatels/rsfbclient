@@ -5,7 +5,7 @@
 //!
 
 mk_tests_default! {
-    use crate::{prelude::*, Connection, FbError, Row};
+    use crate::{prelude::*, FbError, Row};
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
     use rsfbclient_core::ColumnToVal;
     use std::str;
@@ -13,7 +13,7 @@ mk_tests_default! {
 
     #[test]
     fn boolean() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (engine_version,): (String,) = conn.query_first(
             "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') from rdb$database;",
@@ -34,7 +34,7 @@ mk_tests_default! {
 
     #[test]
     fn blob_binary_subtype() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a,): (Vec<u8>,) = conn.query_first("select cast(x'61626320c3a462c3a720313233' as blob SUB_TYPE 0) from rdb$database;", ())?
             .unwrap();
@@ -47,7 +47,7 @@ mk_tests_default! {
 
     #[test]
     fn blob_text_subtype() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a,): (String,) = conn.query_first("select cast('abc äbç 123' as BLOB sub_type 1) from rdb$database", ())?
             .unwrap();
@@ -67,7 +67,7 @@ mk_tests_default! {
 
     #[test]
     fn big_blob_binary() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let rvec: Vec<u8> = rand::thread_rng()
             .sample_iter(Standard)
@@ -88,7 +88,7 @@ mk_tests_default! {
 
     #[test]
     fn big_blob_text() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let rstr: String = rand::thread_rng()
             .sample_iter(Alphanumeric)
@@ -109,7 +109,7 @@ mk_tests_default! {
 
     #[test]
     fn dates() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a, b, c): (NaiveDate, NaiveDateTime, NaiveTime) = conn
                 .query_first(
@@ -126,7 +126,7 @@ mk_tests_default! {
 
     #[test]
     fn strings() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a, b): (String, String) = conn
             .query_first(
@@ -152,7 +152,7 @@ mk_tests_default! {
     #[test]
     #[allow(clippy::float_cmp, clippy::excessive_precision)]
     fn fixed_points() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a, b): (f32, f32) = conn
             .query_first(
@@ -187,7 +187,7 @@ mk_tests_default! {
     #[test]
     #[allow(clippy::float_cmp)]
     fn float_points() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a, b): (f32, f64) = conn
             .query_first(
@@ -228,7 +228,7 @@ mk_tests_default! {
 
     #[test]
     fn ints() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (a, b, c): (i32, i16, i64) = conn
             .query_first(
@@ -278,7 +278,7 @@ mk_tests_default! {
 
     #[test]
     fn lots_of_columns() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let vals = -250..250;
 

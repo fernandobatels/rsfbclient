@@ -17,13 +17,15 @@ use crate::{
     xsqlda::{parse_xsqlda, xsqlda_to_blr, PrepareInfo, XSqlVar},
 };
 use rsfbclient_core::{
-    ibase, Column, Dialect, FbError, FirebirdClient, FirebirdClientRemoteAttach, FreeStmtOp, Param,
-    StmtType, TrIsolationLevel, TrOp,
+    ibase, Charset, Column, Dialect, FbError, FirebirdClient, FirebirdClientRemoteAttach,
+    FreeStmtOp, Param, StmtType, TrIsolationLevel, TrOp,
 };
 
 /// Firebird client implemented in rust
 pub struct RustFbClient {
     conn: Option<FirebirdWireConnection>,
+
+    charset: Charset,
 }
 
 /// A Connection to a firebird server
@@ -39,6 +41,8 @@ pub struct FirebirdWireConnection {
 
     /// Data for the prepared statements
     stmt_data_map: HashMap<StmtHandle, StmtData>,
+
+    pub(crate) charset: Charset,
 }
 
 /// Data to keep track about a prepared statement
@@ -67,7 +71,14 @@ impl FirebirdClientRemoteAttach for RustFbClient {
         // Take the existing connection, or connects
         let mut conn = match self.conn.take() {
             Some(conn) => conn,
-            None => FirebirdWireConnection::connect(host, port, db_name, user, pass)?,
+            None => FirebirdWireConnection::connect(
+                host,
+                port,
+                db_name,
+                user,
+                pass,
+                self.charset.clone(),
+            )?,
         };
 
         let attach_result = conn.attach_database(db_name, user, pass);
@@ -86,11 +97,14 @@ impl FirebirdClient for RustFbClient {
 
     type Args = ();
 
-    fn new(_args: Self::Args) -> Result<Self, FbError>
+    fn new(charset: Charset, _args: Self::Args) -> Result<Self, FbError>
     where
         Self: Sized,
     {
-        Ok(Self { conn: None })
+        Ok(Self {
+            conn: None,
+            charset,
+        })
     }
 
     fn detach_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError> {
@@ -204,6 +218,7 @@ impl FirebirdWireConnection {
         db_name: &str,
         user: &str,
         pass: &str,
+        charset: Charset,
     ) -> Result<Self, FbError> {
         let socket = TcpStream::connect((host, port))?;
 
@@ -299,6 +314,7 @@ impl FirebirdWireConnection {
             version,
             buff,
             stmt_data_map: Default::default(),
+            charset,
         })
     }
 
@@ -309,8 +325,13 @@ impl FirebirdWireConnection {
         user: &str,
         pass: &str,
     ) -> Result<DbHandle, FbError> {
-        self.socket
-            .write_all(&attach(db_name, user, pass, self.version))?;
+        self.socket.write_all(&attach(
+            db_name,
+            user,
+            pass,
+            self.version,
+            self.charset.clone(),
+        ))?;
         self.socket.flush()?;
 
         let resp = self.read_response()?;
@@ -375,7 +396,12 @@ impl FirebirdWireConnection {
         sql: &str,
     ) -> Result<(), FbError> {
         self.socket
-            .write_all(&exec_immediate(tr_handle.0, dialect as u32, sql))
+            .write_all(&exec_immediate(
+                tr_handle.0,
+                dialect as u32,
+                sql,
+                &self.charset,
+            )?)
             .unwrap();
         self.socket.flush()?;
 
@@ -402,7 +428,8 @@ impl FirebirdWireConnection {
             u32::MAX,
             dialect as u32,
             sql,
-        ))?;
+            &self.charset,
+        )?)?;
         self.socket.flush()?;
 
         let (op_code, mut resp) = self.read_packet()?;
@@ -540,7 +567,9 @@ impl FirebirdWireConnection {
                 return err_conn_rejected(op_code);
             }
 
-            if let Some(parsed_cols) = parse_fetch_response(&mut resp, xsqlda, self.version)? {
+            if let Some(parsed_cols) =
+                parse_fetch_response(&mut resp, xsqlda, self.version, &self.charset)?
+            {
                 let mut cols = Vec::with_capacity(parsed_cols.len());
 
                 for pc in parsed_cols {
@@ -789,11 +818,14 @@ impl Write for FbStream {
 #[test]
 #[ignore]
 fn connection_test() {
+    use rsfbclient_core::charset::UTF_8;
+
     let db_name = "test.fdb";
     let user = "SYSDBA";
     let pass = "masterkey";
 
-    let mut conn = FirebirdWireConnection::connect("127.0.0.1", 3050, db_name, user, pass).unwrap();
+    let mut conn =
+        FirebirdWireConnection::connect("127.0.0.1", 3050, db_name, user, pass, UTF_8).unwrap();
 
     let db_handle = conn.attach_database(db_name, user, pass).unwrap();
 

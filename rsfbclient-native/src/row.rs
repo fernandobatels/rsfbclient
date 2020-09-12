@@ -4,7 +4,7 @@
 //! Representation of a fetched row
 //!
 
-use rsfbclient_core::{Column, ColumnType, FbError};
+use rsfbclient_core::{Charset, Column, ColumnType, FbError};
 use std::{convert::TryInto, mem, result::Result, str};
 
 use crate::{ibase, ibase::IBase, status::Status};
@@ -158,13 +158,14 @@ impl ColumnBuffer {
         db: &mut ibase::isc_db_handle,
         tr: &mut ibase::isc_tr_handle,
         ibase: &IBase,
+        charset: &Charset,
     ) -> Result<Column, FbError> {
         if *self.nullind != 0 {
             return Ok(Column::new(self.col_name.clone(), None));
         }
 
         let col_type = match self.kind {
-            Text => ColumnType::Text(varchar_to_string(&self.buffer)?),
+            Text => ColumnType::Text(varchar_to_string(&self.buffer, charset)?),
 
             Integer => ColumnType::Integer(integer_from_buffer(&self.buffer)?),
 
@@ -172,7 +173,9 @@ impl ColumnBuffer {
 
             Timestamp => ColumnType::Timestamp(timestamp_from_buffer(&self.buffer)?),
 
-            BlobText => ColumnType::Text(blobtext_to_string(&self.buffer, db, tr, ibase)?),
+            BlobText => {
+                ColumnType::Text(blobtext_to_string(&self.buffer, db, tr, ibase, &charset)?)
+            }
 
             BlobBinary => ColumnType::Binary(blobbinary_to_vec(&self.buffer, db, tr, ibase)?),
 
@@ -209,11 +212,11 @@ fn blobtext_to_string(
     db: &mut ibase::isc_db_handle,
     tr: &mut ibase::isc_tr_handle,
     ibase: &IBase,
+    charset: &Charset,
 ) -> Result<String, FbError> {
     let blob_bytes = read_blob(buffer, db, tr, ibase)?;
 
-    Ok(String::from_utf8(blob_bytes)
-        .map_err(|_| FbError::from("Found column with an invalid utf-8 string"))?)
+    charset.decode(&blob_bytes)
 }
 
 /// Read the blob type
@@ -277,7 +280,7 @@ fn read_blob(
 }
 
 /// Converts a varchar in a buffer to a String
-fn varchar_to_string(buffer: &[u8]) -> Result<String, FbError> {
+fn varchar_to_string(buffer: &[u8], charset: &Charset) -> Result<String, FbError> {
     if buffer.len() < 2 {
         return err_buffer_len(2, buffer.len(), "String");
     }
@@ -288,9 +291,7 @@ fn varchar_to_string(buffer: &[u8]) -> Result<String, FbError> {
         return err_buffer_len(len + 2, buffer.len(), "String");
     }
 
-    str::from_utf8(&buffer[2..(len + 2)])
-        .map(|str| str.to_string())
-        .map_err(|_| "Found column with an invalid utf-8 string".into())
+    charset.decode(&buffer[2..(len + 2)])
 }
 
 /// Interprets an integer value from a buffer

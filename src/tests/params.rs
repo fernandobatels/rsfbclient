@@ -5,13 +5,13 @@
 //!
 
 mk_tests_default! {
-    use crate::{prelude::*, Connection, FbError, Param};
+    use crate::{prelude::*, FbError, Param};
     use chrono::{NaiveDate, NaiveTime};
     use rand::{distributions::Standard, Rng};
 
     #[test]
     fn boolean() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let (engine_version,): (String,) = conn.query_first(
             "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') from rdb$database;",
@@ -39,7 +39,7 @@ mk_tests_default! {
 
     #[test]
     fn blob_binary_subtype() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         conn.execute("DROP TABLE PBLOBBIN", ()).ok();
         conn.execute("CREATE TABLE PBLOBBIN (content blob sub_type 0)", ())?;
@@ -54,7 +54,7 @@ mk_tests_default! {
 
     #[test]
     fn blob_text_subtype() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         conn.execute("DROP TABLE PBLOBTEXT", ()).ok();
         conn.execute("CREATE TABLE PBLOBTEXT (content blob sub_type 1)", ())?;
@@ -68,7 +68,7 @@ mk_tests_default! {
 
     #[test]
     fn big_blob_binary() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let rstr: Vec<u8> = rand::thread_rng()
             .sample_iter::<u8, _>(Standard)
@@ -85,7 +85,7 @@ mk_tests_default! {
 
     #[test]
     fn big_blob_text() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let rstr: String = rand::thread_rng()
             .sample_iter::<char, _>(Standard)
@@ -102,7 +102,7 @@ mk_tests_default! {
 
     #[test]
     fn dates() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         conn.execute("DROP TABLE PDATES", ()).ok();
         conn.execute(
@@ -145,7 +145,7 @@ mk_tests_default! {
 
     #[test]
     fn strings() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         conn.execute("DROP TABLE PSTRINGS", ()).ok();
         conn.execute(
@@ -178,7 +178,7 @@ mk_tests_default! {
 
     #[test]
     fn fixed_points() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         conn.execute("DROP TABLE PFIXEDS", ()).ok();
         conn.execute(
@@ -201,7 +201,7 @@ mk_tests_default! {
 
     #[test]
     fn float_points() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         conn.execute("DROP TABLE PFLOATS", ()).ok();
         conn.execute(
@@ -231,7 +231,7 @@ mk_tests_default! {
 
     #[test]
     fn ints() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         conn.execute("DROP TABLE PINTEGERS", ()).ok();
         conn.execute(
@@ -272,7 +272,7 @@ mk_tests_default! {
 
     #[test]
     fn null() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let res: Option<(i32,)> = conn.query_first(
             "select 1 from rdb$database where 1 = ? ",
@@ -286,7 +286,7 @@ mk_tests_default! {
 
     #[test]
     fn lots_of_params() -> Result<(), FbError> {
-        let mut conn = connect();
+        let mut conn = cbuilder().connect()?;
 
         let vals = -250..250;
 

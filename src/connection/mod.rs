@@ -9,8 +9,8 @@ pub mod pool;
 pub mod stmt_cache;
 
 use rsfbclient_core::{
-    Dialect, FbError, FirebirdClient, FirebirdClientEmbeddedAttach, FirebirdClientRemoteAttach,
-    FromRow, IntoParams,
+    charset::Charset, charset::UTF_8, Dialect, FbError, FirebirdClient,
+    FirebirdClientEmbeddedAttach, FirebirdClientRemoteAttach, FromRow, IntoParams,
 };
 use std::{cell::RefCell, marker};
 
@@ -28,6 +28,7 @@ pub struct ConnectionBuilder<C: FirebirdClient> {
     stmt_cache_size: usize,
     cli_args: C::Args,
     _cli_type: marker::PhantomData<C>,
+    charset: Charset,
 }
 
 /// The builder for creating database connections using the embedded firebird
@@ -38,6 +39,7 @@ pub struct ConnectionBuilderEmbedded<C: FirebirdClient> {
     stmt_cache_size: usize,
     cli_args: C::Args,
     _cli_type: marker::PhantomData<C>,
+    charset: Charset,
 }
 
 /// The `PhantomMarker` makes it not Sync, but it is not true,
@@ -60,6 +62,24 @@ where
             stmt_cache_size: self.stmt_cache_size,
             cli_args: self.cli_args.clone(),
             _cli_type: Default::default(),
+            charset: self.charset.clone(),
+        }
+    }
+}
+
+impl<C> Clone for ConnectionBuilderEmbedded<C>
+where
+    C: FirebirdClient,
+{
+    fn clone(&self) -> Self {
+        Self {
+            db_name: self.db_name.clone(),
+            user: self.user.clone(),
+            dialect: self.dialect,
+            stmt_cache_size: self.stmt_cache_size,
+            cli_args: self.cli_args.clone(),
+            _cli_type: Default::default(),
+            charset: self.charset.clone(),
         }
     }
 }
@@ -79,6 +99,7 @@ impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
             stmt_cache_size: 20,
             cli_args: rsfbclient_native::Args::Linking,
             _cli_type: Default::default(),
+            charset: UTF_8,
         }
     }
 
@@ -113,6 +134,7 @@ impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
                 lib_path: fbclient.into(),
             },
             _cli_type: Default::default(),
+            charset: UTF_8,
         }
     }
 
@@ -126,6 +148,7 @@ impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
             stmt_cache_size: self.stmt_cache_size,
             cli_args: self.cli_args,
             _cli_type: Default::default(),
+            charset: UTF_8,
         }
     }
 }
@@ -144,6 +167,7 @@ impl ConnectionBuilder<rsfbclient_rust::RustFbClient> {
             stmt_cache_size: 20,
             cli_args: (),
             _cli_type: Default::default(),
+            charset: UTF_8,
         }
     }
 }
@@ -194,9 +218,15 @@ where
         self
     }
 
+    /// Charset. Default: UTF_8
+    pub fn charset(&mut self, charset: Charset) -> &mut Self {
+        self.charset = charset;
+        self
+    }
+
     /// Open a new connection to the database
     pub fn connect(&self) -> Result<Connection<C>, FbError> {
-        Connection::open_remote(self, C::new(self.cli_args.clone())?)
+        Connection::open_remote(self, C::new(self.charset.clone(), self.cli_args.clone())?)
     }
 }
 
@@ -228,9 +258,17 @@ where
         self
     }
 
+    /// Connection charset. It is only necessary to specify a charset other than the default `UTF-8` if you
+    /// have text stored in the database using columns with charset `NONE` or `OCTETS`. Otherwise
+    /// the database will handle the charset conversion automatically
+    pub fn charset(&mut self, charset: Charset) -> &mut Self {
+        self.charset = charset;
+        self
+    }
+
     /// Open a new connection to the database
     pub fn connect(&self) -> Result<Connection<C>, FbError> {
-        Connection::open_embedded(self, C::new(self.cli_args.clone())?)
+        Connection::open_embedded(self, C::new(self.charset.clone(), self.cli_args.clone())?)
     }
 }
 
@@ -492,23 +530,24 @@ mk_tests_default! {
     use crate::*;
 
     #[test]
-    fn remote_connection() {
-        let conn = connect();
+    fn remote_connection() -> Result<(), FbError> {
+        let conn = cbuilder().connect()?;
 
         conn.close().expect("error closing the connection");
+
+        Ok(())
     }
 
     #[test]
-    fn query_iter() {
-        let mut conn = connect();
+    fn query_iter() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
 
         let mut rows = 0;
 
         for row in conn
-            .query_iter("SELECT -3 FROM RDB$DATABASE WHERE 1 = ?", (1,))
-            .expect("Error on the query")
+            .query_iter("SELECT -3 FROM RDB$DATABASE WHERE 1 = ?", (1,))?
         {
-            let (v,): (i32,) = row.expect("");
+            let (v,): (i32,) = row?;
 
             assert_eq!(v, -3);
 
@@ -516,5 +555,7 @@ mk_tests_default! {
         }
 
         assert_eq!(rows, 1);
+
+        Ok(())
     }
 }

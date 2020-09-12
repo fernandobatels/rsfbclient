@@ -11,6 +11,7 @@ pub struct NativeFbClient {
     status: Status,
     /// Output xsqldas and column buffers for the prepared statements
     stmt_data_map: HashMap<ibase::isc_tr_handle, (XSqlDa, Vec<ColumnBuffer>)>,
+    charset: Charset,
 }
 
 #[derive(Clone)]
@@ -36,8 +37,7 @@ impl FirebirdClientEmbeddedAttach for NativeFbClient {
             dpb.extend(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
             dpb.extend(user.bytes());
 
-            // Makes the database convert the strings to utf-8, allowing non ascii characters
-            let charset = b"UTF8";
+            let charset = self.charset.on_firebird.bytes();
 
             dpb.extend(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
             dpb.extend(charset);
@@ -88,8 +88,7 @@ impl FirebirdClientRemoteAttach for NativeFbClient {
             dpb.extend(&[ibase::isc_dpb_password as u8, pass.len() as u8]);
             dpb.extend(pass.bytes());
 
-            // Makes the database convert the strings to utf-8, allowing non ascii characters
-            let charset = b"UTF8";
+            let charset = self.charset.on_firebird.bytes();
 
             dpb.extend(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
             dpb.extend(charset);
@@ -127,13 +126,14 @@ impl FirebirdClient for NativeFbClient {
 
     type Args = Args;
 
-    fn new(args: Self::Args) -> Result<Self, FbError> {
+    fn new(charset: Charset, args: Self::Args) -> Result<Self, FbError> {
         match args {
             #[cfg(feature = "linking")]
             Args::Linking => Ok(Self {
                 ibase: IBase::Linking,
                 status: Default::default(),
                 stmt_data_map: Default::default(),
+                charset,
             }),
 
             #[cfg(feature = "dynamic_loading")]
@@ -141,6 +141,7 @@ impl FirebirdClient for NativeFbClient {
                 ibase: IBase::with_client(lib_path).map_err(|e| FbError::from(e.to_string()))?,
                 status: Default::default(),
                 stmt_data_map: Default::default(),
+                charset,
             }),
         }
     }
@@ -242,6 +243,8 @@ impl FirebirdClient for NativeFbClient {
         dialect: Dialect,
         sql: &str,
     ) -> Result<(), FbError> {
+        let sql = self.charset.encode(sql)?;
+
         unsafe {
             if self.ibase.isc_dsql_execute_immediate()(
                 &mut self.status[0],
@@ -266,6 +269,8 @@ impl FirebirdClient for NativeFbClient {
         dialect: Dialect,
         sql: &str,
     ) -> Result<(StmtType, Self::StmtHandle), FbError> {
+        let sql = self.charset.encode(sql)?;
+
         let mut handle = 0;
 
         let mut xsqlda = XSqlDa::new(1);
@@ -392,6 +397,7 @@ impl FirebirdClient for NativeFbClient {
             &mut self.status,
             &mut stmt_handle,
             params,
+            &self.charset,
         )?;
 
         unsafe {
@@ -444,7 +450,7 @@ impl FirebirdClient for NativeFbClient {
 
         let cols = col_buf
             .iter()
-            .map(|cb| cb.to_column(&mut db_handle, &mut tr_handle, &self.ibase))
+            .map(|cb| cb.to_column(&mut db_handle, &mut tr_handle, &self.ibase, &self.charset))
             .collect::<Result<_, _>>()?;
 
         Ok(Some(cols))

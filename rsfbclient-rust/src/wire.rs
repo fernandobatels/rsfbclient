@@ -11,7 +11,7 @@ use crate::{
     srp::*,
     xsqlda::{XSqlVar, XSQLDA_DESCRIBE_VARS},
 };
-use rsfbclient_core::{ibase, Column, ColumnType, FbError, FreeStmtOp, TrOp};
+use rsfbclient_core::{ibase, Charset, Column, ColumnType, FbError, FreeStmtOp, TrOp};
 
 /// Buffer length to use in the connection
 pub const BUFFER_LENGTH: u32 = 1024;
@@ -142,13 +142,19 @@ pub fn crypt(algo: &str, kind: &str) -> Bytes {
 }
 
 /// Attach request
-pub fn attach(db_name: &str, user: &str, pass: &str, protocol: ProtocolVersion) -> Bytes {
+pub fn attach(
+    db_name: &str,
+    user: &str,
+    pass: &str,
+    protocol: ProtocolVersion,
+    charset: Charset,
+) -> Bytes {
     let dpb = {
         let mut dpb = BytesMut::with_capacity(64);
 
         dpb.put_u8(1); //Version
 
-        let charset = b"UTF8";
+        let charset = charset.on_firebird.as_bytes();
 
         dpb.put_slice(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
         dpb.put_slice(charset);
@@ -241,18 +247,24 @@ pub fn transaction_operation(tr_handle: u32, op: TrOp) -> Bytes {
 }
 
 /// Execute immediate request
-pub fn exec_immediate(tr_handle: u32, dialect: u32, sql: &str) -> Bytes {
-    let mut req = BytesMut::with_capacity(28 + sql.len());
+pub fn exec_immediate(
+    tr_handle: u32,
+    dialect: u32,
+    sql: &str,
+    charset: &Charset,
+) -> Result<Bytes, FbError> {
+    let bytes = charset.encode(sql)?;
+    let mut req = BytesMut::with_capacity(28 + bytes.len());
 
     req.put_u32(WireOp::ExecImmediate as u32);
     req.put_u32(tr_handle);
     req.put_u32(0); // Statement handle, apparently unused
     req.put_u32(dialect);
-    req.put_wire_bytes(sql.as_bytes());
+    req.put_wire_bytes(&bytes);
     req.put_u32(0); // TODO: parameters
     req.put_u32(BUFFER_LENGTH);
 
-    req.freeze()
+    Ok(req.freeze())
 }
 
 /// Statement allocation request (lazy response)
@@ -267,19 +279,26 @@ pub fn allocate_statement(db_handle: u32) -> Bytes {
 
 /// Prepare statement request. Use u32::MAX as `stmt_handle` if the statement was allocated
 /// in the previous request
-pub fn prepare_statement(tr_handle: u32, stmt_handle: u32, dialect: u32, query: &str) -> Bytes {
-    let mut req = BytesMut::with_capacity(28 + query.len() + XSQLDA_DESCRIBE_VARS.len());
+pub fn prepare_statement(
+    tr_handle: u32,
+    stmt_handle: u32,
+    dialect: u32,
+    query: &str,
+    charset: &Charset,
+) -> Result<Bytes, FbError> {
+    let bytes = charset.encode(query)?;
+    let mut req = BytesMut::with_capacity(28 + bytes.len() + XSQLDA_DESCRIBE_VARS.len());
 
     req.put_u32(WireOp::PrepareStatement as u32);
     req.put_u32(tr_handle);
     req.put_u32(stmt_handle);
     req.put_u32(dialect);
-    req.put_wire_bytes(query.as_bytes());
+    req.put_wire_bytes(&bytes);
     req.put_wire_bytes(&XSQLDA_DESCRIBE_VARS); // Data to be returned
 
     req.put_u32(BUFFER_LENGTH);
 
-    req.freeze()
+    Ok(req.freeze())
 }
 
 /// Statement information request, to continue a truncated prepare statement xsqlda response
@@ -437,6 +456,7 @@ pub fn parse_fetch_response(
     resp: &mut Bytes,
     xsqlda: &[XSqlVar],
     version: ProtocolVersion,
+    charset: &Charset,
 ) -> Result<Option<Vec<ParsedColumn>>, FbError> {
     const END_OF_STREAM: u32 = 100;
 
@@ -516,9 +536,7 @@ pub fn parse_fetch_response(
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        Some(ColumnType::Text(String::from_utf8(d.to_vec()).map_err(
-                            |_| FbError::from("Invalid UTF8 string received from server"),
-                        )?)),
+                        Some(ColumnType::Text(charset.decode(&d.to_vec())?)),
                     )))
                 }
             }
@@ -696,9 +714,7 @@ impl ParsedColumn {
                     Some(if binary {
                         ColumnType::Binary(data.freeze().to_vec())
                     } else {
-                        let text = String::from_utf8(data.freeze().to_vec())
-                            .map_err(|_| FbError::from("Invalid utf8 data in blob column"))?;
-                        ColumnType::Text(text)
+                        ColumnType::Text(conn.charset.decode(&data.freeze().to_vec())?)
                     }),
                 )
             }
