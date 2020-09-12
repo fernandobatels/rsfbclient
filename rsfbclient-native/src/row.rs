@@ -216,7 +216,7 @@ fn blobtext_to_string(
 ) -> Result<String, FbError> {
     let blob_bytes = read_blob(buffer, db, tr, ibase)?;
 
-    charset.decode(&blob_bytes)
+    charset.decode(blob_bytes)
 }
 
 /// Read the blob type

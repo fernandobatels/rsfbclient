@@ -536,7 +536,7 @@ pub fn parse_fetch_response(
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        Some(ColumnType::Text(charset.decode(&d.to_vec())?)),
+                        Some(ColumnType::Text(charset.decode(&d[..])?)),
                     )))
                 }
             }
@@ -693,7 +693,7 @@ impl ParsedColumn {
                 id,
                 col_name,
             } => {
-                let mut data = BytesMut::new();
+                let mut data = Vec::with_capacity(256);
 
                 let blob_handle = conn.open_blob(tr_handle, id)?;
 
@@ -712,9 +712,9 @@ impl ParsedColumn {
                 Column::new(
                     col_name,
                     Some(if binary {
-                        ColumnType::Binary(data.freeze().to_vec())
+                        ColumnType::Binary(data)
                     } else {
-                        ColumnType::Text(conn.charset.decode(&data.freeze().to_vec())?)
+                        ColumnType::Text(conn.charset.decode(data)?)
                     }),
                 )
             }

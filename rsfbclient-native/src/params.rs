@@ -125,9 +125,9 @@ impl ParamBuffer {
                 let bytes = charset.encode(s)?;
 
                 if bytes.len() > MAX_TEXT_LENGTH {
-                    binary_to_blob(bytes, db, tr, ibase)?
+                    binary_to_blob(&bytes, db, tr, ibase)?
                 } else {
-                    bytes
+                    bytes.into_owned()
                 }
             }
             Param::Integer(i) => i.to_ne_bytes().to_vec(),
@@ -141,7 +141,7 @@ impl ParamBuffer {
                 null = -1;
                 vec![]
             }
-            Param::Binary(bin) => binary_to_blob(bin, db, tr, ibase)?,
+            Param::Binary(bin) => binary_to_blob(&bin, db, tr, ibase)?,
             Param::Boolean(bo) => (bo as i8).to_ne_bytes().to_vec(),
         }
         .into_boxed_slice();
@@ -161,7 +161,7 @@ impl ParamBuffer {
 
 // Convert the binary vec to a blob
 fn binary_to_blob(
-    buffer: Vec<u8>,
+    bytes: &[u8],
     db_handle: &mut ibase::isc_db_handle,
     tr_handle: &mut ibase::isc_tr_handle,
     ibase: &IBase,
@@ -194,8 +194,8 @@ fn binary_to_blob(
         if ibase.isc_put_segment()(
             &mut status[0],
             &mut handle,
-            buffer.len() as u16,
-            buffer.as_ptr() as *mut std::os::raw::c_char,
+            bytes.len() as u16,
+            bytes.as_ptr() as *mut std::os::raw::c_char,
         ) != 0
         {
             return Err(status.as_error(&ibase));

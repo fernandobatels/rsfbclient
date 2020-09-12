@@ -91,7 +91,7 @@ mk_tests_default! {
         let mut conn = cbuilder().connect()?;
 
         let rstr: String = rand::thread_rng()
-            .sample_iter(Alphanumeric)
+            .sample_iter::<char, _>(Standard)
             .take(10000)
             .collect();
 
