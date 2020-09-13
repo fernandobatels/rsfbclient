@@ -19,10 +19,12 @@ unsafe impl Send for Varchar {}
 impl Varchar {
     /// Allocate a new varchar buffer
     pub fn new(capacity: u16) -> Self {
-        let ptr = ptr::NonNull::new(unsafe {
-            alloc::alloc_zeroed(layout(capacity as usize)) as *mut InnerVarchar
+        let mut ptr = ptr::NonNull::new(unsafe {
+            alloc::alloc(layout(capacity as usize)) as *mut InnerVarchar
         })
         .unwrap();
+
+        unsafe { ptr.as_mut().len = 0 };
 
         Varchar { capacity, ptr }
     }
