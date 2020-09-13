@@ -9,7 +9,7 @@ mk_tests_default! {
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
     use rsfbclient_core::ColumnToVal;
     use std::str;
-    use rand::{distributions::{Alphanumeric, Standard}, Rng};
+    use rand::{distributions::Standard, Rng};
 
     #[test]
     fn boolean() -> Result<(), FbError> {

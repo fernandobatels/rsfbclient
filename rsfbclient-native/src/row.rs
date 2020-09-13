@@ -5,39 +5,50 @@
 //!
 
 use rsfbclient_core::{Charset, Column, ColumnType, FbError};
-use std::{convert::TryInto, mem, result::Result, str};
+use std::{mem, result::Result};
 
-use crate::{ibase, ibase::IBase, status::Status};
+use crate::{ibase, ibase::IBase, status::Status, varchar::Varchar};
 
-use SqlType::*;
+use ColumnBufferData::*;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 /// Types supported by the crate
-pub enum SqlType {
+pub enum ColumnBufferData {
     /// Coerces to Varchar
-    Text,
+    Text(Varchar),
     /// Coerces to Int64
-    Integer,
+    Integer(Box<i64>),
     /// Coerces to Double
-    Float,
+    Float(Box<f64>),
     /// Coerces to Timestamp
-    Timestamp,
+    Timestamp(Box<ibase::ISC_TIMESTAMP>),
     /// Coerces to Blob sub_type 1
-    BlobText,
+    BlobText(Box<ibase::GDS_QUAD_t>),
     /// Coerces to Blob sub_type 0
-    BlobBinary,
+    BlobBinary(Box<ibase::GDS_QUAD_t>),
     /// Coerces to boolean. Fb >= 3
-    Boolean,
+    Boolean(Box<i8>),
+}
+
+impl ColumnBufferData {
+    fn as_mut_ptr(&mut self) -> *mut ibase::ISC_SCHAR {
+        match self {
+            Text(v) => v.as_ptr() as _,
+            Integer(i) => &**i as *const _ as _,
+            Float(f) => &**f as *const _ as _,
+            Timestamp(ts) => &**ts as *const _ as _,
+            BlobText(bid) => &**bid as *const _ as _,
+            BlobBinary(bid) => &**bid as *const _ as _,
+            Boolean(b) => &**b as *const _ as _,
+        }
+    }
 }
 
 #[derive(Debug)]
 /// Allocates memory for a column
 pub struct ColumnBuffer {
-    /// Type of the data for conversion
-    kind: SqlType,
-
     /// Buffer for the column data
-    buffer: Box<[u8]>,
+    buffer: ColumnBufferData,
 
     /// Null indicator
     nullind: Box<i16>,
@@ -56,74 +67,69 @@ impl ColumnBuffer {
         let mut nullind = Box::new(0);
         var.sqlind = &mut *nullind;
 
-        let (kind, mut buffer) = match sqltype as u32 {
+        let mut buffer = match sqltype as u32 {
             ibase::SQL_BOOLEAN => {
                 var.sqllen = mem::size_of::<i8>() as i16;
 
-                let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
-
                 var.sqltype = ibase::SQL_BOOLEAN as i16 + 1;
 
-                (Boolean, buffer)
+                Boolean(Box::new(0))
             }
 
             // BLOB sql_type text are considered a normal text on read
             ibase::SQL_BLOB if (sqlsubtype == 0 || sqlsubtype == 1) => {
-                let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
+                let blob_id = Box::new(ibase::GDS_QUAD_t {
+                    gds_quad_high: 0,
+                    gds_quad_low: 0,
+                });
 
                 var.sqltype = ibase::SQL_BLOB as i16 + 1;
 
                 if sqlsubtype == 0 {
-                    (BlobBinary, buffer)
+                    BlobBinary(blob_id)
                 } else {
-                    (BlobText, buffer)
+                    BlobText(blob_id)
                 }
             }
 
             ibase::SQL_TEXT | ibase::SQL_VARYING => {
-                // sqllen + 2 because the two bytes from the varchar length
-                let buffer = vec![0; var.sqllen as usize + 2].into_boxed_slice();
-
                 var.sqltype = ibase::SQL_VARYING as i16 + 1;
 
-                (Text, buffer)
+                Text(Varchar::new(var.sqllen as u16))
             }
 
             ibase::SQL_SHORT | ibase::SQL_LONG | ibase::SQL_INT64 => {
                 var.sqllen = mem::size_of::<i64>() as i16;
 
-                let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
-
                 if var.sqlscale == 0 {
                     var.sqltype = ibase::SQL_INT64 as i16 + 1;
 
-                    (Integer, buffer)
+                    Integer(Box::new(0))
                 } else {
                     var.sqlscale = 0;
                     var.sqltype = ibase::SQL_DOUBLE as i16 + 1;
 
-                    (Float, buffer)
+                    Float(Box::new(0.0))
                 }
             }
 
             ibase::SQL_FLOAT | ibase::SQL_DOUBLE => {
                 var.sqllen = mem::size_of::<i64>() as i16;
 
-                let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
-
                 var.sqltype = ibase::SQL_DOUBLE as i16 + 1;
 
-                (Float, buffer)
+                Float(Box::new(0.0))
             }
 
             ibase::SQL_TIMESTAMP | ibase::SQL_TYPE_DATE | ibase::SQL_TYPE_TIME => {
                 var.sqllen = mem::size_of::<ibase::ISC_TIMESTAMP>() as i16;
 
-                let buffer = vec![0; var.sqllen as usize].into_boxed_slice();
-
                 var.sqltype = ibase::SQL_TIMESTAMP as i16 + 1;
 
-                (Timestamp, buffer)
+                Timestamp(Box::new(ibase::ISC_TIMESTAMP {
+                    timestamp_date: 0,
+                    timestamp_time: 0,
+                }))
             }
 
             sqltype => {
@@ -131,7 +137,7 @@ impl ColumnBuffer {
             }
         };
 
-        var.sqldata = buffer.as_mut_ptr() as _;
+        var.sqldata = buffer.as_mut_ptr();
 
         let col_name = {
             let len = usize::min(var.aliasname_length as usize, var.aliasname.len());
@@ -145,7 +151,6 @@ impl ColumnBuffer {
         }?;
 
         Ok(ColumnBuffer {
-            kind,
             buffer,
             nullind,
             col_name,
@@ -164,64 +169,52 @@ impl ColumnBuffer {
             return Ok(Column::new(self.col_name.clone(), None));
         }
 
-        let col_type = match self.kind {
-            Text => ColumnType::Text(varchar_to_string(&self.buffer, charset)?),
+        let col_type = match &self.buffer {
+            Text(varchar) => ColumnType::Text(charset.decode(varchar.as_bytes())?),
 
-            Integer => ColumnType::Integer(integer_from_buffer(&self.buffer)?),
+            Integer(i) => ColumnType::Integer(**i),
 
-            Float => ColumnType::Float(float_from_buffer(&self.buffer)?),
+            Float(f) => ColumnType::Float(**f),
 
-            Timestamp => ColumnType::Timestamp(timestamp_from_buffer(&self.buffer)?),
+            Timestamp(ts) => ColumnType::Timestamp(**ts),
 
-            BlobText => {
-                ColumnType::Text(blobtext_to_string(&self.buffer, db, tr, ibase, &charset)?)
-            }
+            BlobText(b) => ColumnType::Text(blobtext_to_string(**b, db, tr, ibase, &charset)?),
 
-            BlobBinary => ColumnType::Binary(blobbinary_to_vec(&self.buffer, db, tr, ibase)?),
+            BlobBinary(b) => ColumnType::Binary(blobbinary_to_vec(**b, db, tr, ibase)?),
 
-            Boolean => ColumnType::Boolean(boolean_from_buffer(&self.buffer)?),
+            Boolean(b) => ColumnType::Boolean(**b != 0),
         };
 
         Ok(Column::new(self.col_name.clone(), Some(col_type)))
     }
 }
 
-/// Interprets a boolean value from a buffer
-fn boolean_from_buffer(buffer: &[u8]) -> Result<bool, FbError> {
-    let len = mem::size_of::<i8>();
-    if buffer.len() < len {
-        return err_buffer_len(len, buffer.len(), "bool");
-    }
-
-    Ok(i8::from_ne_bytes(buffer.try_into().unwrap()) != 0)
-}
-
 /// Converts a binary blob to a vec<u8>
 fn blobbinary_to_vec(
-    buffer: &[u8],
+    blob_id: ibase::GDS_QUAD_t,
     db: &mut ibase::isc_db_handle,
     tr: &mut ibase::isc_tr_handle,
     ibase: &IBase,
 ) -> Result<Vec<u8>, FbError> {
-    read_blob(buffer, db, tr, ibase)
+    read_blob(blob_id, db, tr, ibase)
 }
 
 /// Converts a text blob to a string
 fn blobtext_to_string(
-    buffer: &[u8],
+    blob_id: ibase::GDS_QUAD_t,
     db: &mut ibase::isc_db_handle,
     tr: &mut ibase::isc_tr_handle,
     ibase: &IBase,
     charset: &Charset,
 ) -> Result<String, FbError> {
-    let blob_bytes = read_blob(buffer, db, tr, ibase)?;
+    let blob_bytes = read_blob(blob_id, db, tr, ibase)?;
 
     charset.decode(blob_bytes)
 }
 
 /// Read the blob type
 fn read_blob(
-    buffer: &[u8],
+    mut blob_id: ibase::GDS_QUAD_t,
     db: &mut ibase::isc_db_handle,
     tr: &mut ibase::isc_tr_handle,
     ibase: &IBase,
@@ -230,17 +223,6 @@ fn read_blob(
     let mut handle = 0;
 
     let mut blob_bytes = Vec::with_capacity(256);
-
-    let len = mem::size_of::<ibase::GDS_QUAD_t>();
-    assert_eq!(len, 8);
-    if buffer.len() < len {
-        return err_buffer_len(len, buffer.len(), "Blob");
-    }
-
-    let mut blob_id = ibase::GDS_QUAD_t {
-        gds_quad_high: ibase::ISC_LONG::from_ne_bytes(buffer[0..4].try_into().unwrap()),
-        gds_quad_low: ibase::ISC_ULONG::from_ne_bytes(buffer[4..8].try_into().unwrap()),
-    };
 
     unsafe {
         if ibase.isc_open_blob()(&mut status[0], db, tr, &mut handle, &mut blob_id) != 0 {
@@ -277,63 +259,4 @@ fn read_blob(
     }
 
     Ok(blob_bytes)
-}
-
-/// Converts a varchar in a buffer to a String
-fn varchar_to_string(buffer: &[u8], charset: &Charset) -> Result<String, FbError> {
-    if buffer.len() < 2 {
-        return err_buffer_len(2, buffer.len(), "String");
-    }
-
-    let len = i16::from_ne_bytes(buffer[0..2].try_into().unwrap()) as usize;
-
-    if len > buffer.len() - 2 {
-        return err_buffer_len(len + 2, buffer.len(), "String");
-    }
-
-    charset.decode(&buffer[2..(len + 2)])
-}
-
-/// Interprets an integer value from a buffer
-fn integer_from_buffer(buffer: &[u8]) -> Result<i64, FbError> {
-    let len = mem::size_of::<i64>();
-    if buffer.len() < len {
-        return err_buffer_len(len, buffer.len(), "i64");
-    }
-
-    Ok(i64::from_ne_bytes(buffer.try_into().unwrap()))
-}
-
-/// Interprets a float value from a buffer
-fn float_from_buffer(buffer: &[u8]) -> Result<f64, FbError> {
-    let len = mem::size_of::<f64>();
-    if buffer.len() < len {
-        return err_buffer_len(len, buffer.len(), "f64");
-    }
-
-    Ok(f64::from_ne_bytes(buffer.try_into().unwrap()))
-}
-
-/// Interprets a timestamp value from a buffer
-pub fn timestamp_from_buffer(buffer: &[u8]) -> Result<ibase::ISC_TIMESTAMP, FbError> {
-    let len = mem::size_of::<ibase::ISC_TIMESTAMP>();
-    assert_eq!(len, 8);
-    if buffer.len() < len {
-        return err_buffer_len(len, buffer.len(), "NaiveDateTime");
-    }
-
-    let date = ibase::ISC_TIMESTAMP {
-        timestamp_date: ibase::ISC_DATE::from_ne_bytes(buffer[0..4].try_into().unwrap()),
-        timestamp_time: ibase::ISC_TIME::from_ne_bytes(buffer[4..8].try_into().unwrap()),
-    };
-
-    Ok(date)
-}
-
-pub fn err_buffer_len<T>(expected: usize, found: usize, type_name: &str) -> Result<T, FbError> {
-    Err(format!(
-        "Invalid buffer size for type {:?} (expected: {}, found: {})",
-        type_name, expected, found
-    )
-    .into())
 }

@@ -1,5 +1,9 @@
+use std::{mem, ptr};
+
 use crate::{ibase, ibase::IBase, status::Status, xsqlda::XSqlDa};
 use rsfbclient_core::{Charset, FbError, Param, MAX_TEXT_LENGTH};
+
+use ParamBufferData::*;
 
 /// Stores the data needed to send the parameters
 pub struct Params {
@@ -97,10 +101,44 @@ impl Params {
 /// Data for the input XSQLVAR
 pub struct ParamBuffer {
     /// Buffer for the parameter data
-    _buffer: Box<[u8]>,
+    _buffer: ParamBufferData,
 
     /// Null indicator
     _nullind: Box<i16>,
+}
+
+/// Data for the input XSQLVAR.
+/// Holds the data in the format expected by the `fbclient`
+enum ParamBufferData {
+    Text(Box<[u8]>),
+
+    Integer(Box<i64>),
+
+    Floating(Box<f64>),
+
+    Timestamp(Box<ibase::ISC_TIMESTAMP>),
+
+    Null,
+
+    Binary(Box<[u8]>),
+
+    /// Only works in fb >= 3.0
+    Boolean(Box<i8>),
+}
+
+impl ParamBufferData {
+    /// Get a pointer to the underlying data
+    fn as_mut_ptr(&mut self) -> *mut ibase::ISC_SCHAR {
+        match self {
+            Text(s) => s.as_ptr() as _,
+            Integer(i) => &**i as *const _ as _,
+            Floating(f) => &**f as *const _ as _,
+            Timestamp(ts) => &**ts as *const _ as _,
+            Null => ptr::null_mut(),
+            Binary(b) => b.as_ptr() as _,
+            Boolean(b) => &**b as *const _ as _,
+        }
+    }
 }
 
 impl ParamBuffer {
@@ -120,37 +158,37 @@ impl ParamBuffer {
         var.sqlsubtype = sqlsubtype as i16;
         var.sqlscale = 0;
 
-        let mut buffer = match info {
+        let (size, mut buffer) = match info {
             Param::Text(s) => {
                 let bytes = charset.encode(s)?;
 
-                if bytes.len() > MAX_TEXT_LENGTH {
+                let bytes = if bytes.len() > MAX_TEXT_LENGTH {
                     binary_to_blob(&bytes, db, tr, ibase)?
                 } else {
                     bytes.into_owned()
-                }
+                };
+
+                (bytes.len(), Text(bytes.into_boxed_slice()))
             }
-            Param::Integer(i) => i.to_ne_bytes().to_vec(),
-            Param::Floating(f) => f.to_ne_bytes().to_vec(),
-            Param::Timestamp(ts) => [
-                ts.timestamp_date.to_ne_bytes(),
-                ts.timestamp_time.to_ne_bytes(),
-            ]
-            .concat(),
+            Param::Integer(i) => (mem::size_of_val(&i), Integer(Box::new(i))),
+            Param::Floating(f) => (mem::size_of_val(&f), Floating(Box::new(f))),
+            Param::Timestamp(ts) => (mem::size_of_val(&ts), Timestamp(Box::new(ts))),
             Param::Null => {
                 null = -1;
-                vec![]
+                (0, Null)
             }
-            Param::Binary(bin) => binary_to_blob(&bin, db, tr, ibase)?,
-            Param::Boolean(bo) => (bo as i8).to_ne_bytes().to_vec(),
-        }
-        .into_boxed_slice();
+            Param::Binary(bin) => {
+                let bytes = binary_to_blob(&bin, db, tr, ibase)?;
+                (bytes.len(), Binary(bytes.into_boxed_slice()))
+            }
+            Param::Boolean(bo) => (mem::size_of::<i8>(), Boolean(Box::new(bo as i8))),
+        };
 
         let mut nullind = Box::new(null);
         var.sqlind = &mut *nullind;
 
-        var.sqldata = buffer.as_mut_ptr() as *mut _;
-        var.sqllen = buffer.len() as i16;
+        var.sqldata = buffer.as_mut_ptr();
+        var.sqllen = size as i16;
 
         Ok(ParamBuffer {
             _buffer: buffer,
