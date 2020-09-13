@@ -196,6 +196,7 @@ impl AuthPluginType {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 /// Converts a gds_code to a error message
 pub fn gds_to_msg(gds_code: u32) -> &'static str {
     match gds_code {
