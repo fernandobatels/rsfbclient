@@ -3,7 +3,7 @@
 //! [Reference](http://www.destructor.de/firebird/charsets.htm)
 
 use encoding::{all, types::EncodingRef, DecoderTrap, EncoderTrap};
-use std::str;
+use std::{borrow::Cow, str};
 
 use crate::FbError;
 
@@ -19,9 +19,14 @@ pub struct Charset {
 
 impl Charset {
     /// Decode the bytes using the current charset
-    pub fn decode(&self, bytes: &[u8]) -> Result<String, FbError> {
+    pub fn decode<'a, B>(&self, bytes: B) -> Result<String, FbError>
+    where
+        B: Into<Cow<'a, [u8]>>,
+    {
+        let bytes = bytes.into();
+
         if let Some(charset) = self.on_rust {
-            charset.decode(bytes, DecoderTrap::Strict).map_err(|e| {
+            charset.decode(&bytes, DecoderTrap::Strict).map_err(|e| {
                 format!(
                     "Found column with an invalid {} string: {}",
                     charset.name(),
@@ -30,27 +35,34 @@ impl Charset {
                 .into()
             })
         } else {
-            str::from_utf8(bytes)
-                .map(|str| str.to_string())
+            String::from_utf8(bytes.into_owned())
+                .map(|str| str)
                 .map_err(|e| format!("Found column with an invalid UTF-8 string: {}", e).into())
         }
     }
 
     // Encode the string into bytes using the current charset
-    pub fn encode<S: Into<String>>(&self, str: S) -> Result<Vec<u8>, FbError> {
+    pub fn encode<'a, S>(&self, s: S) -> Result<Cow<'a, [u8]>, FbError>
+    where
+        S: Into<Cow<'a, str>>,
+    {
+        let s = s.into();
+
         if let Some(charset) = self.on_rust {
-            charset
-                .encode(&str.into(), EncoderTrap::Strict)
-                .map_err(|e| {
-                    format!(
-                        "Found param with an invalid {} string: {}",
-                        charset.name(),
-                        e
-                    )
-                    .into()
-                })
+            let enc = charset.encode(&s, EncoderTrap::Strict).map_err(|e| {
+                FbError::Other(format!(
+                    "Found param with an invalid {} string: {}",
+                    charset.name(),
+                    e
+                ))
+            })?;
+
+            Ok(enc.into())
         } else {
-            Ok(str.into().into_bytes())
+            Ok(match s {
+                Cow::Owned(s) => Cow::Owned(s.into_bytes()),
+                Cow::Borrowed(s) => Cow::Borrowed(s.as_bytes()),
+            })
         }
     }
 }

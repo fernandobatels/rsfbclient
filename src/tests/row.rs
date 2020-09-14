@@ -9,7 +9,7 @@ mk_tests_default! {
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
     use rsfbclient_core::ColumnToVal;
     use std::str;
-    use rand::{distributions::{Alphanumeric, Standard}, Rng};
+    use rand::{distributions::Standard, Rng};
 
     #[test]
     fn boolean() -> Result<(), FbError> {
@@ -91,7 +91,7 @@ mk_tests_default! {
         let mut conn = cbuilder().connect()?;
 
         let rstr: String = rand::thread_rng()
-            .sample_iter(Alphanumeric)
+            .sample_iter::<char, _>(Standard)
             .take(10000)
             .collect();
 
