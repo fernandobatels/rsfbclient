@@ -7,23 +7,25 @@
 use rsfbclient_core::{FbError, FromRow, IntoParams};
 
 /// Implemented for types that can be used to execute sql queries
-pub trait Queryable<'a, R>
+pub trait Queryable<R>
 where
-    R: FromRow + 'a,
+    R: FromRow,
 {
-    type Iter: Iterator<Item = Result<R, FbError>> + 'a;
-
     /// Returns the results of the query as an iterator
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    fn query_iter<P>(&'a mut self, sql: &str, params: P) -> Result<Self::Iter, FbError>
+    fn query_iter<'a, P>(
+        &'a mut self,
+        sql: &str,
+        params: P,
+    ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
     where
         P: IntoParams;
 
     /// Returns the results of the query as a `Vec`
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    fn query<P>(&'a mut self, sql: &str, params: P) -> Result<Vec<R>, FbError>
+    fn query<'a, P>(&'a mut self, sql: &str, params: P) -> Result<Vec<R>, FbError>
     where
         P: IntoParams,
     {
@@ -33,7 +35,7 @@ where
     /// Returns the first result of the query, or None
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    fn query_first<P>(&'a mut self, sql: &str, params: P) -> Result<Option<R>, FbError>
+    fn query_first<'a, P>(&'a mut self, sql: &str, params: P) -> Result<Option<R>, FbError>
     where
         P: IntoParams,
     {

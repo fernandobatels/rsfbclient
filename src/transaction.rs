@@ -124,17 +124,21 @@ where
     }
 }
 
-impl<'a, R, C> Queryable<'a, R> for Transaction<'a, C>
+impl<'c, R, C> Queryable<R> for Transaction<'c, C>
 where
-    R: FromRow + 'a,
+    R: FromRow + 'c,
     C: FirebirdClient,
 {
-    type Iter = StmtIter<'a, R, C>;
+    // type Iter = StmtIter<'a, R, C>;
 
     /// Prepare, execute and return the rows of the sql query
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    fn query_iter<P>(&'a mut self, sql: &str, params: P) -> Result<Self::Iter, FbError>
+    fn query_iter<'a, P>(
+        &'a mut self,
+        sql: &str,
+        params: P,
+    ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
     where
         P: IntoParams,
     {
@@ -156,7 +160,7 @@ where
                     _marker: Default::default(),
                 };
 
-                Ok(iter)
+                Ok(Box::new(iter))
             }
             Err(e) => {
                 // Return the statement to the cache
