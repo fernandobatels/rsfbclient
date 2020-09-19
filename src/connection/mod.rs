@@ -446,9 +446,8 @@ where
     }
 }
 
-impl<R, C> Queryable<R> for Connection<C>
+impl<C> Queryable for Connection<C>
 where
-    R: FromRow + 'static,
     C: FirebirdClient,
 {
     // type Iter = StmtIter<'a, R, C>;
@@ -456,13 +455,14 @@ where
     /// Prepare, execute, return the rows and commit the sql query
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    fn query_iter<'a, P>(
+    fn query_iter<'a, P, R>(
         &'a mut self,
         sql: &str,
         params: P,
     ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
     where
         P: IntoParams,
+        R: FromRow + 'static,
     {
         let mut tr = Transaction::new(self)?;
 
