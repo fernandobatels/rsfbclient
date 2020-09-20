@@ -450,8 +450,6 @@ impl<C> Queryable for Connection<C>
 where
     C: FirebirdClient,
 {
-    // type Iter = StmtIter<'a, R, C>;
-
     /// Prepare, execute, return the rows and commit the sql query
     ///
     /// Use `()` for no parameters or a tuple of parameters
