@@ -128,8 +128,6 @@ impl<'c, C> Queryable for Transaction<'c, C>
 where
     C: FirebirdClient,
 {
-    // type Iter = StmtIter<'a, R, C>;
-
     /// Prepare, execute and return the rows of the sql query
     ///
     /// Use `()` for no parameters or a tuple of parameters
