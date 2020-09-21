@@ -5,52 +5,96 @@
 //!
 
 mk_tests_default! {
-  use crate::{prelude::*, FbError, Connection, Transaction};
+  use crate::{FbError, Connection, Transaction};
   use rsfbclient_core::FirebirdClient;
 
 
-  const RECREATE_TBL_STMT : &str = "recreate table RSFBCLIENT_TEST_TRANSACTION ( id INT NOT NULL PRIMARY KEY, description VARCHAR(20) );";
-  const DROP_TBL_STMT     : &str = "drop table RSFBCLIENT_TEST_TRANSACTION;";
-  const INSERT_STMT       : &str = "insert into RSFBCLIENT_TEST_TRANSACTION (id, description) values (543210, 'testing');";
-
-
-  fn setup<C: FirebirdClient>( conn: &mut Connection<C> ) ->  Result<(), FbError>{
-     conn.execute( RECREATE_TBL_STMT, ())
+  macro_rules! recreate_tbl_fmtstring{
+    () => {"recreate table {} ( id INT NOT NULL PRIMARY KEY, description VARCHAR(20) );"};
+  }
+  macro_rules! drop_tbl_fmtstring{
+    () => {"drop table {};"};
+  }
+  macro_rules! insert_stmt_fmtstring{
+    () => {"insert into {} (id, description) values (543210, 'testing');"};
   }
 
-  fn teardown<C: FirebirdClient>( conn: &mut Connection<C> ) -> Result<(), FbError> {
-     conn.execute( DROP_TBL_STMT, ())
+  fn setup<C: FirebirdClient>( conn: &mut Connection<C>, table_name: &str ) ->  Result<(), FbError>{
+      let mut setup_transaction = Transaction::new(&conn)?;
+      setup_transaction.execute_immediate( format!(recreate_tbl_fmtstring!(), table_name).as_str() )?;
+      setup_transaction.commit()
+  }
+
+  fn teardown<C: FirebirdClient>( conn: Connection<C>, table_name: &str ) -> Result<(), FbError> {
+      let mut setup_transaction = Transaction::new(&conn)?;
+      setup_transaction.execute_immediate( format!(drop_tbl_fmtstring!(), table_name ).as_str() )?;
+      setup_transaction.commit()?;
+      let close_result = conn.close();
+
+      close_result
   }
 
   #[test]
   fn recreate_insert_drop_with_commit() -> Result<(), FbError> {
-      let mut conn = cbuilder().connect()?;
+      const TABLE_NAME: &str = "RSFBCLIENT_TEST_TRANS0";
 
-      setup(&mut conn)?;
+      let mut conn = cbuilder().connect()?;
+      setup(&mut conn, TABLE_NAME)?;
 
       let mut transaction = Transaction::new(&conn)?;
-      let _insert_result = transaction.execute( INSERT_STMT, () );
-      let commit_result = transaction.commit();
+      let _insert_result  = transaction.execute_immediate( format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str() );
+      let commit_result   = transaction.commit();
 
-      teardown(&mut conn)?;
-
+      teardown(conn, TABLE_NAME)?;
       commit_result
   }
 
   #[test]
   fn recreate_insert_drop_with_commit_retaining() -> Result<(), FbError> {
-      let mut conn = cbuilder().connect()?;
+      const TABLE_NAME: &str = "RSFBCLIENT_TEST_TRANS1";
 
-      setup(&mut conn)?;
+      let mut conn = cbuilder().connect()?;
+      setup(&mut conn, TABLE_NAME)?;
 
       let mut transaction = Transaction::new(&conn)?;
-      let _insert_result = transaction.execute( INSERT_STMT, () );
-      let commit_result = transaction.commit_retaining();
+      let _insert_result  = transaction.execute_immediate( format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str() );
+      let commit_result   = transaction.commit_retaining();
       drop(transaction);
 
-      teardown(&mut conn)?;
-
+      teardown(conn, TABLE_NAME)?;
       commit_result
+  }
+
+  #[test]
+  fn recreate_insert_drop_with_rollback() -> Result<(), FbError> {
+      const TABLE_NAME: &str = "RSFBCLIENT_TEST_TRANS2";
+
+      let mut conn = cbuilder().connect()?;
+      setup(&mut conn, TABLE_NAME)?;
+
+      let mut transaction = Transaction::new(&conn)?;
+      let _insert_result  = transaction.execute_immediate( format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str() );
+      let rollback_result = transaction.rollback();
+
+      teardown(conn, TABLE_NAME)?;
+      rollback_result
+  }
+
+  #[test]
+  fn recreate_insert_drop_with_rollback_retaining() -> Result<(), FbError> {
+      const TABLE_NAME: &str = "RSFBCLIENT_TEST_TRANS3";
+
+      let mut conn = cbuilder().connect()?;
+      setup(&mut conn, TABLE_NAME)?;
+
+      let mut transaction = Transaction::new(&conn)?;
+      let _insert_result  = transaction.execute_immediate( format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str() );
+      let rollback_result = transaction.rollback_retaining();
+      drop(transaction);
+
+      teardown(conn, TABLE_NAME)?;
+
+      rollback_result
   }
 
 }
