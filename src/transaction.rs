@@ -6,6 +6,7 @@
 
 use rsfbclient_core::{FbError, FirebirdClient, FromRow, IntoParams, TrIsolationLevel, TrOp};
 use std::marker;
+use std::mem::ManuallyDrop;
 
 use super::{connection::Connection, statement::Statement};
 use crate::{connection::stmt_cache::StmtCacheData, statement::StatementData, Execute, Queryable};
@@ -31,9 +32,15 @@ where
 
     /// Commit the current transaction changes
     pub fn commit(mut self) -> Result<(), FbError> {
-        self.data.commit(self.conn)?;
-        ManuallyDrop::new(self);
-        Ok(())
+        let result = self.data.commit(self.conn);
+
+        if result.is_ok() {
+            ManuallyDrop::new(self);
+        } else {
+            let _ = self.rollback();
+        }
+
+        result
     }
 
     /// Commit the current transaction changes, but allowing to reuse the transaction
@@ -48,7 +55,9 @@ where
 
     /// Rollback the current transaction changes
     pub fn rollback(mut self) -> Result<(), FbError> {
-        self.data.rollback(self.conn)
+        let result = self.data.rollback(self.conn);
+        ManuallyDrop::new(self);
+        result
     }
 
     /// Execute the statement without returning any row
