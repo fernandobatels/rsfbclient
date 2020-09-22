@@ -31,7 +31,9 @@ where
 
     /// Commit the current transaction changes
     pub fn commit(mut self) -> Result<(), FbError> {
-        self.data.commit(self.conn)
+        self.data.commit(self.conn)?;
+        ManuallyDrop::new(self);
+        Ok(())
     }
 
     /// Commit the current transaction changes, but allowing to reuse the transaction
