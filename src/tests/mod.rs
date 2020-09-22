@@ -101,3 +101,4 @@ macro_rules! mk_tests_default {
 mod charset;
 mod params;
 mod row;
+mod transaction;
