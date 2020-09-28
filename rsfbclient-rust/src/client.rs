@@ -56,6 +56,7 @@ struct StmtData {
 }
 
 impl FirebirdClientRemoteAttach for RustFbClient {
+    type DbHandle = <RustFbClient as FirebirdClient>::DbHandle;
     /// Attach to a database, creating the connections if necessary.
     ///
     /// It will only connect only once, so calling a second time with different

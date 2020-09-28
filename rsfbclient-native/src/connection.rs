@@ -13,68 +13,17 @@ pub struct NativeFbClient {
     stmt_data_map: HashMap<ibase::isc_tr_handle, (XSqlDa, Vec<ColumnBuffer>)>,
     charset: Charset,
 }
+type DbHandle = <NativeFbClient as FirebirdClient>::DbHandle;
+//impl AttachEmbedded for NativeFbClient{}
+//impl AttachRemote for NativeFbClient{}
 
-#[derive(Clone)]
-/// Arguments to instantiate the client
-pub enum Args {
-    #[cfg(feature = "linking")]
-    Linking,
-
-    #[cfg(feature = "dynamic_loading")]
-    /// Dynamic Loading needs the path to the client
-    DynamicLoading { lib_path: String },
-}
-
-impl FirebirdClientEmbeddedAttach for NativeFbClient {
-    fn attach_database(&mut self, db_name: &str, user: &str) -> Result<Self::DbHandle, FbError> {
-        let mut handle = 0;
-
-        let dpb = {
-            let mut dpb: Vec<u8> = Vec::with_capacity(64);
-
-            dpb.extend(&[ibase::isc_dpb_version1 as u8]);
-
-            dpb.extend(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
-            dpb.extend(user.bytes());
-
-            let charset = self.charset.on_firebird.bytes();
-
-            dpb.extend(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
-            dpb.extend(charset);
-
-            dpb
-        };
-
-        unsafe {
-            if self.ibase.isc_attach_database()(
-                &mut self.status[0],
-                db_name.len() as i16,
-                db_name.as_ptr() as *const _,
-                &mut handle,
-                dpb.len() as i16,
-                dpb.as_ptr() as *const _,
-            ) != 0
-            {
-                return Err(self.status.as_error(&self.ibase));
-            }
-        }
-
-        // Assert that the handle is valid
-        debug_assert_ne!(handle, 0);
-
-        Ok(handle)
-    }
-}
-
-impl FirebirdClientRemoteAttach for NativeFbClient {
-    fn attach_database(
+impl NativeFbClient {
+    fn attach_database_remote_or_embedded(
         &mut self,
-        host: &str,
-        port: u16,
-        db_name: &str,
+        conn_string: &str,
         user: &str,
-        pass: &str,
-    ) -> Result<Self::DbHandle, FbError> {
+        pass: Option<&str>,
+    ) -> Result<DbHandle, FbError> {
         let mut handle = 0;
 
         let dpb = {
@@ -85,8 +34,10 @@ impl FirebirdClientRemoteAttach for NativeFbClient {
             dpb.extend(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
             dpb.extend(user.bytes());
 
-            dpb.extend(&[ibase::isc_dpb_password as u8, pass.len() as u8]);
-            dpb.extend(pass.bytes());
+            if let Some(pass_str) = pass {
+                dpb.extend(&[ibase::isc_dpb_password as u8, pass_str.len() as u8]);
+                dpb.extend(pass_str.bytes());
+            };
 
             let charset = self.charset.on_firebird.bytes();
 
@@ -95,8 +46,6 @@ impl FirebirdClientRemoteAttach for NativeFbClient {
 
             dpb
         };
-
-        let conn_string = format!("{}/{}:{}", host, port, db_name);
 
         unsafe {
             if self.ibase.isc_attach_database()(
@@ -116,6 +65,40 @@ impl FirebirdClientRemoteAttach for NativeFbClient {
         debug_assert_ne!(handle, 0);
 
         Ok(handle)
+    }
+}
+
+#[derive(Clone)]
+/// Arguments to instantiate the client
+pub enum Args {
+    #[cfg(feature = "linking")]
+    Linking,
+
+    #[cfg(feature = "dynamic_loading")]
+    /// Dynamic Loading needs the path to the client
+    DynamicLoading { lib_path: String },
+}
+
+impl FirebirdClientEmbeddedAttach for NativeFbClient {
+    type DbHandle = <Self as FirebirdClient>::DbHandle;
+    fn attach_database(&mut self, db_name: &str, user: &str) -> Result<Self::DbHandle, FbError> {
+        self.attach_database_remote_or_embedded(db_name, user, None)
+    }
+}
+
+impl FirebirdClientRemoteAttach for NativeFbClient {
+    type DbHandle = <Self as FirebirdClient>::DbHandle;
+
+    fn attach_database(
+        &mut self,
+        host: &str,
+        port: u16,
+        db_name: &str,
+        user: &str,
+        pass: &str,
+    ) -> Result<Self::DbHandle, FbError> {
+        let conn_string = format!("{}/{}:{}", host, port, db_name);
+        self.attach_database_remote_or_embedded(conn_string.as_str(), user, Some(pass))
     }
 }
 
