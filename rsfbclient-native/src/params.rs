@@ -170,7 +170,7 @@ impl ParamBuffer {
 
                 (bytes.len(), Text(bytes.into_boxed_slice()))
             }
-            Param::Integer(i) => (mem::size_of_val(&i), Integer(Box::new(i))),
+            Param::Integer(i, _) => (mem::size_of_val(&i), Integer(Box::new(i))),
             Param::Floating(f) => (mem::size_of_val(&f), Floating(Box::new(f))),
             Param::Timestamp(ts) => (mem::size_of_val(&ts), Timestamp(Box::new(ts))),
             Param::Null => {

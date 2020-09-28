@@ -1,7 +1,9 @@
 //! Sql parameter types and traits
 
+use crate::error::FbError;
 use crate::ibase;
 
+use regex::Regex;
 use Param::*;
 
 /// Max length that can be sent without creating a BLOB
@@ -11,7 +13,7 @@ pub const MAX_TEXT_LENGTH: usize = 32767;
 pub enum Param {
     Text(String),
 
-    Integer(i64),
+    Integer(i64, Option<String>),
 
     Floating(f64),
 
@@ -36,7 +38,7 @@ impl Param {
                     (ibase::SQL_TEXT + 1, 0)
                 }
             }
-            Integer(_) => (ibase::SQL_INT64 + 1, 0),
+            Integer(_, _) => (ibase::SQL_INT64 + 1, 0),
             Floating(_) => (ibase::SQL_DOUBLE + 1, 0),
             Timestamp(_) => (ibase::SQL_TIMESTAMP + 1, 0),
             Null => (ibase::SQL_TEXT + 1, 0),
@@ -74,7 +76,7 @@ impl IntoParam for String {
 
 impl IntoParam for i64 {
     fn into_param(self) -> Param {
-        Integer(self)
+        Integer(self, None)
     }
 }
 
@@ -214,3 +216,37 @@ impls_into_params!(
     [N, n],
     [O, o]
 );
+
+pub struct NamedParams {}
+
+pub struct NamedParamPosition(String, usize);
+
+impl NamedParams {
+    /// Extract the named params and prepare
+    /// the sql query to be used by firebird
+    pub fn extract(raw_sql: &str) -> Result<(String, Vec<NamedParamPosition>), FbError> {
+        let rparams = Regex::new(r"(:[a-zA-Z]{1,})")
+            .map_err(|e| FbError::from(format!("Error on start the regex for named params: {}", e)))
+            .unwrap();
+
+        let mut pinfos = vec![];
+        let sql = rparams.replace_all(raw_sql, "?").to_string();
+
+        let mut i = 0;
+        for param in rparams.captures_iter(raw_sql) {
+            pinfos.push(NamedParamPosition(param[1].to_string(), i as usize));
+            i = i + 1;
+        }
+
+        Ok((sql, pinfos))
+    }
+
+    /// Re-sort the params applying the named
+    /// params support
+    pub fn resort<P>(params: P, infos: Vec<NamedParamPosition>) -> Vec<Param>
+    where
+        P: IntoParams,
+    {
+        todo!();
+    }
+}

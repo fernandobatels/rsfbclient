@@ -10,6 +10,36 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
+    fn struct_namedparams() -> Result<(), FbError> {
+
+        let mut conn = cbuilder().connect()?;
+
+        struct ParamTest {
+            pub num: i32
+        };
+
+        // TODO: remove this!
+        impl rsfbclient_core::IntoParams for ParamTest {
+            fn to_params(self) -> Vec<rsfbclient_core::Param> {
+                vec![rsfbclient_core::Param::Integer(self.num.into(), Some("num".to_string()))]
+            }
+        };
+
+        let ptest = ParamTest {
+            num: 10
+        };
+
+        let res: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where 10 = :num ",
+            ptest,
+        )?;
+
+        assert!(res.is_some());
+
+        Ok(())
+    }
+
+    #[test]
     fn boolean() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 

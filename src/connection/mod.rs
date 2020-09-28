@@ -10,7 +10,7 @@ pub mod stmt_cache;
 
 use rsfbclient_core::{
     charset::Charset, charset::UTF_8, Dialect, FbError, FirebirdClient,
-    FirebirdClientEmbeddedAttach, FirebirdClientRemoteAttach, FromRow, IntoParams,
+    FirebirdClientEmbeddedAttach, FirebirdClientRemoteAttach, FromRow, IntoParams, NamedParams,
 };
 use std::{cell::RefCell, marker};
 
@@ -455,20 +455,23 @@ where
     /// Use `()` for no parameters or a tuple of parameters
     fn query_iter<'a, P, R>(
         &'a mut self,
-        sql: &str,
-        params: P,
+        raw_sql: &str,
+        raw_params: P,
     ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
     where
         P: IntoParams,
         R: FromRow + 'static,
     {
+        let (sql, pinfos) = NamedParams::extract(raw_sql)?;
+        let params = NamedParams::resort(raw_params, pinfos);
+
         let mut tr = Transaction::new(self)?;
 
         // Get a statement from the cache
         let mut stmt_cache_data =
             self.stmt_cache
                 .borrow_mut()
-                .get_or_prepare(self, &mut tr.data, sql)?;
+                .get_or_prepare(self, &mut tr.data, &sql)?;
 
         match stmt_cache_data.stmt.query(self, &mut tr.data, params) {
             Ok(_) => {
