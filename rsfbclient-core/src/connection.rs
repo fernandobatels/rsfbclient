@@ -4,90 +4,21 @@ use num_enum::TryFromPrimitive;
 
 use crate::*;
 
-pub trait FirebirdClientEmbeddedAttach {
-    type DbHandle;
-    /// Connect to a database, returning a database handle
-    fn attach_database(&mut self, db_name: &str, user: &str) -> Result<Self::DbHandle, FbError>;
-}
-
-pub trait FirebirdClientRemoteAttach {
-    type DbHandle;
-    /// Connect to a database, returning a database handle
-    fn attach_database(
-        &mut self,
-        host: &str,
-        port: u16,
-        db_name: &str,
-        user: &str,
-        pass: &str,
-    ) -> Result<Self::DbHandle, FbError>;
-}
-
-pub struct ConnectionArgsEmbedded {
-    pub user: String,
-    pub db_name: String,
-}
-pub struct ConnectionArgsRemote {
-    host: String,
-    user: String,
-    db_name: String,
-    port: u16,
-    pass: String,
-}
-
-pub trait FBAttach<A> {
-    type ConnArgs;
-    type T;
-    fn attach_database(&mut self, connargs: &Self::ConnArgs) -> Result<Self::T, FbError>;
-}
-
-pub struct Embedded;
-pub struct Remote;
-
-impl<A: FirebirdClientEmbeddedAttach> FBAttach<Embedded> for A {
-    type ConnArgs = ConnectionArgsEmbedded;
-    type T = <Self as FirebirdClientEmbeddedAttach>::DbHandle;
-
-    fn attach_database(&mut self, connargs: &Self::ConnArgs) -> Result<Self::T, FbError> {
-        let db_name = connargs.db_name.as_str();
-        let user = connargs.user.as_str();
-
-        <Self as FirebirdClientEmbeddedAttach>::attach_database(self, db_name, user)
-    }
-}
-
-impl<A: FirebirdClientRemoteAttach> FBAttach<Remote> for A {
-    type ConnArgs = ConnectionArgsRemote;
-    type T = <Self as FirebirdClientRemoteAttach>::DbHandle;
-
-    fn attach_database(&mut self, connargs: &Self::ConnArgs) -> Result<Self::T, FbError> {
-        let db_name = connargs.db_name.as_str();
-        let user = connargs.user.as_str();
-        let host = connargs.host.as_str();
-        let port = connargs.port;
-        let pass = connargs.pass.as_str();
-
-        <Self as FirebirdClientRemoteAttach>::attach_database(self, host, port, db_name, user, pass)
-    }
-}
-
-pub trait FirebirdClient: Send {
+pub trait FirebirdClient<A>: Send {
     /// A database handle
-    type DbHandle: Send + Clone + Copy;
+    type DbHandle: Send;
     /// A transaction handle
-    type TrHandle: Send + Clone + Copy;
+    type TrHandle: Send;
     /// A statement handle
-    type StmtHandle: Send + Clone + Copy;
+    type StmtHandle: Send;
 
     /// Arguments to instantiate the client
     type Args: Send + Sync + Clone;
 
-    fn attach_database<A, B, C>(&mut self, args: &B) -> Result<C, FbError>
-    where
-        Self: FBAttach<A, ConnArgs = B, T = C>,
-    {
-        <Self as FBAttach<A>>::attach_database(self, args)
-    }
+    /// Arguments needed to attach to the database
+    type ConnArgs: Send + Sync + Clone;
+
+    fn attach_database(&mut self, args: &Self::ConnArgs) -> Result<Self::DbHandle, FbError>;
 
     fn new(charset: Charset, args: Self::Args) -> Result<Self, FbError>
     where

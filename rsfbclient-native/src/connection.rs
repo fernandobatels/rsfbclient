@@ -1,9 +1,28 @@
 //! `FirebirdConnection` implementation for the native fbclient
 
-use rsfbclient_core::*;
-
 use crate::{ibase::IBase, params::Params, row::ColumnBuffer, status::Status, xsqlda::XSqlDa};
+use rsfbclient_core::impl_helper::{
+    ConnectionArgsEmbedded, ConnectionArgsRemote, Embedded, FirebirdClientAttach, Remote,
+};
+use rsfbclient_core::*;
 use std::{collections::HashMap, convert::TryFrom, ptr};
+
+type NativeDbHandle = ibase::isc_db_handle;
+type NativeTrHandle = ibase::isc_tr_handle;
+type NativeStmtHandle = ibase::isc_stmt_handle;
+type NativeConnectionArgsRemote = ConnectionArgsRemote;
+type NativeConnectionArgsEmbedded = ConnectionArgsEmbedded;
+
+#[derive(Clone)]
+/// Arguments to instantiate the client
+pub enum NativeArgs {
+    #[cfg(feature = "linking")]
+    Linking,
+
+    #[cfg(feature = "dynamic_loading")]
+    /// Dynamic Loading needs the path to the client
+    DynamicLoading { lib_path: String },
+}
 
 /// Client that wraps the native fbclient library
 pub struct NativeFbClient {
@@ -13,9 +32,6 @@ pub struct NativeFbClient {
     stmt_data_map: HashMap<ibase::isc_tr_handle, (XSqlDa, Vec<ColumnBuffer>)>,
     charset: Charset,
 }
-type DbHandle = <NativeFbClient as FirebirdClient>::DbHandle;
-//impl AttachEmbedded for NativeFbClient{}
-//impl AttachRemote for NativeFbClient{}
 
 impl NativeFbClient {
     fn attach_database_remote_or_embedded(
@@ -23,7 +39,7 @@ impl NativeFbClient {
         conn_string: &str,
         user: &str,
         pass: Option<&str>,
-    ) -> Result<DbHandle, FbError> {
+    ) -> Result<NativeDbHandle, FbError> {
         let mut handle = 0;
 
         let dpb = {
@@ -68,51 +84,60 @@ impl NativeFbClient {
     }
 }
 
-#[derive(Clone)]
-/// Arguments to instantiate the client
-pub enum Args {
-    #[cfg(feature = "linking")]
-    Linking,
+impl FirebirdClientAttach<Embedded> for NativeFbClient {
+    type DbHandle = NativeDbHandle;
+    type ConnArgs = NativeConnectionArgsEmbedded;
 
-    #[cfg(feature = "dynamic_loading")]
-    /// Dynamic Loading needs the path to the client
-    DynamicLoading { lib_path: String },
-}
+    fn attach_database(&mut self, connargs: &Self::ConnArgs) -> Result<NativeDbHandle, FbError> {
+        let db_name = connargs.db_name.as_str();
+        let user = connargs.user.as_str();
 
-impl FirebirdClientEmbeddedAttach for NativeFbClient {
-    type DbHandle = <Self as FirebirdClient>::DbHandle;
-    fn attach_database(&mut self, db_name: &str, user: &str) -> Result<Self::DbHandle, FbError> {
         self.attach_database_remote_or_embedded(db_name, user, None)
     }
 }
 
-impl FirebirdClientRemoteAttach for NativeFbClient {
-    type DbHandle = <Self as FirebirdClient>::DbHandle;
+impl FirebirdClientAttach<Remote> for NativeFbClient {
+    type DbHandle = NativeDbHandle;
+    type ConnArgs = NativeConnectionArgsRemote;
 
-    fn attach_database(
-        &mut self,
-        host: &str,
-        port: u16,
-        db_name: &str,
-        user: &str,
-        pass: &str,
-    ) -> Result<Self::DbHandle, FbError> {
-        let conn_string = format!("{}/{}:{}", host, port, db_name);
-        self.attach_database_remote_or_embedded(conn_string.as_str(), user, Some(pass))
+    fn attach_database(&mut self, connargs: &Self::ConnArgs) -> Result<NativeDbHandle, FbError> {
+        let conn_string = format!(
+            "{}/{}:{}",
+            connargs.host.as_str(),
+            connargs.port,
+            connargs.db_name.as_str()
+        );
+
+        self.attach_database_remote_or_embedded(
+            conn_string.as_str(),
+            connargs.user.as_str(),
+            Some(connargs.pass.as_str()),
+        )
     }
 }
 
-impl FirebirdClient for NativeFbClient {
-    type DbHandle = ibase::isc_db_handle;
-    type TrHandle = ibase::isc_tr_handle;
-    type StmtHandle = ibase::isc_stmt_handle;
+//For each A for which FirebirdClientAttach<A> is implemented for NativeFbClient,
+//Implement FirebirdClient<A>, allowing use of the FirebirdClientAttach<A> implementation
+//inside.
+impl<A> FirebirdClient<A> for NativeFbClient
+where
+    Self: FirebirdClientAttach<A, DbHandle = NativeDbHandle>,
+{
+    type DbHandle = NativeDbHandle;
+    type TrHandle = NativeTrHandle;
+    type StmtHandle = NativeStmtHandle;
 
-    type Args = Args;
+    type Args = NativeArgs;
+    type ConnArgs = <Self as FirebirdClientAttach<A>>::ConnArgs;
+
+    fn attach_database(&mut self, args: &Self::ConnArgs) -> Result<NativeDbHandle, FbError> {
+        <Self as FirebirdClientAttach<A>>::attach_database(self, args)
+    }
 
     fn new(charset: Charset, args: Self::Args) -> Result<Self, FbError> {
         match args {
             #[cfg(feature = "linking")]
-            Args::Linking => Ok(Self {
+            Self::Args::Linking => Ok(Self {
                 ibase: IBase::Linking,
                 status: Default::default(),
                 stmt_data_map: Default::default(),
@@ -120,7 +145,7 @@ impl FirebirdClient for NativeFbClient {
             }),
 
             #[cfg(feature = "dynamic_loading")]
-            Args::DynamicLoading { lib_path } => Ok(Self {
+            Self::Args::DynamicLoading { lib_path } => Ok(Self {
                 ibase: IBase::with_client(lib_path).map_err(|e| FbError::from(e.to_string()))?,
                 status: Default::default(),
                 stmt_data_map: Default::default(),

@@ -17,9 +17,14 @@ use crate::{
     xsqlda::{parse_xsqlda, xsqlda_to_blr, PrepareInfo, XSqlVar},
 };
 use rsfbclient_core::{
-    ibase, Charset, Column, Dialect, FbError, FirebirdClient, FirebirdClientRemoteAttach,
+    ibase, impl_helper::ConnectionArgsRemote, Charset, Column, Dialect, FbError, FirebirdClient,
     FreeStmtOp, Param, StmtType, TrIsolationLevel, TrOp,
 };
+
+type RustDbHandle = DbHandle;
+type RustTrHandle = TrHandle;
+type RustStmtHandle = StmtHandle;
+type RustConnectionArgsRemote = ConnectionArgsRemote;
 
 /// Firebird client implemented in rust
 pub struct RustFbClient {
@@ -55,8 +60,7 @@ struct StmtData {
     param_count: usize,
 }
 
-impl FirebirdClientRemoteAttach for RustFbClient {
-    type DbHandle = <RustFbClient as FirebirdClient>::DbHandle;
+impl RustFbClient {
     /// Attach to a database, creating the connections if necessary.
     ///
     /// It will only connect only once, so calling a second time with different
@@ -68,7 +72,7 @@ impl FirebirdClientRemoteAttach for RustFbClient {
         db_name: &str,
         user: &str,
         pass: &str,
-    ) -> Result<Self::DbHandle, FbError> {
+    ) -> Result<RustDbHandle, FbError> {
         // Take the existing connection, or connects
         let mut conn = match self.conn.take() {
             Some(conn) => conn,
@@ -91,12 +95,22 @@ impl FirebirdClientRemoteAttach for RustFbClient {
     }
 }
 
-impl FirebirdClient for RustFbClient {
-    type DbHandle = DbHandle;
-    type TrHandle = TrHandle;
-    type StmtHandle = StmtHandle;
-
+impl FirebirdClient<()> for RustFbClient {
+    type DbHandle = RustDbHandle;
+    type TrHandle = RustTrHandle;
+    type StmtHandle = RustStmtHandle;
+    type ConnArgs = RustConnectionArgsRemote;
     type Args = ();
+
+    fn attach_database(&mut self, connargs: &Self::ConnArgs) -> Result<Self::DbHandle, FbError> {
+        self.attach_database(
+            connargs.host.as_str(),
+            connargs.port,
+            connargs.db_name.as_str(),
+            connargs.user.as_str(),
+            connargs.pass.as_str(),
+        )
+    }
 
     fn new(charset: Charset, _args: Self::Args) -> Result<Self, FbError>
     where
