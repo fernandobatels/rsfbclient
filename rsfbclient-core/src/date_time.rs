@@ -112,7 +112,7 @@ pub fn encode_timestamp(dt: NaiveDateTime) -> ibase::ISC_TIMESTAMP {
 
 impl IntoParam for NaiveDateTime {
     fn into_param(self) -> SqlType {
-        SqlType::Timestamp(encode_timestamp(self))
+        SqlType::Timestamp(self)
     }
 }
 
@@ -133,7 +133,7 @@ impl IntoParam for NaiveTime {
 impl ColumnToVal<chrono::NaiveDate> for Column {
     fn to_val(self) -> Result<chrono::NaiveDate, FbError> {
         match self.value {
-            SqlType::Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts).date()),
+            SqlType::Timestamp(ts) => Ok(ts.date()),
 
             SqlType::Null => Err(err_column_null("NaiveDate")),
 
@@ -145,7 +145,7 @@ impl ColumnToVal<chrono::NaiveDate> for Column {
 impl ColumnToVal<chrono::NaiveTime> for Column {
     fn to_val(self) -> Result<chrono::NaiveTime, FbError> {
         match self.value {
-            SqlType::Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts).time()),
+            SqlType::Timestamp(ts) => Ok(ts.time()),
 
             SqlType::Null => Err(err_column_null("NaiveTime")),
 
@@ -157,7 +157,7 @@ impl ColumnToVal<chrono::NaiveTime> for Column {
 impl ColumnToVal<chrono::NaiveDateTime> for Column {
     fn to_val(self) -> Result<chrono::NaiveDateTime, FbError> {
         match self.value {
-            SqlType::Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts)),
+            SqlType::Timestamp(ts) => Ok(ts),
 
             SqlType::Null => Err(err_column_null("NaiveDateTime")),
 

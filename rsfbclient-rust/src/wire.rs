@@ -583,6 +583,7 @@ pub fn parse_fetch_response(
                 }
             }
 
+            #[cfg(feature = "date_time")]
             ibase::SQL_TIMESTAMP => {
                 if resp.remaining() < 8 {
                     return err_invalid_response();
@@ -602,7 +603,7 @@ pub fn parse_fetch_response(
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        SqlType::Timestamp(ts),
+                        SqlType::Timestamp(rsfbclient_core::date_time::decode_timestamp(ts)),
                     )))
                 }
             }

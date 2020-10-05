@@ -170,17 +170,27 @@ impl ParamBuffer {
 
                 (bytes.len(), Text(bytes.into_boxed_slice()))
             }
+
             SqlType::Integer(i) => (mem::size_of_val(&i), Integer(Box::new(i))),
+
             SqlType::Floating(f) => (mem::size_of_val(&f), Floating(Box::new(f))),
-            SqlType::Timestamp(ts) => (mem::size_of_val(&ts), Timestamp(Box::new(ts))),
+
+            #[cfg(feature = "date_time")]
+            SqlType::Timestamp(dt) => (
+                mem::size_of_val(&dt),
+                Timestamp(Box::new(rsfbclient_core::date_time::encode_timestamp(dt))),
+            ),
+
             SqlType::Null => {
                 null = -1;
                 (0, Null)
             }
+
             SqlType::Binary(bin) => {
                 let bytes = binary_to_blob(&bin, db, tr, ibase)?;
                 (bytes.len(), Binary(bytes.into_boxed_slice()))
             }
+
             SqlType::Boolean(bo) => (mem::size_of::<i8>(), Boolean(Box::new(bo as i8))),
         };
 

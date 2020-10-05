@@ -92,9 +92,11 @@ pub fn params_to_blr(
                 values.put_f64(*f);
             }
 
-            SqlType::Timestamp(ts) => {
+            #[cfg(feature = "date_time")]
+            SqlType::Timestamp(dt) => {
                 blr.put_u8(consts::blr::TIMESTAMP);
 
+                let ts = rsfbclient_core::date_time::encode_timestamp(*dt);
                 values.put_i32(ts.timestamp_date);
                 values.put_u32(ts.timestamp_time);
             }

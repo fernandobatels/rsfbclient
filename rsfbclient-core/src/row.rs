@@ -63,12 +63,7 @@ impl ColumnToVal<String> for Column {
             Floating(f) => Ok(f.to_string()),
 
             #[cfg(feature = "date_time")]
-            Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts).to_string()),
-
-            #[cfg(not(feature = "date_time"))]
-            Timestamp(_) => {
-                Err("Enable the `date_time` feature to use Timestamp, Date and Time types".into())
-            }
+            Timestamp(ts) => Ok(ts.to_string()),
 
             Binary(_) => Err("This is a binary column. You cannot use string to access".into()),
 
