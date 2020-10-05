@@ -11,7 +11,7 @@ use crate::{
     srp::*,
     xsqlda::{XSqlVar, XSQLDA_DESCRIBE_VARS},
 };
-use rsfbclient_core::{ibase, Charset, Column, ColumnType, FbError, FreeStmtOp, TrOp};
+use rsfbclient_core::{ibase, Charset, Column, FbError, FreeStmtOp, SqlType, TrOp};
 
 /// Buffer length to use in the connection
 pub const BUFFER_LENGTH: u32 = 1024;
@@ -515,7 +515,7 @@ pub fn parse_fetch_response(
             // There is no data in protocol 13 if null, so just continue
             data.push(ParsedColumn::Complete(Column::new(
                 var.alias_name.clone(),
-                None,
+                SqlType::Null,
             )));
             continue;
         }
@@ -531,12 +531,12 @@ pub fn parse_fetch_response(
                 if null {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        None,
+                        SqlType::Null,
                     )))
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        Some(ColumnType::Text(charset.decode(&d[..])?)),
+                        SqlType::Text(charset.decode(&d[..])?),
                     )))
                 }
             }
@@ -552,12 +552,12 @@ pub fn parse_fetch_response(
                 if null {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        None,
+                        SqlType::Null,
                     )))
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        Some(ColumnType::Integer(i)),
+                        SqlType::Integer(i),
                     )))
                 }
             }
@@ -573,12 +573,12 @@ pub fn parse_fetch_response(
                 if null {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        None,
+                        SqlType::Null,
                     )))
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        Some(ColumnType::Float(f)),
+                        SqlType::Floating(f),
                     )))
                 }
             }
@@ -597,12 +597,12 @@ pub fn parse_fetch_response(
                 if null {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        None,
+                        SqlType::Null,
                     )))
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        Some(ColumnType::Timestamp(ts)),
+                        SqlType::Timestamp(ts),
                     )))
                 }
             }
@@ -618,7 +618,7 @@ pub fn parse_fetch_response(
                 if null {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        None,
+                        SqlType::Null,
                     )))
                 } else {
                     data.push(ParsedColumn::Blob {
@@ -641,12 +641,12 @@ pub fn parse_fetch_response(
                 if null {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        None,
+                        SqlType::Null,
                     )))
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
-                        Some(ColumnType::Boolean(b)),
+                        SqlType::Boolean(b),
                     )))
                 }
             }
@@ -711,11 +711,11 @@ impl ParsedColumn {
 
                 Column::new(
                     col_name,
-                    Some(if binary {
-                        ColumnType::Binary(data)
+                    if binary {
+                        SqlType::Binary(data)
                     } else {
-                        ColumnType::Text(conn.charset.decode(data)?)
-                    }),
+                        SqlType::Text(conn.charset.decode(data)?)
+                    },
                 )
             }
         })

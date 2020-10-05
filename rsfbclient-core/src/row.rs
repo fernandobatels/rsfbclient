@@ -2,11 +2,10 @@
 
 use crate::{
     error::{err_column_null, err_type_conv},
-    ibase, FbError,
+    FbError, SqlType,
 };
 
-use std::ops::Deref;
-use ColumnType::*;
+pub use SqlType::*;
 
 /// A database row
 pub struct Row {
@@ -37,39 +36,14 @@ impl Row {
 
 #[derive(Debug, Clone)]
 pub struct Column {
-    pub value: Option<ColumnType>,
+    pub value: SqlType,
     pub name: String,
 }
 
 impl Column {
-    pub fn new(name: String, value: Option<ColumnType>) -> Self {
+    pub fn new(name: String, value: SqlType) -> Self {
         Column { name, value }
     }
-}
-
-impl Deref for Column {
-    type Target = Option<ColumnType>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.value
-    }
-}
-
-#[derive(Debug, Clone)]
-/// Types supported by the crate
-pub enum ColumnType {
-    Text(String),
-
-    Integer(i64),
-
-    Float(f64),
-
-    Timestamp(ibase::ISC_TIMESTAMP),
-
-    Binary(Vec<u8>),
-
-    /// Only works in fb >= 3.0
-    Boolean(bool),
 }
 
 /// Define the conversion from the buffer to a value
@@ -81,14 +55,12 @@ pub trait ColumnToVal<T> {
 
 impl ColumnToVal<String> for Column {
     fn to_val(self) -> Result<String, FbError> {
-        let col = self.value.ok_or_else(|| err_column_null("String"))?;
-
-        match col {
+        match self.value {
             Text(t) => Ok(t),
 
             Integer(i) => Ok(i.to_string()),
 
-            Float(f) => Ok(f.to_string()),
+            Floating(f) => Ok(f.to_string()),
 
             #[cfg(feature = "date_time")]
             Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts).to_string()),
@@ -101,18 +73,20 @@ impl ColumnToVal<String> for Column {
             Binary(_) => Err("This is a binary column. You cannot use string to access".into()),
 
             Boolean(bo) => Ok(bo.to_string()),
+
+            Null => Err(err_column_null("String")),
         }
     }
 }
 
 impl ColumnToVal<i64> for Column {
     fn to_val(self) -> Result<i64, FbError> {
-        let col = self.value.ok_or_else(|| err_column_null("i64"))?;
-
-        match col {
+        match self.value {
             Integer(i) => Ok(i),
 
-            _ => err_type_conv(col, "i64"),
+            Null => Err(err_column_null("i64")),
+
+            col => err_type_conv(col, "i64"),
         }
     }
 }
@@ -131,12 +105,12 @@ impl ColumnToVal<i16> for Column {
 
 impl ColumnToVal<f64> for Column {
     fn to_val(self) -> Result<f64, FbError> {
-        let col = self.value.ok_or_else(|| err_column_null("f64"))?;
+        match self.value {
+            Floating(f) => Ok(f),
 
-        match col {
-            Float(f) => Ok(f),
+            Null => Err(err_column_null("f64")),
 
-            _ => err_type_conv(col, "f64"),
+            col => err_type_conv(col, "f64"),
         }
     }
 }
@@ -149,24 +123,24 @@ impl ColumnToVal<f32> for Column {
 
 impl ColumnToVal<Vec<u8>> for Column {
     fn to_val(self) -> Result<Vec<u8>, FbError> {
-        let col = self.value.ok_or_else(|| err_column_null("Vec<u8>"))?;
-
-        match col {
+        match self.value {
             Binary(b) => Ok(b),
 
-            _ => err_type_conv(col, "Vec<u8>"),
+            Null => Err(err_column_null("Vec<u8>")),
+
+            col => err_type_conv(col, "Vec<u8>"),
         }
     }
 }
 
 impl ColumnToVal<bool> for Column {
     fn to_val(self) -> Result<bool, FbError> {
-        let col = self.value.ok_or_else(|| err_column_null("bool"))?;
-
-        match col {
+        match self.value {
             Boolean(bo) => Ok(bo),
 
-            _ => err_type_conv(col, "bool"),
+            Null => Err(err_column_null("bool")),
+
+            col => err_type_conv(col, "bool"),
         }
     }
 }
@@ -177,7 +151,7 @@ where
     Column: ColumnToVal<T>,
 {
     fn to_val(self) -> Result<Option<T>, FbError> {
-        if self.is_none() {
+        if self.value.is_null() {
             return Ok(None);
         }
 

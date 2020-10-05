@@ -4,7 +4,7 @@
 //! Representation of a fetched row
 //!
 
-use rsfbclient_core::{Charset, Column, ColumnType, FbError};
+use rsfbclient_core::{Charset, Column, FbError, SqlType};
 use std::{mem, result::Result};
 
 use crate::{ibase, ibase::IBase, status::Status, varchar::Varchar};
@@ -166,26 +166,26 @@ impl ColumnBuffer {
         charset: &Charset,
     ) -> Result<Column, FbError> {
         if *self.nullind != 0 {
-            return Ok(Column::new(self.col_name.clone(), None));
+            return Ok(Column::new(self.col_name.clone(), SqlType::Null));
         }
 
         let col_type = match &self.buffer {
-            Text(varchar) => ColumnType::Text(charset.decode(varchar.as_bytes())?),
+            Text(varchar) => SqlType::Text(charset.decode(varchar.as_bytes())?),
 
-            Integer(i) => ColumnType::Integer(**i),
+            Integer(i) => SqlType::Integer(**i),
 
-            Float(f) => ColumnType::Float(**f),
+            Float(f) => SqlType::Floating(**f),
 
-            Timestamp(ts) => ColumnType::Timestamp(**ts),
+            Timestamp(ts) => SqlType::Timestamp(**ts),
 
-            BlobText(b) => ColumnType::Text(blobtext_to_string(**b, db, tr, ibase, &charset)?),
+            BlobText(b) => SqlType::Text(blobtext_to_string(**b, db, tr, ibase, &charset)?),
 
-            BlobBinary(b) => ColumnType::Binary(blobbinary_to_vec(**b, db, tr, ibase)?),
+            BlobBinary(b) => SqlType::Binary(blobbinary_to_vec(**b, db, tr, ibase)?),
 
-            Boolean(b) => ColumnType::Boolean(**b != 0),
+            Boolean(b) => SqlType::Boolean(**b != 0),
         };
 
-        Ok(Column::new(self.col_name.clone(), Some(col_type)))
+        Ok(Column::new(self.col_name.clone(), col_type))
     }
 }
 

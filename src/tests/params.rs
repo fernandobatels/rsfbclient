@@ -5,7 +5,7 @@
 //!
 
 mk_tests_default! {
-    use crate::{prelude::*, FbError, Param};
+    use crate::{prelude::*, FbError, SqlType};
     use chrono::{NaiveDate, NaiveTime};
     use rand::{distributions::Standard, Rng};
 
@@ -290,7 +290,7 @@ mk_tests_default! {
 
         let vals = -250..250;
 
-        let params: Vec<Param> = vals.clone().map(|v| v.into()).collect();
+        let params: Vec<SqlType> = vals.clone().map(|v| v.into()).collect();
 
         let sql = format!("select 1 from rdb$database where {}", vals.fold(String::new(), |mut acc, v| {
             if acc.is_empty() {

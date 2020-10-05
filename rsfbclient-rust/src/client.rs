@@ -18,7 +18,7 @@ use crate::{
 };
 use rsfbclient_core::{
     ibase, Charset, Column, Dialect, FbError, FirebirdClient, FirebirdClientRemoteAttach,
-    FreeStmtOp, Param, StmtType, TrIsolationLevel, TrOp,
+    FreeStmtOp, SqlType, StmtType, TrIsolationLevel, TrOp,
 };
 
 /// Firebird client implemented in rust
@@ -185,7 +185,7 @@ impl FirebirdClient for RustFbClient {
         _db_handle: Self::DbHandle,
         tr_handle: Self::TrHandle,
         stmt_handle: Self::StmtHandle,
-        params: Vec<Param>,
+        params: Vec<SqlType>,
     ) -> Result<(), FbError> {
         self.conn
             .as_mut()
@@ -513,7 +513,7 @@ impl FirebirdWireConnection {
         &mut self,
         tr_handle: TrHandle,
         stmt_handle: StmtHandle,
-        params: &[Param],
+        params: &[SqlType],
     ) -> Result<(), FbError> {
         if let Some(StmtData { param_count, .. }) = self.stmt_data_map.get_mut(&stmt_handle) {
             if params.len() != *param_count {

@@ -15,3 +15,32 @@ pub use connection::*;
 pub use error::FbError;
 pub use params::*;
 pub use row::*;
+
+#[derive(Debug, Clone)]
+/// Sql parameter / column data
+pub enum SqlType {
+    Text(String),
+
+    Integer(i64),
+
+    Floating(f64),
+
+    Timestamp(ibase::ISC_TIMESTAMP),
+
+    Binary(Vec<u8>),
+
+    /// Only works in fb >= 3.0
+    Boolean(bool),
+
+    Null,
+}
+
+impl SqlType {
+    /// Returns `true` if the type is `NULL`
+    pub fn is_null(&self) -> bool {
+        match self {
+            Null => true,
+            _ => false,
+        }
+    }
+}
