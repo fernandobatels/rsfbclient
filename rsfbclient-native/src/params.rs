@@ -176,10 +176,11 @@ impl ParamBuffer {
             SqlType::Floating(f) => (mem::size_of_val(&f), Floating(Box::new(f))),
 
             #[cfg(feature = "date_time")]
-            SqlType::Timestamp(dt) => (
-                mem::size_of_val(&dt),
-                Timestamp(Box::new(rsfbclient_core::date_time::encode_timestamp(dt))),
-            ),
+            SqlType::Timestamp(dt) => {
+                let ts = rsfbclient_core::date_time::encode_timestamp(dt);
+
+                (mem::size_of_val(&ts), Timestamp(Box::new(ts)))
+            }
 
             SqlType::Null => {
                 null = -1;
