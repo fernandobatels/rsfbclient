@@ -3,6 +3,9 @@
 use num_enum::TryFromPrimitive;
 
 use crate::*;
+use super::impl_helper::AttachmentBuilder;
+
+
 
 pub trait FirebirdClient<A>: Send {
     /// A database handle
@@ -12,17 +15,15 @@ pub trait FirebirdClient<A>: Send {
     /// A statement handle
     type StmtHandle: Send;
 
-    /// Arguments to instantiate the client
-    type Args: Send + Sync + Clone;
-
     /// Arguments needed to attach to the database
-    type ConnArgs: Send + Sync + Clone;
+    /// (defined by each backend)
+    type AttachArgs: Send + Sync + Clone;
 
-    fn attach_database(&mut self, args: &Self::ConnArgs) -> Result<Self::DbHandle, FbError>;
+//    /// Backend-provided builder for connecting to the database
+//    type Builder: AttachmentBuilder<Args = Self::Args>;
 
-    fn new(charset: Charset, args: Self::Args) -> Result<Self, FbError>
-    where
-        Self: Sized;
+    /// Connect to the database
+    fn attach_database(&mut self, attach_args: &Self::AttachArgs) -> Result<Self::DbHandle, FbError>;
 
     /// Disconnect from the database
     fn detach_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError>;

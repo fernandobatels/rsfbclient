@@ -17,14 +17,14 @@ use crate::{
     xsqlda::{parse_xsqlda, xsqlda_to_blr, PrepareInfo, XSqlVar},
 };
 use rsfbclient_core::{
-    ibase, impl_helper::ConnectionArgsRemote, Charset, Column, Dialect, FbError, FirebirdClient,
+    ibase, impl_helper::AttachmentArgsRemote, Charset, Column, Dialect, FbError, FirebirdClient,
     FreeStmtOp, Param, StmtType, TrIsolationLevel, TrOp,
 };
 
 type RustDbHandle = DbHandle;
 type RustTrHandle = TrHandle;
 type RustStmtHandle = StmtHandle;
-type RustConnectionArgsRemote = ConnectionArgsRemote;
+type RustAttachmentArgsRemote = AttachmentArgsRemote;
 
 /// Firebird client implemented in rust
 pub struct RustFbClient {
@@ -61,6 +61,14 @@ struct StmtData {
 }
 
 impl RustFbClient {
+
+    fn new(charset: Charset) -> Result<Self, FbError> {
+        Ok(Self {
+            conn: None,
+            charset,
+        })
+    }
+
     /// Attach to a database, creating the connections if necessary.
     ///
     /// It will only connect only once, so calling a second time with different
@@ -99,28 +107,18 @@ impl FirebirdClient<()> for RustFbClient {
     type DbHandle = RustDbHandle;
     type TrHandle = RustTrHandle;
     type StmtHandle = RustStmtHandle;
-    type ConnArgs = RustConnectionArgsRemote;
-    type Args = ();
+    type AttachmentArgs = RustAttachmentArgsRemote;
 
-    fn attach_database(&mut self, connargs: &Self::ConnArgs) -> Result<Self::DbHandle, FbError> {
+    fn attach_database(&mut self, attach_args: &Self::AttachmentArgs) -> Result<Self::DbHandle, FbError> {
         self.attach_database(
-            connargs.host.as_str(),
-            connargs.port,
-            connargs.db_name.as_str(),
-            connargs.user.as_str(),
-            connargs.pass.as_str(),
+            attach_args.host.as_str(),
+            attach_args.port,
+            attach_args.db_name.as_str(),
+            attach_args.user.as_str(),
+            attach_args.pass.as_str(),
         )
     }
 
-    fn new(charset: Charset, _args: Self::Args) -> Result<Self, FbError>
-    where
-        Self: Sized,
-    {
-        Ok(Self {
-            conn: None,
-            charset,
-        })
-    }
 
     fn detach_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError> {
         self.conn

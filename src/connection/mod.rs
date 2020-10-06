@@ -17,6 +17,12 @@ use std::{cell::RefCell, marker};
 use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
 
+
+struct ConnectionBuilder
+    dialect: Dialect,
+    stmt_cache_size: usize,
+}
+
 /// The default builder for creating database connections
 pub struct ConnectionBuilder<C: FirebirdClient> {
     host: String,
@@ -26,8 +32,6 @@ pub struct ConnectionBuilder<C: FirebirdClient> {
     user: String,
     dialect: Dialect,
     stmt_cache_size: usize,
-    cli_args: C::Args,
-    _cli_type: marker::PhantomData<C>,
     charset: Charset,
 }
 
@@ -37,52 +41,9 @@ pub struct ConnectionBuilderEmbedded<C: FirebirdClient> {
     user: String,
     dialect: Dialect,
     stmt_cache_size: usize,
-    cli_args: C::Args,
-    _cli_type: marker::PhantomData<C>,
     charset: Charset,
 }
 
-/// The `PhantomMarker` makes it not Sync, but it is not true,
-/// as the `ConnectionBuilder` does not store `C`
-unsafe impl<C> Sync for ConnectionBuilder<C> where C: FirebirdClient {}
-unsafe impl<C> Sync for ConnectionBuilderEmbedded<C> where C: FirebirdClient {}
-
-impl<C> Clone for ConnectionBuilder<C>
-where
-    C: FirebirdClient,
-{
-    fn clone(&self) -> Self {
-        Self {
-            db_name: self.db_name.clone(),
-            pass: self.pass.clone(),
-            port: self.port,
-            host: self.host.clone(),
-            user: self.user.clone(),
-            dialect: self.dialect,
-            stmt_cache_size: self.stmt_cache_size,
-            cli_args: self.cli_args.clone(),
-            _cli_type: Default::default(),
-            charset: self.charset.clone(),
-        }
-    }
-}
-
-impl<C> Clone for ConnectionBuilderEmbedded<C>
-where
-    C: FirebirdClient,
-{
-    fn clone(&self) -> Self {
-        Self {
-            db_name: self.db_name.clone(),
-            user: self.user.clone(),
-            dialect: self.dialect,
-            stmt_cache_size: self.stmt_cache_size,
-            cli_args: self.cli_args.clone(),
-            _cli_type: Default::default(),
-            charset: self.charset.clone(),
-        }
-    }
-}
 
 #[cfg(any(feature = "linking", feature = "dynamic_loading"))]
 impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
@@ -336,6 +297,8 @@ where
         })
     }
 }
+
+
 
 impl<C> Connection<C>
 where
