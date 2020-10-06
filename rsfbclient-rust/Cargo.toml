@@ -25,3 +25,4 @@ sha2 = "0.9.1"
 
 [features]
 fuzz_testing = []
+date_time = ["rsfbclient-core/date_time"]

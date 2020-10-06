@@ -1,7 +1,7 @@
 use std::{mem, ptr};
 
 use crate::{ibase, ibase::IBase, status::Status, xsqlda::XSqlDa};
-use rsfbclient_core::{Charset, FbError, Param, MAX_TEXT_LENGTH};
+use rsfbclient_core::{Charset, FbError, SqlType, MAX_TEXT_LENGTH};
 
 use ParamBufferData::*;
 
@@ -22,7 +22,7 @@ impl Params {
         ibase: &ibase::IBase,
         status: &mut Status,
         stmt_handle: &mut ibase::isc_stmt_handle,
-        infos: Vec<Param>,
+        infos: Vec<SqlType>,
         charset: &Charset,
     ) -> Result<Self, FbError> {
         let params = if !infos.is_empty() {
@@ -144,7 +144,7 @@ impl ParamBufferData {
 impl ParamBuffer {
     /// Allocate a buffer from a value to use in an input (parameter) XSQLVAR
     pub fn from_parameter(
-        info: Param,
+        info: SqlType,
         var: &mut ibase::XSQLVAR,
         db: &mut ibase::isc_db_handle,
         tr: &mut ibase::isc_tr_handle,
@@ -159,7 +159,7 @@ impl ParamBuffer {
         var.sqlscale = 0;
 
         let (size, mut buffer) = match info {
-            Param::Text(s) => {
+            SqlType::Text(s) => {
                 let bytes = charset.encode(s)?;
 
                 let bytes = if bytes.len() > MAX_TEXT_LENGTH {
@@ -170,18 +170,29 @@ impl ParamBuffer {
 
                 (bytes.len(), Text(bytes.into_boxed_slice()))
             }
-            Param::Integer(i) => (mem::size_of_val(&i), Integer(Box::new(i))),
-            Param::Floating(f) => (mem::size_of_val(&f), Floating(Box::new(f))),
-            Param::Timestamp(ts) => (mem::size_of_val(&ts), Timestamp(Box::new(ts))),
-            Param::Null => {
+
+            SqlType::Integer(i) => (mem::size_of_val(&i), Integer(Box::new(i))),
+
+            SqlType::Floating(f) => (mem::size_of_val(&f), Floating(Box::new(f))),
+
+            #[cfg(feature = "date_time")]
+            SqlType::Timestamp(dt) => {
+                let ts = rsfbclient_core::date_time::encode_timestamp(dt);
+
+                (mem::size_of_val(&ts), Timestamp(Box::new(ts)))
+            }
+
+            SqlType::Null => {
                 null = -1;
                 (0, Null)
             }
-            Param::Binary(bin) => {
+
+            SqlType::Binary(bin) => {
                 let bytes = binary_to_blob(&bin, db, tr, ibase)?;
                 (bytes.len(), Binary(bytes.into_boxed_slice()))
             }
-            Param::Boolean(bo) => (mem::size_of::<i8>(), Boolean(Box::new(bo as i8))),
+
+            SqlType::Boolean(bo) => (mem::size_of::<i8>(), Boolean(Box::new(bo as i8))),
         };
 
         let mut nullind = Box::new(null);

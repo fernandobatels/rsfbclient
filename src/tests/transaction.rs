@@ -29,9 +29,8 @@ mk_tests_default! {
       let mut setup_transaction = Transaction::new(&conn)?;
       setup_transaction.execute_immediate( format!(drop_tbl_fmtstring!(), table_name ).as_str() )?;
       setup_transaction.commit()?;
-      let close_result = conn.close();
 
-      close_result
+      conn.close()
   }
 
   #[test]

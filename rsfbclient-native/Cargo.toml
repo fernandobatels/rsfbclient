@@ -16,6 +16,7 @@ libloading = { version = "0.6", optional = true }
 [features]
 linking = []
 dynamic_loading = ["libloading"]
+date_time = ["rsfbclient-core/date_time"]
 
 [build-dependencies]
 glob = "0.3.0"

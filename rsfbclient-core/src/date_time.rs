@@ -2,7 +2,7 @@ use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 
 use crate::{
     error::{err_column_null, err_type_conv},
-    ibase, Column, ColumnToVal, ColumnType, FbError, IntoParam, Param,
+    ibase, Column, ColumnToVal, FbError, IntoParam, SqlType,
 };
 
 const FRACTION_TO_NANOS: u32 = 1e9 as u32 / ibase::ISC_TIME_SECONDS_PRECISION;
@@ -111,20 +111,20 @@ pub fn encode_timestamp(dt: NaiveDateTime) -> ibase::ISC_TIMESTAMP {
 }
 
 impl IntoParam for NaiveDateTime {
-    fn into_param(self) -> Param {
-        Param::Timestamp(encode_timestamp(self))
+    fn into_param(self) -> SqlType {
+        SqlType::Timestamp(self)
     }
 }
 
 impl IntoParam for NaiveDate {
-    fn into_param(self) -> Param {
+    fn into_param(self) -> SqlType {
         // Mimics firebird conversion
         self.and_time(NaiveTime::from_hms(0, 0, 0)).into_param()
     }
 }
 
 impl IntoParam for NaiveTime {
-    fn into_param(self) -> Param {
+    fn into_param(self) -> SqlType {
         // Mimics firebird conversion
         chrono::Utc::today().naive_utc().and_time(self).into_param()
     }
@@ -132,36 +132,36 @@ impl IntoParam for NaiveTime {
 
 impl ColumnToVal<chrono::NaiveDate> for Column {
     fn to_val(self) -> Result<chrono::NaiveDate, FbError> {
-        let col = self.value.ok_or_else(|| err_column_null("NaiveDate"))?;
+        match self.value {
+            SqlType::Timestamp(ts) => Ok(ts.date()),
 
-        match col {
-            ColumnType::Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts).date()),
+            SqlType::Null => Err(err_column_null("NaiveDate")),
 
-            _ => err_type_conv(col, "NaiveDate"),
+            col => err_type_conv(col, "NaiveDate"),
         }
     }
 }
 
 impl ColumnToVal<chrono::NaiveTime> for Column {
     fn to_val(self) -> Result<chrono::NaiveTime, FbError> {
-        let col = self.value.ok_or_else(|| err_column_null("NaiveTime"))?;
+        match self.value {
+            SqlType::Timestamp(ts) => Ok(ts.time()),
 
-        match col {
-            ColumnType::Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts).time()),
+            SqlType::Null => Err(err_column_null("NaiveTime")),
 
-            _ => err_type_conv(col, "NaiveTime"),
+            col => err_type_conv(col, "NaiveTime"),
         }
     }
 }
 
 impl ColumnToVal<chrono::NaiveDateTime> for Column {
     fn to_val(self) -> Result<chrono::NaiveDateTime, FbError> {
-        let col = self.value.ok_or_else(|| err_column_null("NaiveDateTime"))?;
+        match self.value {
+            SqlType::Timestamp(ts) => Ok(ts),
 
-        match col {
-            ColumnType::Timestamp(ts) => Ok(crate::date_time::decode_timestamp(ts)),
+            SqlType::Null => Err(err_column_null("NaiveDateTime")),
 
-            _ => err_type_conv(col, "NaiveDateTime"),
+            col => err_type_conv(col, "NaiveDateTime"),
         }
     }
 }

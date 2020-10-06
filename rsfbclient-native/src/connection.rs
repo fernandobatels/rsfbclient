@@ -383,7 +383,7 @@ impl FirebirdClient for NativeFbClient {
         mut db_handle: Self::DbHandle,
         mut tr_handle: Self::TrHandle,
         mut stmt_handle: Self::StmtHandle,
-        params: Vec<Param>,
+        params: Vec<SqlType>,
     ) -> Result<(), FbError> {
         let _ = self
             .stmt_data_map

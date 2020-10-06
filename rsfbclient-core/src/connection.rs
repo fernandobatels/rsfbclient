@@ -86,7 +86,7 @@ pub trait FirebirdClient: Send {
         db_handle: Self::DbHandle,
         tr_handle: Self::TrHandle,
         stmt_handle: Self::StmtHandle,
-        params: Vec<Param>,
+        params: Vec<SqlType>,
     ) -> Result<(), FbError>;
 
     /// Fetch rows from the executed statement, coercing the types
