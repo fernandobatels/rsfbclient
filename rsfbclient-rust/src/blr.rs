@@ -1,6 +1,6 @@
 use crate::{client::FirebirdWireConnection, consts};
 use bytes::{BufMut, Bytes, BytesMut};
-use rsfbclient_core::{FbError, Param};
+use rsfbclient_core::{FbError, SqlType};
 
 /// Maximum parameter data length
 pub const MAX_DATA_LENGTH: usize = 32767;
@@ -18,7 +18,7 @@ pub struct ParamsBlr {
 pub fn params_to_blr(
     conn: &mut FirebirdWireConnection,
     tr_handle: crate::TrHandle,
-    params: &[Param],
+    params: &[SqlType],
 ) -> Result<ParamsBlr, FbError> {
     let mut blr = BytesMut::with_capacity(256);
     let mut values = BytesMut::with_capacity(256);
@@ -58,7 +58,7 @@ pub fn params_to_blr(
 
     for p in params {
         match p {
-            Param::Text(s) => {
+            SqlType::Text(s) => {
                 let bytes = conn.charset.encode(s)?;
                 if bytes.len() > MAX_DATA_LENGTH {
                     // Data too large, send as blob
@@ -75,9 +75,9 @@ pub fn params_to_blr(
                 }
             }
 
-            Param::Binary(data) => handle_blob(conn, &mut blr, &mut values, &data)?,
+            SqlType::Binary(data) => handle_blob(conn, &mut blr, &mut values, &data)?,
 
-            Param::Integer(i) => {
+            SqlType::Integer(i) => {
                 blr.put_slice(&[
                     consts::blr::INT64,
                     0, // Scale
@@ -86,26 +86,28 @@ pub fn params_to_blr(
                 values.put_i64(*i);
             }
 
-            Param::Floating(f) => {
+            SqlType::Floating(f) => {
                 blr.put_u8(consts::blr::DOUBLE);
 
                 values.put_f64(*f);
             }
 
-            Param::Timestamp(ts) => {
+            #[cfg(feature = "date_time")]
+            SqlType::Timestamp(dt) => {
                 blr.put_u8(consts::blr::TIMESTAMP);
 
+                let ts = rsfbclient_core::date_time::encode_timestamp(*dt);
                 values.put_i32(ts.timestamp_date);
                 values.put_u32(ts.timestamp_time);
             }
 
-            Param::Boolean(b) => {
+            SqlType::Boolean(b) => {
                 blr.put_u8(consts::blr::BOOL);
 
                 values.put_slice(if *b { &[1, 0, 0, 0] } else { &[0, 0, 0, 0] });
             }
 
-            Param::Null => {
+            SqlType::Null => {
                 // Represent as empty text
                 blr.put_u8(consts::blr::TEXT);
                 blr.put_u16_le(0);
@@ -136,7 +138,7 @@ pub fn params_to_blr(
 /// or 1 if it is, and so forth.
 ///
 /// Needs to be aligned to 4 bytes, so processing in chunks of 32 parameters (4 bytes = 32 bits)
-fn null_bitmap(values: &mut BytesMut, params: &[Param]) {
+fn null_bitmap(values: &mut BytesMut, params: &[SqlType]) {
     for bitmap in params.chunks(32).map(|params| {
         params.iter().enumerate().fold(0, |bitmap, (i, p)| {
             if p.is_null() {

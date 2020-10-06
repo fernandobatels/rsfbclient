@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-use crate::ColumnType;
+use crate::SqlType;
 
 #[derive(Debug, Error)]
 pub enum FbError {
@@ -35,7 +35,7 @@ pub fn err_column_null(type_name: &str) -> FbError {
     ))
 }
 
-pub fn err_type_conv<T>(from: ColumnType, to: &str) -> Result<T, FbError> {
+pub fn err_type_conv<T>(from: SqlType, to: &str) -> Result<T, FbError> {
     Err(FbError::Other(format!(
         "Can't convert {:?} column to {}",
         from, to
