@@ -8,4 +8,4 @@ pub(crate) mod status;
 pub(crate) mod varchar;
 pub(crate) mod xsqlda;
 
-pub use connection::{NativeArgs, NativeFbClient};
+pub use connection::{NativeFbClient};

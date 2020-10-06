@@ -7,7 +7,6 @@ mod connection;
 mod date_time;
 pub(crate) mod error;
 pub mod ibase;
-pub mod impl_helper;
 mod params;
 mod row;
 
