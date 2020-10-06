@@ -21,7 +21,11 @@ mk_tests_default! {
         // TODO: remove this!
         impl rsfbclient_core::IntoParams for ParamTest {
             fn to_params(self) -> Vec<rsfbclient_core::Param> {
-                vec![rsfbclient_core::Param::Integer(self.num.into(), Some("num".to_string()))]
+                vec![rsfbclient_core::Param::Integer(self.num.into())]
+            }
+
+            fn names(&self) -> Option<Vec<String>> {
+                Some(vec!["num".to_string()])
             }
         };
 

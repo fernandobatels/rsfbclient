@@ -462,8 +462,9 @@ where
         P: IntoParams,
         R: FromRow + 'static,
     {
-        let (sql, pinfos) = NamedParams::extract(raw_sql)?;
-        let params = NamedParams::resort(raw_params, pinfos);
+        let nparams = NamedParams::parse(raw_sql)?;
+        let sql = nparams.sql.clone();
+        let params = nparams.convert(raw_params);
 
         let mut tr = Transaction::new(self)?;
 

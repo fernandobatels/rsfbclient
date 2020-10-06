@@ -13,7 +13,7 @@ pub const MAX_TEXT_LENGTH: usize = 32767;
 pub enum Param {
     Text(String),
 
-    Integer(i64, Option<String>),
+    Integer(i64),
 
     Floating(f64),
 
@@ -38,7 +38,7 @@ impl Param {
                     (ibase::SQL_TEXT + 1, 0)
                 }
             }
-            Integer(_, _) => (ibase::SQL_INT64 + 1, 0),
+            Integer(_) => (ibase::SQL_INT64 + 1, 0),
             Floating(_) => (ibase::SQL_DOUBLE + 1, 0),
             Timestamp(_) => (ibase::SQL_TIMESTAMP + 1, 0),
             Null => (ibase::SQL_TEXT + 1, 0),
@@ -76,7 +76,7 @@ impl IntoParam for String {
 
 impl IntoParam for i64 {
     fn into_param(self) -> Param {
-        Integer(self, None)
+        Integer(self)
     }
 }
 
@@ -151,6 +151,10 @@ where
 /// Implemented for types that represents a list of parameters
 pub trait IntoParams {
     fn to_params(self) -> Vec<Param>;
+
+    fn names(&self) -> Option<Vec<String>> {
+        return None;
+    }
 }
 
 /// Allow use of a vector instead of tuples, for when the number of parameters are unknow at compile time
@@ -217,36 +221,55 @@ impls_into_params!(
     [O, o]
 );
 
-pub struct NamedParams {}
-
-pub struct NamedParamPosition(String, usize);
+/// Named params implementation.
+///
+/// Works on top of firebird unamed
+/// params '?'
+pub struct NamedParams {
+    pub sql: String,
+    params_names: Vec<String>,
+}
 
 impl NamedParams {
-    /// Extract the named params and prepare
-    /// the sql query to be used by firebird
-    pub fn extract(raw_sql: &str) -> Result<(String, Vec<NamedParamPosition>), FbError> {
+    /// Parse the sql statement and return a
+    /// named params instance
+    pub fn parse(raw_sql: &str) -> Result<Self, FbError> {
         let rparams = Regex::new(r"(:[a-zA-Z]{1,})")
             .map_err(|e| FbError::from(format!("Error on start the regex for named params: {}", e)))
             .unwrap();
 
-        let mut pinfos = vec![];
+        let mut params_names = vec![];
         let sql = rparams.replace_all(raw_sql, "?").to_string();
 
-        let mut i = 0;
         for param in rparams.captures_iter(raw_sql) {
-            pinfos.push(NamedParamPosition(param[1].to_string(), i as usize));
-            i = i + 1;
+            params_names.push(param[1].to_string().replace(":", ""));
         }
 
-        Ok((sql, pinfos))
+        Ok(NamedParams { sql, params_names })
     }
 
-    /// Re-sort the params applying the named
-    /// params support
-    pub fn resort<P>(params: P, infos: Vec<NamedParamPosition>) -> Vec<Param>
+    /// Re-sort/convert the params applying
+    /// the named params support
+    pub fn convert<P>(self, params: P) -> Vec<Param>
     where
         P: IntoParams,
     {
-        todo!();
+        match params.names() {
+            Some(names) => {
+                let mut new_params = vec![];
+                let ori_params = &mut params.to_params();
+
+                for qname in self.params_names {
+                    let fpos = names.iter().enumerate().find(|(_, name)| **name == qname);
+
+                    if let Some((pos, _)) = fpos {
+                        new_params.push(ori_params.remove(pos));
+                    }
+                }
+
+                new_params
+            }
+            None => params.to_params(),
+        }
     }
 }
