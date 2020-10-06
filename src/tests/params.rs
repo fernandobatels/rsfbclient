@@ -14,31 +14,46 @@ mk_tests_default! {
 
         let mut conn = cbuilder().connect()?;
 
+        #[derive(Clone)]
         struct ParamTest {
-            pub num: i32
+            pub num: i32,
+            pub num2: f64
         };
 
         // TODO: remove this!
-        impl rsfbclient_core::IntoParams for ParamTest {
-            fn to_params(self) -> Vec<rsfbclient_core::Param> {
-                vec![rsfbclient_core::Param::Integer(self.num.into())]
+        use rsfbclient_core::{IntoParams, SqlType};
+        impl IntoParams for ParamTest {
+            fn to_params(self) -> Vec<SqlType> {
+                vec![SqlType::Integer(self.num.into()), SqlType::Floating(self.num2.into())]
             }
 
             fn names(&self) -> Option<Vec<String>> {
-                Some(vec!["num".to_string()])
+                Some(vec!["num".to_string(), "num2".to_string()])
             }
         };
 
         let ptest = ParamTest {
-            num: 10
+            num: 10,
+            num2: 11.11
         };
 
-        let res: Option<(i32,)> = conn.query_first(
+        let res1: Option<(i32,)> = conn.query_first(
             "select 1 from rdb$database where 10 = :num ",
+            ptest.clone(),
+        )?;
+        assert!(res1.is_some());
+
+        let res2: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where 11.11 = :num2 ",
+            ptest.clone(),
+        )?;
+        assert!(res2.is_some());
+
+        let res3: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where 10 = :num and 11.11 = :num2 ",
             ptest,
         )?;
-
-        assert!(res.is_some());
+        assert!(res3.is_some());
 
         Ok(())
     }

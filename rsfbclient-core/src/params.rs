@@ -207,7 +207,7 @@ impl NamedParams {
     /// Parse the sql statement and return a
     /// named params instance
     pub fn parse(raw_sql: &str) -> Result<Self, FbError> {
-        let rparams = Regex::new(r"(:[a-zA-Z]{1,})")
+        let rparams = Regex::new(r"(:[a-zA-Z0-9]{1,})")
             .map_err(|e| FbError::from(format!("Error on start the regex for named params: {}", e)))
             .unwrap();
 
@@ -223,7 +223,7 @@ impl NamedParams {
 
     /// Re-sort/convert the params applying
     /// the named params support
-    pub fn convert<P>(self, params: P) -> Vec<Param>
+    pub fn convert<P>(self, params: P) -> Vec<SqlType>
     where
         P: IntoParams,
     {
@@ -236,7 +236,7 @@ impl NamedParams {
                     let fpos = names.iter().enumerate().find(|(_, name)| **name == qname);
 
                     if let Some((pos, _)) = fpos {
-                        new_params.push(ori_params.remove(pos));
+                        new_params.push(ori_params.clone().remove(pos));
                     }
                 }
 
