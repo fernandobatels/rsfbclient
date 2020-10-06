@@ -14,27 +14,17 @@ mk_tests_default! {
 
         let mut conn = cbuilder().connect()?;
 
-        #[derive(Clone)]
+        #[derive(Clone, IntoParams)]
         struct ParamTest {
             pub num: i32,
-            pub num2: f64
-        };
-
-        // TODO: remove this!
-        use rsfbclient_core::{IntoParams, SqlType};
-        impl IntoParams for ParamTest {
-            fn to_params(self) -> Vec<SqlType> {
-                vec![SqlType::Integer(self.num.into()), SqlType::Floating(self.num2.into())]
-            }
-
-            fn names(&self) -> Option<Vec<String>> {
-                Some(vec!["num".to_string(), "num2".to_string()])
-            }
+            pub num2: f64,
+            pub str1: String
         };
 
         let ptest = ParamTest {
             num: 10,
-            num2: 11.11
+            num2: 11.11,
+            str1: "olá mundo".to_string()
         };
 
         let res1: Option<(i32,)> = conn.query_first(
@@ -51,9 +41,15 @@ mk_tests_default! {
 
         let res3: Option<(i32,)> = conn.query_first(
             "select 1 from rdb$database where 10 = :num and 11.11 = :num2 ",
-            ptest,
+            ptest.clone(),
         )?;
         assert!(res3.is_some());
+
+        let res4: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where 'olá mundo' = :str1 ",
+            ptest,
+        )?;
+        assert!(res4.is_some());
 
         Ok(())
     }

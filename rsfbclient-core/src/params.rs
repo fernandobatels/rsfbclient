@@ -1,6 +1,6 @@
 //! Sql parameter types and traits
 
-use crate::{ibase, SqlType, error::FbError};
+use crate::{error::FbError, ibase, SqlType};
 use regex::Regex;
 
 pub use SqlType::*;
@@ -122,7 +122,6 @@ where
 
 /// Implemented for types that represents a list of parameters
 pub trait IntoParams {
-
     fn to_params(self) -> Vec<SqlType>;
 
     fn names(&self) -> Option<Vec<String>> {

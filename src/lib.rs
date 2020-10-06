@@ -8,6 +8,7 @@ pub(crate) mod tests;
 
 pub mod prelude {
     pub use crate::query::{Execute, Queryable};
+    pub use rsfbclient_derive::IntoParams;
 }
 
 mod connection;
