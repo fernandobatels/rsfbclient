@@ -2,7 +2,6 @@
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::{
-    borrow::Borrow,
     collections::HashMap,
     env,
     io::{Read, Write},
@@ -18,24 +17,21 @@ use crate::{
     xsqlda::{parse_xsqlda, xsqlda_to_blr, PrepareInfo, XSqlVar},
 };
 use rsfbclient_core::{
-    ibase, Charset, Column, Dialect, FbError, FirebirdClient, FirebirdClientDbOps,
-    FirebirdClientSqlOps, FreeStmtOp, SqlType, StmtType, TrIsolationLevel, TrOp,
+    ibase, Charset, Column, Dialect, FbError, FirebirdClientDbOps, FirebirdClientSqlOps,
+    FreeStmtOp, SqlType, StmtType, TrIsolationLevel, TrOp,
 };
 
 type RustDbHandle = DbHandle;
 type RustTrHandle = TrHandle;
 type RustStmtHandle = StmtHandle;
 
-/// Firebird client implemented in rust
+/// Firebird client implemented in pure rust
 pub struct RustFbClient {
     conn: Option<FirebirdWireConnection>,
     charset: Charset,
 }
 
-pub trait Builder<A> {
-    fn set(&mut self, val: A) -> &mut Self;
-}
-
+/// Required configuration for an attachment with the pure rust client
 #[derive(Default, Clone)]
 pub struct RustFbClientAttachmentConfig {
     pub host: String,
@@ -73,6 +69,7 @@ struct StmtData {
 }
 
 impl RustFbClient {
+    ///Construct a new instance of the pure rust client
     pub fn new(charset: Charset) -> Result<Self, FbError> {
         Ok(Self {
             conn: None,

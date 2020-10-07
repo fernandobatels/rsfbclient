@@ -4,7 +4,7 @@
 //! Connection functions
 //!
 
-mod builder;
+pub mod builder;
 #[cfg(feature = "pool")]
 pub mod pool;
 pub mod stmt_cache;
@@ -15,11 +15,14 @@ use std::{cell::RefCell, marker};
 use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
 
+/// A generic factory for creating multiple instances of a particular client implementation
 pub trait FirebirdClientFactory: Send + Sync {
     type C: FirebirdClient;
     fn new(&self) -> Result<Self::C, FbError>;
 }
 
+///Configuration required for a connection
+///C is a specific implementation of the client traits in rsfbclient_core
 #[derive(Clone)]
 pub struct ConnectionConfiguration<C: FirebirdClient> {
     attachment_conf: C::AttachmentConfig,

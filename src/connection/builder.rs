@@ -1,5 +1,5 @@
 use super::{ConnectionConfiguration, FirebirdClientFactory};
-use crate::charset::{Charset, UTF_8};
+use crate::charset::Charset;
 use crate::{Connection, Dialect, FbError};
 use rsfbclient_core::FirebirdClient;
 
@@ -13,13 +13,18 @@ impl<Cli: FirebirdClient> ConnectionConfiguration<Cli> {
     }
 }
 
+///A default factory implementation for a statically linked native firebird client
 #[cfg(feature = "linking")]
 pub mod native_static_client {
     use super::*;
-    use rsfbclient_native::connection::{NativeFbClient, RemoteConfig};
+    use rsfbclient_native::NativeFbClient;
     struct StaticLinked(Charset);
 
-    fn static_linked_client(charset: Charset) -> StaticLinked {
+    ///Get a factory instance for a statically linked version of the official firebird client
+    ///The UTF_8 charset is provided at the top level as a convenience
+    pub fn static_linked_client(
+        charset: Charset,
+    ) -> impl FirebirdClientFactory<C = NativeFbClient> {
         StaticLinked(charset)
     }
     impl FirebirdClientFactory for StaticLinked {
@@ -30,12 +35,20 @@ pub mod native_static_client {
     }
 }
 
+///A default factory implementation for a dynamically linked native firebird client
 #[cfg(feature = "dynamic_loading")]
 pub mod native_dynlinked_client {
     use super::*;
-    use rsfbclient_native::connection::{NativeFbClient, RemoteConfig};
+    use rsfbclient_native::NativeFbClient;
+
     struct DynLinked(Charset, String);
-    fn dyn_linked_client<S: Into<String>>(charset: Charset, path: S) -> DynLinked {
+
+    ///Get a factory instance for a dynamically loaded version of the official firebird client
+    ///The UTF_8 charset is provided at the top level as a convenience
+    pub fn dyn_linked_client<S: Into<String>>(
+        charset: Charset,
+        path: S,
+    ) -> impl FirebirdClientFactory<C = NativeFbClient> {
         DynLinked(charset, path.into())
     }
 
@@ -47,10 +60,11 @@ pub mod native_dynlinked_client {
     }
 }
 
+///A default builder and factory implementation for the pure rust firebird client
 #[cfg(any(feature = "linking", feature = "dynamic_loading"))]
 pub mod native_builder {
     use super::*;
-    use rsfbclient_native::connection::{NativeFbClient, RemoteConfig};
+    use rsfbclient_native::{NativeFbClient, RemoteConfig};
 
     type NativeConfig = ConnectionConfiguration<NativeFbClient>;
     impl NativeConfig {
@@ -66,6 +80,8 @@ pub mod native_builder {
             self
         }
 
+        //private helper accessor for the Option<RemoteConfig> buried inside
+        //the configuration
         fn get_initialized_remote(&mut self) -> &mut RemoteConfig {
             self.attachment_conf
                 .remote
@@ -102,10 +118,12 @@ pub mod native_builder {
             self
         }
 
+        /// Instantiate a default configuration for an embedded attachment
         pub fn embedded_default() -> Self {
             EmbeddedNativeConfig::default().0
         }
 
+        /// Instantiate a default configuration for a remote attachment
         pub fn remote_default() -> Self {
             RemoteNativeConfig::default().0
         }
@@ -115,13 +133,16 @@ pub mod native_builder {
 
     impl Default for EmbeddedNativeConfig {
         fn default() -> Self {
+            //in a moment we will use the builder to
+            //actually set the attachment defaults...
             let attachment_conf = Default::default();
             let mut result = NativeConfig {
                 attachment_conf,
                 dialect: Dialect::D3,
                 stmt_cache_size: 20,
             };
-            result.user("SYDBA").db_name("test.fdb");
+            //..here
+            result.user("SYSDBA").db_name("test.fdb");
             EmbeddedNativeConfig(result)
         }
     }
@@ -139,9 +160,9 @@ pub mod native_builder {
 #[cfg(feature = "pure_rust")]
 pub mod pure_rust_builder {
     use super::*;
-    use rsfbclient_rust::{RustFbClient, RustFbClientAttachmentConfig};
+    use rsfbclient_rust::RustFbClient;
 
-    pub struct PureRustClientConfig(Charset);
+    struct PureRustClientConfig(Charset);
 
     impl FirebirdClientFactory for PureRustClientConfig {
         type C = RustFbClient;
@@ -150,7 +171,9 @@ pub mod pure_rust_builder {
         }
     }
 
-    fn pure_rust_client(charset: Charset) -> PureRustClientConfig {
+    ///Get a factory instance for a pure rust client
+    ///The UTF_8 charset is provided at the top level as a convenience
+    pub fn pure_rust_client(charset: Charset) -> impl FirebirdClientFactory<C = RustFbClient> {
         PureRustClientConfig(charset)
     }
 
@@ -210,7 +233,7 @@ pub mod pure_rust_builder {
             result
                 .host("localhost")
                 .port(3050)
-                .user("SYDBA")
+                .user("SYSDBA")
                 .db_name("test.fdb")
                 .pass("masterkey");
             result

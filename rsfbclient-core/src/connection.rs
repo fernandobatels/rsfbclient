@@ -1,9 +1,10 @@
-//! Trait to abstract over firebird client implementations
+//! Traits to abstract over firebird client implementations
 
 use num_enum::TryFromPrimitive;
 
 use crate::*;
 
+///A wrapper trait compatible with the niceties provided by the main rsfbclient crate
 pub trait FirebirdClient
 where
     Self: FirebirdClientDbOps,
@@ -20,10 +21,17 @@ where
 
 ///Responsible for database administration and attachment/detachment
 pub trait FirebirdClientDbOps: Send {
+    /// A database handle
     type DbHandle: Send + Clone + Copy;
+
+    /// Configuration details for attaching to the database.
+    /// A user of an implementation of this trait can configure attachment details
+    /// (database name, user name, etcetera) and then pass this configuration to the implementation
+    /// via this type when a new attachment is requested
     type AttachmentConfig: Send + Sync + Clone;
-    /// Connect to the database
-    /// Configuration specifics are left up to implementations
+
+    /// Create a new attachment to a database with the provided configuration
+    /// Returns a database handle on success
     fn attach_database(
         &mut self,
         config: &Self::AttachmentConfig,
@@ -36,7 +44,7 @@ pub trait FirebirdClientDbOps: Send {
     fn drop_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError>;
 }
 
-///Responsible for actual transaction execution
+///Responsible for actual transaction and statement execution
 pub trait FirebirdClientSqlOps {
     /// A database handle
     type DbHandle: Send + Clone + Copy;
@@ -65,8 +73,7 @@ pub trait FirebirdClientSqlOps {
         sql: &str,
     ) -> Result<(), FbError>;
 
-    /// Alloc and prepare a statement
-    ///
+    /// Allocate and prepare a statement
     /// Returns the statement type and handle
     fn prepare_statement(
         &mut self,

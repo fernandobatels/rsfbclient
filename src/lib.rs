@@ -16,12 +16,16 @@ mod statement;
 mod transaction;
 
 pub use crate::{
-    connection::Connection,
+    connection::builder::*,
+    connection::{Connection, ConnectionConfiguration, FirebirdClientFactory},
     query::{Execute, Queryable},
     statement::Statement,
     transaction::Transaction,
 };
-pub use rsfbclient_core::{charset, Column, Dialect, FbError, FromRow, IntoParam, Row, SqlType};
+pub use rsfbclient_core::{
+    charset::{self, UTF_8},
+    Charset, Column, Dialect, FbError, FromRow, IntoParam, Row, SqlType,
+};
 
 #[cfg(feature = "pool")]
 pub use crate::connection::pool::FirebirdConnectionManager;
