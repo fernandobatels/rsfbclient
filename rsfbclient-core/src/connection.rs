@@ -1,46 +1,49 @@
-//! Connection trait to abstract over the client implementations
+//! Trait to abstract over firebird client implementations
 
 use num_enum::TryFromPrimitive;
 
 use crate::*;
 
-pub trait FirebirdClientEmbeddedAttach: FirebirdClient {
-    /// Connect to a database, returning a database handle
-    fn attach_database(&mut self, db_name: &str, user: &str) -> Result<Self::DbHandle, FbError>;
+pub trait FirebirdClient
+where
+    Self: FirebirdClientDbOps,
+    Self: FirebirdClientSqlOps<DbHandle = <Self as FirebirdClientDbOps>::DbHandle>,
+{
 }
 
-pub trait FirebirdClientRemoteAttach: FirebirdClient {
-    /// Connect to a database, returning a database handle
+impl<Hdl, A: FirebirdClientDbOps<DbHandle = Hdl> + FirebirdClientSqlOps<DbHandle = Hdl>>
+    FirebirdClient for A
+where
+    Hdl: Send + Clone + Copy,
+{
+}
+
+///Responsible for database administration and attachment/detachment
+pub trait FirebirdClientDbOps: Send {
+    type DbHandle: Send + Clone + Copy;
+    type AttachmentConfig: Send + Sync + Clone;
+    /// Connect to the database
+    /// Configuration specifics are left up to implementations
     fn attach_database(
         &mut self,
-        host: &str,
-        port: u16,
-        db_name: &str,
-        user: &str,
-        pass: &str,
+        config: &Self::AttachmentConfig,
     ) -> Result<Self::DbHandle, FbError>;
-}
-
-pub trait FirebirdClient: Send {
-    /// A database handle
-    type DbHandle: Send + Clone + Copy;
-    /// A transaction handle
-    type TrHandle: Send + Clone + Copy;
-    /// A statement handle
-    type StmtHandle: Send + Clone + Copy;
-
-    /// Arguments to instantiate the client
-    type Args: Send + Sync + Clone;
-
-    fn new(charset: Charset, args: Self::Args) -> Result<Self, FbError>
-    where
-        Self: Sized;
 
     /// Disconnect from the database
     fn detach_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError>;
 
     /// Drop the database
     fn drop_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError>;
+}
+
+///Responsible for actual transaction execution
+pub trait FirebirdClientSqlOps {
+    /// A database handle
+    type DbHandle: Send + Clone + Copy;
+    /// A transaction handle
+    type TrHandle: Send + Clone + Copy;
+    /// A statement handle
+    type StmtHandle: Send + Clone + Copy;
 
     /// Start a new transaction, with the specified transaction parameter buffer
     fn begin_transaction(
