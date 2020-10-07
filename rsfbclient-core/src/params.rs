@@ -2,6 +2,7 @@
 
 use crate::{error::FbError, ibase, SqlType};
 use regex::Regex;
+use std::collections::HashMap;
 
 pub use SqlType::*;
 
@@ -120,27 +121,29 @@ where
     }
 }
 
+pub enum ParamsType {
+    Unamed(Vec<SqlType>),
+
+    Named(HashMap<String, SqlType>),
+}
+
 /// Implemented for types that represents a list of parameters
 pub trait IntoParams {
-    fn to_params(self) -> Vec<SqlType>;
-
-    fn names(&self) -> Option<Vec<String>> {
-        return None;
-    }
+    fn to_params(self) -> ParamsType;
 }
 
 /// Allow use of a vector instead of tuples, for when the number of parameters are unknow at compile time
 /// or more parameters are needed than what can be used with the tuples
 impl IntoParams for Vec<SqlType> {
-    fn to_params(self) -> Vec<SqlType> {
-        self
+    fn to_params(self) -> ParamsType {
+        ParamsType::Unamed(self)
     }
 }
 
 /// Represents no parameters
 impl IntoParams for () {
-    fn to_params(self) -> Vec<SqlType> {
-        vec![]
+    fn to_params(self) -> ParamsType {
+        ParamsType::Unamed(vec![])
     }
 }
 
@@ -151,12 +154,12 @@ macro_rules! impl_into_params {
         where
             $( $t: IntoParam, )+
         {
-            fn to_params(self) -> Vec<SqlType> {
+            fn to_params(self) -> ParamsType {
                 let ( $($v,)+ ) = self;
 
-                vec![ $(
+                ParamsType::Unamed(vec![ $(
                     $v.into_param(),
-                )+ ]
+                )+ ])
             }
         }
     };
@@ -222,26 +225,28 @@ impl NamedParams {
 
     /// Re-sort/convert the params applying
     /// the named params support
-    pub fn convert<P>(self, params: P) -> Vec<SqlType>
+    pub fn convert<P>(&self, params: P) -> Result<Vec<SqlType>, FbError>
     where
         P: IntoParams,
     {
-        match params.names() {
-            Some(names) => {
+        match params.to_params() {
+            ParamsType::Named(names) => {
                 let mut new_params = vec![];
-                let ori_params = &mut params.to_params();
 
-                for qname in self.params_names {
-                    let fpos = names.iter().enumerate().find(|(_, name)| **name == qname);
-
-                    if let Some((pos, _)) = fpos {
-                        new_params.push(ori_params.clone().remove(pos));
+                for qname in &self.params_names {
+                    if let Some(param) = names.get(qname) {
+                        new_params.push(param.clone());
+                    } else {
+                        return Err(FbError::from(format!(
+                            "Param :{} not found in the provided struct",
+                            qname
+                        )));
                     }
                 }
 
-                new_params
+                Ok(new_params)
             }
-            None => params.to_params(),
+            ParamsType::Unamed(p) => Ok(p),
         }
     }
 }

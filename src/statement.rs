@@ -8,7 +8,9 @@ use crate::{
     transaction::{Transaction, TransactionData},
     Connection,
 };
-use rsfbclient_core::{Column, FbError, FirebirdClient, FreeStmtOp, FromRow, IntoParams, StmtType};
+use rsfbclient_core::{
+    Column, FbError, FirebirdClient, FreeStmtOp, FromRow, IntoParams, NamedParams, StmtType,
+};
 
 pub struct Statement<'c, C: FirebirdClient> {
     pub(crate) data: StatementData<C::StmtHandle>,
@@ -121,6 +123,7 @@ where
 pub struct StatementData<H> {
     pub(crate) handle: H,
     pub(crate) stmt_type: StmtType,
+    named_params: NamedParams,
 }
 
 impl<H> StatementData<H>
@@ -131,17 +134,24 @@ where
     pub fn prepare<C>(
         conn: &Connection<C>,
         tr: &mut TransactionData<C::TrHandle>,
-        sql: &str,
+        raw_sql: &str,
     ) -> Result<Self, FbError>
     where
         C: FirebirdClient<StmtHandle = H>,
     {
+        let named_params = NamedParams::parse(raw_sql)?;
+        let sql = &named_params.sql.clone();
+
         let (stmt_type, handle) =
             conn.cli
                 .borrow_mut()
                 .prepare_statement(conn.handle, tr.handle, conn.dialect, sql)?;
 
-        Ok(Self { stmt_type, handle })
+        Ok(Self {
+            stmt_type,
+            handle,
+            named_params,
+        })
     }
 
     /// Execute the current statement without returnig any row
@@ -157,9 +167,12 @@ where
         T: IntoParams,
         C: FirebirdClient<StmtHandle = H>,
     {
-        conn.cli
-            .borrow_mut()
-            .execute(conn.handle, tr.handle, self.handle, params.to_params())?;
+        conn.cli.borrow_mut().execute(
+            conn.handle,
+            tr.handle,
+            self.handle,
+            self.named_params.convert(params)?,
+        )?;
 
         if self.stmt_type == StmtType::Select {
             // Close the cursor, as it will not be used
@@ -183,9 +196,12 @@ where
         T: IntoParams,
         C: FirebirdClient<StmtHandle = H>,
     {
-        conn.cli
-            .borrow_mut()
-            .execute(conn.handle, tr.handle, self.handle, params.to_params())
+        conn.cli.borrow_mut().execute(
+            conn.handle,
+            tr.handle,
+            self.handle,
+            self.named_params.convert(params)?,
+        )
     }
 
     /// Fetch for the next row, needs to be called after `query`
