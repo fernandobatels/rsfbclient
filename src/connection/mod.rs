@@ -10,7 +10,7 @@ pub mod pool;
 pub mod stmt_cache;
 
 use rsfbclient_core::{Dialect, FbError, FirebirdClient, FirebirdClientDbOps, FromRow, IntoParams};
-use std::{cell::RefCell, marker};
+use std::{cell::RefCell, marker, mem::ManuallyDrop};
 
 use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
@@ -65,8 +65,15 @@ impl<C: FirebirdClient> Connection<C> {
         Ok(())
     }
 
-    /// Close the current connection. With an `&mut self` to be used in the drop code too
-    fn close(&mut self) -> Result<(), FbError> {
+    /// Close the current connection.
+    pub fn close(mut self) -> Result<(), FbError> {
+      let res = self.cleanup_and_detach();
+      ManuallyDrop::new(self);
+      res
+    }
+
+    //cleans up statement cache and releases the database handle
+    fn cleanup_and_detach(&mut self) -> Result<(), FbError> {
         self.stmt_cache.borrow_mut().close_all(self);
 
         self.cli.get_mut().detach_database(self.handle)?;
@@ -96,7 +103,8 @@ impl<C: FirebirdClient> Connection<C> {
 
 impl<C: FirebirdClient> Drop for Connection<C> {
     fn drop(&mut self) {
-        self.close().ok();
+      //ignore the possible error value
+      let _ = self.cleanup_and_detach();
     }
 }
 
