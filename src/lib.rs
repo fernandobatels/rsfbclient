@@ -16,7 +16,7 @@ mod statement;
 mod transaction;
 
 pub use crate::{
-    connection::{Connection, ConnectionBuilder},
+    connection::Connection,
     query::{Execute, Queryable},
     statement::Statement,
     transaction::Transaction,
