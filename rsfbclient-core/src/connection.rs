@@ -5,28 +5,35 @@ use num_enum::TryFromPrimitive;
 use crate::*;
 
 pub trait FirebirdClient
-where Self: FirebirdClientDbOps,
-      Self: FirebirdClientSqlOps<DbHandle = <Self as FirebirdClientDbOps>::DbHandle>,
-{}
+where
+    Self: FirebirdClientDbOps,
+    Self: FirebirdClientSqlOps<DbHandle = <Self as FirebirdClientDbOps>::DbHandle>,
+{
+}
 
-impl<Hdl, A: FirebirdClientDbOps<DbHandle = Hdl> + FirebirdClientSqlOps<DbHandle = Hdl>> FirebirdClient for A
-where Hdl: Send + Clone + Copy{}
-
-
+impl<Hdl, A: FirebirdClientDbOps<DbHandle = Hdl> + FirebirdClientSqlOps<DbHandle = Hdl>>
+    FirebirdClient for A
+where
+    Hdl: Send + Clone + Copy,
+{
+}
 
 ///Responsible for database administration and attachment/detachment
 pub trait FirebirdClientDbOps: Send {
-  type DbHandle: Send + Clone + Copy;
-  type AttachmentConfig: Send + Clone;
-  /// Connect to the database
-  /// Configuration specifics are left up to implementations
-  fn attach_database(&mut self, config: &Self::AttachmentConfig) -> Result<Self::DbHandle, FbError>;
+    type DbHandle: Send + Clone + Copy;
+    type AttachmentConfig: Send + Sync + Clone;
+    /// Connect to the database
+    /// Configuration specifics are left up to implementations
+    fn attach_database(
+        &mut self,
+        config: &Self::AttachmentConfig,
+    ) -> Result<Self::DbHandle, FbError>;
 
-  /// Disconnect from the database
-  fn detach_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError>;
+    /// Disconnect from the database
+    fn detach_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError>;
 
-  /// Drop the database
-  fn drop_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError>;
+    /// Drop the database
+    fn drop_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError>;
 }
 
 ///Responsible for actual transaction execution
@@ -46,7 +53,7 @@ pub trait FirebirdClientSqlOps {
     ) -> Result<Self::TrHandle, FbError>;
 
     /// Commit / Rollback a transaction
-    fn transaction_operation(&mut self, tr_handle:  Self::TrHandle, op: TrOp)
+    fn transaction_operation(&mut self, tr_handle: Self::TrHandle, op: TrOp)
         -> Result<(), FbError>;
 
     /// Execute a sql immediately, without returning rows
@@ -89,8 +96,8 @@ pub trait FirebirdClientSqlOps {
     /// according to the provided blr
     fn fetch(
         &mut self,
-        db_handle:   Self::DbHandle,
-        tr_handle:   Self::TrHandle,
+        db_handle: Self::DbHandle,
+        tr_handle: Self::TrHandle,
         stmt_handle: Self::StmtHandle,
     ) -> Result<Option<Vec<Column>>, FbError>;
 }

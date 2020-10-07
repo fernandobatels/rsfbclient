@@ -132,8 +132,7 @@ where
         conn: &Connection<C>,
         tr: &mut TransactionData<C>,
         sql: &str,
-    ) -> Result<Self, FbError>
-    {
+    ) -> Result<Self, FbError> {
         let (stmt_type, handle) =
             conn.cli
                 .borrow_mut()
@@ -189,24 +188,21 @@ where
         &mut self,
         conn: &Connection<C>,
         tr: &TransactionData<C>,
-    ) -> Result<Option<Vec<Column>>, FbError>
-    {
+    ) -> Result<Option<Vec<Column>>, FbError> {
         conn.cli
             .borrow_mut()
             .fetch(conn.handle, tr.handle, self.handle)
     }
 
     /// Closes the statement cursor, if it was open
-    pub fn close_cursor(&mut self, conn: &Connection<C>) -> Result<(), FbError>
-    {
+    pub fn close_cursor(&mut self, conn: &Connection<C>) -> Result<(), FbError> {
         conn.cli
             .borrow_mut()
             .free_statement(self.handle, FreeStmtOp::Close)
     }
 
     /// Closes the statement
-    pub fn close(&mut self, conn: &Connection<C>) -> Result<(), FbError>
-    {
+    pub fn close(&mut self, conn: &Connection<C>) -> Result<(), FbError> {
         conn.cli
             .borrow_mut()
             .free_statement(self.handle, FreeStmtOp::Drop)

@@ -8,7 +8,6 @@ type NativeDbHandle = ibase::isc_db_handle;
 type NativeTrHandle = ibase::isc_tr_handle;
 type NativeStmtHandle = ibase::isc_stmt_handle;
 
-
 /// Client that wraps the native fbclient library
 pub struct NativeFbClient {
     ibase: IBase,
@@ -18,71 +17,69 @@ pub struct NativeFbClient {
     charset: Charset,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RemoteConfig {
-  pub host: String,
-  pub port: u16,
-  pub password: String
+    pub host: String,
+    pub port: u16,
+    pub password: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct NativeFbAttachmentConfig {
-  pub db_name: String,
-  pub user: String,
-  pub remote: Option<RemoteConfig>
+    pub db_name: String,
+    pub user: String,
+    pub remote: Option<RemoteConfig>,
 }
-
 
 impl NativeFbClient {
     #[cfg(feature = "linking")]
-    pub fn new_static_linked(charset: Charset) -> Result<impl FirebirdClient, FbError> {
-      Ok(Self {
-          ibase: IBase::Linking,
-          status: Default::default(),
-          stmt_data_map: Default::default(),
-          charset,
-      })
+    pub fn new_static_linked(charset: Charset) -> Result<Self, FbError> {
+        Ok(Self {
+            ibase: IBase::Linking,
+            status: Default::default(),
+            stmt_data_map: Default::default(),
+            charset,
+        })
     }
 
     #[cfg(feature = "dynamic_loading")]
-    pub fn new_dyn_linked(charset: Charset, lib_path: &str) -> Result<impl FirebirdClient, FbError> {
-      let dyn_client =
-        IBase::with_client(lib_path)
-          .map_err(|e| FbError::from(e.to_string()))?;
+    pub fn new_dyn_linked(charset: Charset, lib_path: &str) -> Result<Self, FbError> {
+        let dyn_client =
+            IBase::with_client(lib_path.to_string()).map_err(|e| FbError::from(e.to_string()))?;
 
-      Ok(Self {
-          ibase: dyn_client,
-          status: Default::default(),
-          stmt_data_map: Default::default(),
-          charset,
-      })
+        Ok(Self {
+            ibase: dyn_client,
+            status: Default::default(),
+            stmt_data_map: Default::default(),
+            charset,
+        })
     }
 }
 
-
-
 impl FirebirdClientDbOps for NativeFbClient {
-  type DbHandle = NativeDbHandle;
-  type AttachmentConfig = NativeFbAttachmentConfig;
+    type DbHandle = NativeDbHandle;
+    type AttachmentConfig = NativeFbAttachmentConfig;
 
-  fn attach_database(&mut self, config: &Self::AttachmentConfig) -> Result<NativeDbHandle, FbError> {
+    fn attach_database(
+        &mut self,
+        config: &Self::AttachmentConfig,
+    ) -> Result<NativeDbHandle, FbError> {
         let user = &config.user;
-        let mut password = None; 
+        let mut password = None;
         let db_name = &config.db_name;
         let maybe_remote = &config.remote;
-        
-        
+
         let conn_string = match maybe_remote {
-          None => db_name.clone(),
-          Some(remote_conf) => {
-            password = Some(remote_conf.password.as_str());
-            format!(
-                "{}/{}:{}",
-                remote_conf.host.as_str(),
-                remote_conf.port,
-                db_name.as_str()
-            )
-          }
+            None => db_name.clone(),
+            Some(remote_conf) => {
+                password = Some(remote_conf.password.as_str());
+                format!(
+                    "{}/{}:{}",
+                    remote_conf.host.as_str(),
+                    remote_conf.port,
+                    db_name.as_str()
+                )
+            }
         };
 
         let mut handle = 0;
@@ -128,34 +125,34 @@ impl FirebirdClientDbOps for NativeFbClient {
         Ok(handle)
     }
 
-  fn detach_database(&mut self, db_handle: NativeDbHandle) -> Result<(), FbError> {
-      let mut handle = db_handle;
-      unsafe {
-          // Close the connection, if the handle is valid
-          if handle != 0
-              && self.ibase.isc_detach_database()(&mut self.status[0], &mut handle) != 0
-          {
-              return Err(self.status.as_error(&self.ibase));
-          }
-      }
-      Ok(())
-  }
+    fn detach_database(&mut self, db_handle: NativeDbHandle) -> Result<(), FbError> {
+        let mut handle = db_handle;
+        unsafe {
+            // Close the connection, if the handle is valid
+            if handle != 0
+                && self.ibase.isc_detach_database()(&mut self.status[0], &mut handle) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+        Ok(())
+    }
 
-  fn drop_database(&mut self, db_handle: NativeDbHandle) -> Result<(), FbError> {
-      let mut handle = db_handle;
-      unsafe {
-          if self.ibase.isc_drop_database()(&mut self.status[0], &mut handle) != 0 {
-              return Err(self.status.as_error(&self.ibase));
-          }
-      }
-      Ok(())
-  }
+    fn drop_database(&mut self, db_handle: NativeDbHandle) -> Result<(), FbError> {
+        let mut handle = db_handle;
+        unsafe {
+            if self.ibase.isc_drop_database()(&mut self.status[0], &mut handle) != 0 {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl FirebirdClientSqlOps for NativeFbClient {
-  type DbHandle = NativeDbHandle;
-  type TrHandle = NativeTrHandle;
-  type StmtHandle = NativeStmtHandle;
+    type DbHandle = NativeDbHandle;
+    type TrHandle = NativeTrHandle;
+    type StmtHandle = NativeStmtHandle;
 
     fn begin_transaction(
         &mut self,

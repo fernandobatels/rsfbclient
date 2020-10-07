@@ -76,7 +76,7 @@ impl<T> StmtCache<T> {
 }
 
 /// Functions specific for when the data is a `StatementData`
-impl<C:FirebirdClient> StmtCache<StatementData<C>>
+impl<C: FirebirdClient> StmtCache<StatementData<C>>
 where
     C::StmtHandle: Send + Clone + Copy,
 {
@@ -86,8 +86,7 @@ where
         conn: &Connection<C>,
         tr: &mut TransactionData<C>,
         sql: &str,
-    ) -> Result<StmtCacheData<StatementData<C>>, FbError>
-    {
+    ) -> Result<StmtCacheData<StatementData<C>>, FbError> {
         if let Some(data) = self.get(sql) {
             Ok(data)
         } else {
@@ -104,8 +103,7 @@ where
         &mut self,
         conn: &Connection<C>,
         data: StmtCacheData<StatementData<C>>,
-    ) -> Result<(), FbError>
-    {
+    ) -> Result<(), FbError> {
         self.sqls.insert(data.sql.clone());
 
         // Insert the new one and close the old if exists
@@ -118,8 +116,7 @@ where
 
     /// Closes all statements in the cache.
     /// Needs to be called before dropping the cache.
-    pub fn close_all(&mut self, conn: &Connection<C>)
-    {
+    pub fn close_all(&mut self, conn: &Connection<C>) {
         for (_, stmt) in self.cache.iter_mut() {
             stmt.close(conn).ok();
         }

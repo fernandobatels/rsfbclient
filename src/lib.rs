@@ -16,10 +16,7 @@ mod statement;
 mod transaction;
 
 pub use crate::{
-    connection::{
-     // ConnectionBuilder,
-      Connection
-    },
+    connection::Connection,
     query::{Execute, Queryable},
     statement::Statement,
     transaction::Transaction,
@@ -28,8 +25,8 @@ pub use rsfbclient_core::{
     charset, Column, ColumnType, Dialect, FbError, FromRow, IntoParam, Param, Row,
 };
 
-//#[cfg(feature = "pool")]
-//pub use crate::connection::pool::FirebirdConnectionManager;
+#[cfg(feature = "pool")]
+pub use crate::connection::pool::FirebirdConnectionManager;
 
 #[cfg(any(feature = "linking", feature = "dynamic_loading"))]
 pub use rsfbclient_native;

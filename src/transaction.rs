@@ -4,7 +4,7 @@
 //! Transaction functions
 //!
 
-use rsfbclient_core::{FbError, FirebirdClient, FirebirdClientSqlOps, FromRow, IntoParams, TrIsolationLevel, TrOp};
+use rsfbclient_core::{FbError, FirebirdClient, FromRow, IntoParams, TrIsolationLevel, TrOp};
 use std::marker;
 use std::mem::ManuallyDrop;
 
@@ -19,8 +19,7 @@ where
     pub(crate) conn: &'c Connection<C>,
 }
 
-impl<'c, C: FirebirdClient> Transaction<'c, C>
-{
+impl<'c, C: FirebirdClient> Transaction<'c, C> {
     /// Start a new transaction
     pub fn new(conn: &'c Connection<C>) -> Result<Self, FbError> {
         let data = TransactionData::new(conn)?;
@@ -69,8 +68,7 @@ impl<'c, C: FirebirdClient> Transaction<'c, C>
     }
 }
 
-impl<'c, C: FirebirdClient> Drop for Transaction<'c, C>
-{
+impl<'c, C: FirebirdClient> Drop for Transaction<'c, C> {
     fn drop(&mut self) {
         self.data.rollback(self.conn).ok();
     }
@@ -125,94 +123,95 @@ where
     }
 }
 
-//impl<'c, C: FirebirdClient> Queryable for Transaction<'c, C> {
-//    /// Prepare, execute and return the rows of the sql query
-//    ///
-//    /// Use `()` for no parameters or a tuple of parameters
-//    fn query_iter<'a, P, R>(
-//        &'a mut self,
-//        sql: &str,
-//        params: P,
-//    ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
-//    where
-//        P: IntoParams,
-//        R: FromRow + 'static,
-//    {
-//        // Get a statement from the cache
-//        let mut stmt_cache_data =
-//            self.conn
-//                .stmt_cache
-//                .borrow_mut()
-//                .get_or_prepare(self.conn, &mut self.data, sql)?;
-//
-//        match stmt_cache_data
-//            .stmt
-//            .query(self.conn, &mut self.data, params)
-//        {
-//            Ok(_) => {
-//                let iter = StmtIter {
-//                    stmt_cache_data: Some(stmt_cache_data),
-//                    tr: self,
-//                    _marker: Default::default(),
-//                };
-//
-//                Ok(Box::new(iter))
-//            }
-//            Err(e) => {
-//                // Return the statement to the cache
-//                self.conn
-//                    .stmt_cache
-//                    .borrow_mut()
-//                    .insert_and_close(self.conn, stmt_cache_data)?;
-//
-//                Err(e)
-//            }
-//        }
-//    }
-//}
-//
-//impl<C: FirebirdClient> Execute for Transaction<'_, C> {
-//    /// Prepare and execute the sql query
-//    ///
-//    /// Use `()` for no parameters or a tuple of parameters
-//    fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
-//    where
-//        P: IntoParams,
-//    {
-//        // Get a statement from the cache
-//        let mut stmt_cache_data =
-//            self.conn
-//                .stmt_cache
-//                .borrow_mut()
-//                .get_or_prepare(self.conn, &mut self.data, sql)?;
-//
-//        // Do not return now in case of error, because we need to return the statement to the cache
-//        let res = stmt_cache_data
-//            .stmt
-//            .execute(self.conn, &mut self.data, params);
-//
-//        // Return the statement to the cache
-//        self.conn
-//            .stmt_cache
-//            .borrow_mut()
-//            .insert_and_close(self.conn, stmt_cache_data)?;
-//
-//        res?;
-//
-//        Ok(())
-//    }
-//}
+impl<'c, C: FirebirdClient> Queryable for Transaction<'c, C> {
+    /// Prepare, execute and return the rows of the sql query
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
+    fn query_iter<'a, P, R>(
+        &'a mut self,
+        sql: &str,
+        params: P,
+    ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
+    where
+        P: IntoParams,
+        R: FromRow + 'static,
+    {
+        // Get a statement from the cache
+        let mut stmt_cache_data =
+            self.conn
+                .stmt_cache
+                .borrow_mut()
+                .get_or_prepare(self.conn, &mut self.data, sql)?;
+
+        match stmt_cache_data
+            .stmt
+            .query(self.conn, &mut self.data, params)
+        {
+            Ok(_) => {
+                let iter = StmtIter {
+                    stmt_cache_data: Some(stmt_cache_data),
+                    tr: self,
+                    _marker: Default::default(),
+                };
+
+                Ok(Box::new(iter))
+            }
+            Err(e) => {
+                // Return the statement to the cache
+                self.conn
+                    .stmt_cache
+                    .borrow_mut()
+                    .insert_and_close(self.conn, stmt_cache_data)?;
+
+                Err(e)
+            }
+        }
+    }
+}
+
+impl<C: FirebirdClient> Execute for Transaction<'_, C> {
+    /// Prepare and execute the sql query
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
+    fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
+    where
+        P: IntoParams,
+    {
+        // Get a statement from the cache
+        let mut stmt_cache_data =
+            self.conn
+                .stmt_cache
+                .borrow_mut()
+                .get_or_prepare(self.conn, &mut self.data, sql)?;
+
+        // Do not return now in case of error, because we need to return the statement to the cache
+        let res = stmt_cache_data
+            .stmt
+            .execute(self.conn, &mut self.data, params);
+
+        // Return the statement to the cache
+        self.conn
+            .stmt_cache
+            .borrow_mut()
+            .insert_and_close(self.conn, stmt_cache_data)?;
+
+        res?;
+
+        Ok(())
+    }
+}
 
 #[derive(Debug)]
 /// Low level transaction handler.
 ///
 /// Needs to be closed calling `rollback` before dropping.
-pub struct TransactionData<C:FirebirdClient> {
+pub struct TransactionData<C: FirebirdClient> {
     pub(crate) handle: C::TrHandle,
 }
 
-impl<C:FirebirdClient> TransactionData<C>
-  where  C::TrHandle: Send + Clone + Copy,
+impl<C: FirebirdClient> TransactionData<C>
+where
+    C::TrHandle: Send + Clone + Copy,
 {
     /// Start a new transaction
     fn new(conn: &Connection<C>) -> Result<Self, FbError> {
