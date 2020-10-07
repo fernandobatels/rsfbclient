@@ -45,19 +45,6 @@ struct ConfDbName(String);
 struct ConfUsername(String);
 struct ConfPass(String);
 
-impl Builder<ConfHost> for RustFbClientAttachmentConfig {
-  fn set(&mut self, val: ConfHost) -> &mut Self {
-    self.host = String::from(val.0);
-    self
-  }
-}
-impl Builder<ConfPort> for RustFbClientAttachmentConfig {
-  fn set(&mut self, val: ConfPort) -> &mut Self {
-    self.host = val.0;
-    self
-  }
-}
-
 
 pub struct RustFbClientAttachmentConfig {
   pub host: String,
@@ -66,6 +53,7 @@ pub struct RustFbClientAttachmentConfig {
   pub user: String,
   pub pass: String
 }
+
 
 /// A Connection to a firebird server
 pub struct FirebirdWireConnection {

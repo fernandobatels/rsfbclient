@@ -4,12 +4,13 @@
 //! Connection functions
 //!
 
-#[cfg(feature = "pool")]
-pub mod pool;
+//#[cfg(feature = "pool")]
+//pub mod pool;
 pub mod stmt_cache;
 
 use rsfbclient_core::{
-    charset::Charset, charset::UTF_8, Dialect, FbError, FirebirdClient,
+    FbError, Dialect, 
+    FirebirdClientDbOps, FirebirdClientSqlOps, FirebirdClient,
     FromRow, IntoParams,
 };
 use std::{cell::RefCell, marker};
@@ -18,10 +19,13 @@ use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
 
 
-struct ConnectionBuilder
-    dialect: Dialect,
-    stmt_cache_size: usize,
-}
+//struct ConnectionBuilder
+//    dialect: Dialect,
+//    stmt_cache_size: usize,
+//}
+
+
+
 
 // /// The default builder for creating database connections
 // pub struct ConnectionBuilder<C: FirebirdClient> {
@@ -237,74 +241,42 @@ struct ConnectionBuilder
 
 
 /// A connection to a firebird database
-pub struct Connection<C>
+pub struct Connection<C: FirebirdClient>
+  
 {
     /// Database handler
-    pub(crate) handle: C::DbHandle,
+    pub(crate) handle: <C as FirebirdClientDbOps>::DbHandle,
 
     /// Firebird dialect for the statements
     pub(crate) dialect: Dialect,
 
     /// Cache for the prepared statements
-    pub(crate) stmt_cache: RefCell<StmtCache<StatementData<C::StmtHandle>>>,
+    pub(crate) stmt_cache: RefCell<StmtCache<StatementData<C>>>,
 
     /// Firebird client
     pub(crate) cli: RefCell<C>,
 }
 
-impl<C> Connection<C>
-where
-    C: FirebirdClient
-{
-    /// Open a new connection to the database
-    fn open_remote(builder: &ConnectionBuilder<C>, mut cli: C) -> Result<Connection<C>, FbError> {
-        let handle = cli.attach_database(
-            &builder.host,
-            builder.port,
-            &builder.db_name,
-            &builder.user,
-            &builder.pass,
-        )?;
+impl<C: FirebirdClient> Connection<C> {
 
-        let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
-
-        Ok(Connection {
-            handle,
-            dialect: builder.dialect,
-            stmt_cache,
-            cli: RefCell::new(cli),
-        })
-    }
-}
-
-impl<C> Connection<C>
-where
-    C: FirebirdClient + FirebirdClientEmbeddedAttach,
-{
-    /// Open a new connection to the database
-    fn open_embedded(
-        builder: &ConnectionBuilderEmbedded<C>,
-        mut cli: C,
+    fn open(
+      mut cli: C,
+      attach_args: &C::AttachmentConfig,
+      dialect: Dialect,
+      stmt_cache_size: usize
     ) -> Result<Connection<C>, FbError> {
-        let handle = cli.attach_database(&builder.db_name, &builder.user)?;
 
-        let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
+        let handle = cli.attach_database(attach_args)?;
+        let stmt_cache = RefCell::new(StmtCache::new(stmt_cache_size));
 
         Ok(Connection {
             handle,
-            dialect: builder.dialect,
+            dialect: dialect,
             stmt_cache,
             cli: RefCell::new(cli),
         })
     }
-}
 
-
-
-impl<C> Connection<C>
-where
-    C: FirebirdClient,
-{
     /// Drop the current database
     pub fn drop_database(mut self) -> Result<(), FbError> {
         self.cli.get_mut().drop_database(self.handle)?;
@@ -312,12 +284,21 @@ where
         Ok(())
     }
 
+    /// Close the current connection. With an `&mut self` to be used in the drop code too
+    fn close(&mut self) -> Result<(), FbError> {
+        
+        self.stmt_cache.borrow_mut().close_all(self);
+
+        self.cli.get_mut().detach_database(self.handle)?;
+
+        Ok(())
+    }
+
     /// Run a closure with a transaction, if the closure returns an error
     /// the transaction will rollback, else it will be committed
-    pub fn with_transaction<T>(
-        &self,
-        closure: impl FnOnce(&mut Transaction<C>) -> Result<T, FbError>,
-    ) -> Result<T, FbError> {
+    pub fn with_transaction<T, F>(&self, closure: F) -> Result<T,FbError>
+    where F: FnOnce(&mut Transaction<C>) -> Result<T, FbError> {
+
         let mut tr = Transaction::new(self)?;
 
         let res = closure(&mut tr);
@@ -331,34 +312,18 @@ where
         res
     }
 
-    /// Close the current connection
-    pub fn close(mut self) -> Result<(), FbError> {
-        self.__close()
-    }
-
-    /// Close the current connection. With an `&mut self` to be used in the drop code too
-    fn __close(&mut self) -> Result<(), FbError> {
-        self.stmt_cache.borrow_mut().close_all(self);
-
-        self.cli.get_mut().detach_database(self.handle)?;
-
-        Ok(())
-    }
 }
 
-impl<C> Drop for Connection<C>
-where
-    C: FirebirdClient,
-{
+impl<C: FirebirdClient> Drop for Connection<C> {
     fn drop(&mut self) {
-        self.__close().ok();
+        self.close().ok();
     }
 }
 
 /// Variant of the `StatementIter` that owns the `Transaction` and uses the statement cache
 pub struct StmtIter<'a, R, C: FirebirdClient> {
     /// Statement cache data. Wrapped in option to allow taking the value to send back to the cache
-    stmt_cache_data: Option<StmtCacheData<StatementData<C::StmtHandle>>>,
+    stmt_cache_data: Option<StmtCacheData<StatementData<C>>>,
 
     /// Transaction needs to be alive for the fetch to work
     tr: Transaction<'a, C>,

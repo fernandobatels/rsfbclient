@@ -4,24 +4,22 @@
 //! Transaction functions
 //!
 
-use rsfbclient_core::{FbError, FirebirdClient, FromRow, IntoParams, TrIsolationLevel, TrOp};
+use rsfbclient_core::{FbError, FirebirdClient, FirebirdClientSqlOps, FromRow, IntoParams, TrIsolationLevel, TrOp};
 use std::marker;
 use std::mem::ManuallyDrop;
 
 use super::{connection::Connection, statement::Statement};
 use crate::{connection::stmt_cache::StmtCacheData, statement::StatementData, Execute, Queryable};
 
-pub struct Transaction<'c, C>
+pub struct Transaction<'c, C: FirebirdClient>
 where
     C: FirebirdClient,
 {
-    pub(crate) data: TransactionData<C::TrHandle>,
+    pub(crate) data: TransactionData<C>,
     pub(crate) conn: &'c Connection<C>,
 }
 
-impl<'c, C> Transaction<'c, C>
-where
-    C: FirebirdClient,
+impl<'c, C: FirebirdClient> Transaction<'c, C>
 {
     /// Start a new transaction
     pub fn new(conn: &'c Connection<C>) -> Result<Self, FbError> {
@@ -71,9 +69,7 @@ where
     }
 }
 
-impl<'c, C> Drop for Transaction<'c, C>
-where
-    C: FirebirdClient,
+impl<'c, C: FirebirdClient> Drop for Transaction<'c, C>
 {
     fn drop(&mut self) {
         self.data.rollback(self.conn).ok();
@@ -81,12 +77,9 @@ where
 }
 
 /// Variant of the `StatementIter` that uses the statement cache
-pub struct StmtIter<'a, R, C>
-where
-    C: FirebirdClient,
-{
+pub struct StmtIter<'a, R, C: FirebirdClient> {
     /// Statement cache data. Wrapped in option to allow taking the value to send back to the cache
-    stmt_cache_data: Option<StmtCacheData<StatementData<C::StmtHandle>>>,
+    stmt_cache_data: Option<StmtCacheData<StatementData<C>>>,
 
     /// Transaction needs to be alive for the fetch to work
     tr: &'a Transaction<'a, C>,
@@ -94,10 +87,7 @@ where
     _marker: marker::PhantomData<R>,
 }
 
-impl<R, C> Drop for StmtIter<'_, R, C>
-where
-    C: FirebirdClient,
-{
+impl<R, C: FirebirdClient> Drop for StmtIter<'_, R, C> {
     fn drop(&mut self) {
         // Close the cursor
         self.stmt_cache_data
@@ -117,7 +107,7 @@ where
     }
 }
 
-impl<R, C> Iterator for StmtIter<'_, R, C>
+impl<R, C: FirebirdClient> Iterator for StmtIter<'_, R, C>
 where
     R: FromRow,
     C: FirebirdClient,
@@ -135,107 +125,97 @@ where
     }
 }
 
-impl<'c, C> Queryable for Transaction<'c, C>
-where
-    C: FirebirdClient,
-{
-    /// Prepare, execute and return the rows of the sql query
-    ///
-    /// Use `()` for no parameters or a tuple of parameters
-    fn query_iter<'a, P, R>(
-        &'a mut self,
-        sql: &str,
-        params: P,
-    ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
-    where
-        P: IntoParams,
-        R: FromRow + 'static,
-    {
-        // Get a statement from the cache
-        let mut stmt_cache_data =
-            self.conn
-                .stmt_cache
-                .borrow_mut()
-                .get_or_prepare(self.conn, &mut self.data, sql)?;
-
-        match stmt_cache_data
-            .stmt
-            .query(self.conn, &mut self.data, params)
-        {
-            Ok(_) => {
-                let iter = StmtIter {
-                    stmt_cache_data: Some(stmt_cache_data),
-                    tr: self,
-                    _marker: Default::default(),
-                };
-
-                Ok(Box::new(iter))
-            }
-            Err(e) => {
-                // Return the statement to the cache
-                self.conn
-                    .stmt_cache
-                    .borrow_mut()
-                    .insert_and_close(self.conn, stmt_cache_data)?;
-
-                Err(e)
-            }
-        }
-    }
-}
-
-impl<C> Execute for Transaction<'_, C>
-where
-    C: FirebirdClient,
-{
-    /// Prepare and execute the sql query
-    ///
-    /// Use `()` for no parameters or a tuple of parameters
-    fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
-    where
-        P: IntoParams,
-    {
-        // Get a statement from the cache
-        let mut stmt_cache_data =
-            self.conn
-                .stmt_cache
-                .borrow_mut()
-                .get_or_prepare(self.conn, &mut self.data, sql)?;
-
-        // Do not return now in case of error, because we need to return the statement to the cache
-        let res = stmt_cache_data
-            .stmt
-            .execute(self.conn, &mut self.data, params);
-
-        // Return the statement to the cache
-        self.conn
-            .stmt_cache
-            .borrow_mut()
-            .insert_and_close(self.conn, stmt_cache_data)?;
-
-        res?;
-
-        Ok(())
-    }
-}
+//impl<'c, C: FirebirdClient> Queryable for Transaction<'c, C> {
+//    /// Prepare, execute and return the rows of the sql query
+//    ///
+//    /// Use `()` for no parameters or a tuple of parameters
+//    fn query_iter<'a, P, R>(
+//        &'a mut self,
+//        sql: &str,
+//        params: P,
+//    ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
+//    where
+//        P: IntoParams,
+//        R: FromRow + 'static,
+//    {
+//        // Get a statement from the cache
+//        let mut stmt_cache_data =
+//            self.conn
+//                .stmt_cache
+//                .borrow_mut()
+//                .get_or_prepare(self.conn, &mut self.data, sql)?;
+//
+//        match stmt_cache_data
+//            .stmt
+//            .query(self.conn, &mut self.data, params)
+//        {
+//            Ok(_) => {
+//                let iter = StmtIter {
+//                    stmt_cache_data: Some(stmt_cache_data),
+//                    tr: self,
+//                    _marker: Default::default(),
+//                };
+//
+//                Ok(Box::new(iter))
+//            }
+//            Err(e) => {
+//                // Return the statement to the cache
+//                self.conn
+//                    .stmt_cache
+//                    .borrow_mut()
+//                    .insert_and_close(self.conn, stmt_cache_data)?;
+//
+//                Err(e)
+//            }
+//        }
+//    }
+//}
+//
+//impl<C: FirebirdClient> Execute for Transaction<'_, C> {
+//    /// Prepare and execute the sql query
+//    ///
+//    /// Use `()` for no parameters or a tuple of parameters
+//    fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
+//    where
+//        P: IntoParams,
+//    {
+//        // Get a statement from the cache
+//        let mut stmt_cache_data =
+//            self.conn
+//                .stmt_cache
+//                .borrow_mut()
+//                .get_or_prepare(self.conn, &mut self.data, sql)?;
+//
+//        // Do not return now in case of error, because we need to return the statement to the cache
+//        let res = stmt_cache_data
+//            .stmt
+//            .execute(self.conn, &mut self.data, params);
+//
+//        // Return the statement to the cache
+//        self.conn
+//            .stmt_cache
+//            .borrow_mut()
+//            .insert_and_close(self.conn, stmt_cache_data)?;
+//
+//        res?;
+//
+//        Ok(())
+//    }
+//}
 
 #[derive(Debug)]
 /// Low level transaction handler.
 ///
 /// Needs to be closed calling `rollback` before dropping.
-pub struct TransactionData<H> {
-    pub(crate) handle: H,
+pub struct TransactionData<C:FirebirdClient> {
+    pub(crate) handle: C::TrHandle,
 }
 
-impl<H> TransactionData<H>
-where
-    H: Send + Clone + Copy,
+impl<C:FirebirdClient> TransactionData<C>
+  where  C::TrHandle: Send + Clone + Copy,
 {
     /// Start a new transaction
-    fn new<C>(conn: &Connection<C>) -> Result<Self, FbError>
-    where
-        C: FirebirdClient<TrHandle = H>,
-    {
+    fn new(conn: &Connection<C>) -> Result<Self, FbError> {
         let handle = conn
             .cli
             .borrow_mut()
@@ -245,50 +225,35 @@ where
     }
 
     /// Execute the statement without returning any row
-    fn execute_immediate<C>(&mut self, conn: &Connection<C>, sql: &str) -> Result<(), FbError>
-    where
-        C: FirebirdClient<TrHandle = H>,
-    {
+    fn execute_immediate(&mut self, conn: &Connection<C>, sql: &str) -> Result<(), FbError> {
         conn.cli
             .borrow_mut()
             .exec_immediate(conn.handle, self.handle, conn.dialect, sql)
     }
 
     /// Commit the current transaction changes, not allowing to reuse the transaction
-    pub fn commit<C>(&mut self, conn: &Connection<C>) -> Result<(), FbError>
-    where
-        C: FirebirdClient<TrHandle = H>,
-    {
+    pub fn commit(&mut self, conn: &Connection<C>) -> Result<(), FbError> {
         conn.cli
             .borrow_mut()
             .transaction_operation(self.handle, TrOp::Commit)
     }
 
     /// Commit the current transaction changes, but allowing to reuse the transaction
-    pub fn commit_retaining<C>(&mut self, conn: &Connection<C>) -> Result<(), FbError>
-    where
-        C: FirebirdClient<TrHandle = H>,
-    {
+    pub fn commit_retaining(&mut self, conn: &Connection<C>) -> Result<(), FbError> {
         conn.cli
             .borrow_mut()
             .transaction_operation(self.handle, TrOp::CommitRetaining)
     }
 
     /// Rollback the current transaction changes, but allowing to reuse the transaction
-    pub fn rollback_retaining<C>(&mut self, conn: &Connection<C>) -> Result<(), FbError>
-    where
-        C: FirebirdClient<TrHandle = H>,
-    {
+    pub fn rollback_retaining(&mut self, conn: &Connection<C>) -> Result<(), FbError> {
         conn.cli
             .borrow_mut()
             .transaction_operation(self.handle, TrOp::RollbackRetaining)
     }
 
     /// Rollback the transaction, invalidating it
-    pub fn rollback<C>(&mut self, conn: &Connection<C>) -> Result<(), FbError>
-    where
-        C: FirebirdClient<TrHandle = H>,
-    {
+    pub fn rollback(&mut self, conn: &Connection<C>) -> Result<(), FbError> {
         conn.cli
             .borrow_mut()
             .transaction_operation(self.handle, TrOp::Rollback)

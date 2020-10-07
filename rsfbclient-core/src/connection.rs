@@ -4,15 +4,20 @@ use num_enum::TryFromPrimitive;
 
 use crate::*;
 
-pub trait FirebirdClient: FirebirdClientDbOps + FirebirdClientSqlOps {}
-impl<Hdl: Send, A: FirebirdClientDbOps<DbHandle = Hdl> + FirebirdClientSqlOps<DbHandle = Hdl>> FirebirdClient for A {}
+pub trait FirebirdClient
+where Self: FirebirdClientDbOps,
+      Self: FirebirdClientSqlOps<DbHandle = <Self as FirebirdClientDbOps>::DbHandle>,
+{}
+
+impl<Hdl, A: FirebirdClientDbOps<DbHandle = Hdl> + FirebirdClientSqlOps<DbHandle = Hdl>> FirebirdClient for A
+where Hdl: Send + Clone + Copy{}
 
 
 
 ///Responsible for database administration and attachment/detachment
-pub trait FirebirdClientDbOps {
-  type DbHandle: Send;
-  type AttachmentConfig;
+pub trait FirebirdClientDbOps: Send {
+  type DbHandle: Send + Clone + Copy;
+  type AttachmentConfig: Send + Clone;
   /// Connect to the database
   /// Configuration specifics are left up to implementations
   fn attach_database(&mut self, config: &Self::AttachmentConfig) -> Result<Self::DbHandle, FbError>;
@@ -25,13 +30,13 @@ pub trait FirebirdClientDbOps {
 }
 
 ///Responsible for actual transaction execution
-pub trait FirebirdClientSqlOps: Send {
+pub trait FirebirdClientSqlOps {
     /// A database handle
-    type DbHandle: Send;
+    type DbHandle: Send + Clone + Copy;
     /// A transaction handle
-    type TrHandle: Send;
+    type TrHandle: Send + Clone + Copy;
     /// A statement handle
-    type StmtHandle: Send;
+    type StmtHandle: Send + Clone + Copy;
 
     /// Start a new transaction, with the specified transaction parameter buffer
     fn begin_transaction(
