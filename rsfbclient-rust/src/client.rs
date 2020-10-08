@@ -855,7 +855,10 @@ fn connection_test() {
 
     println!("Statement type: {:?}", stmt_type);
 
-    let params = rsfbclient_core::IntoParams::to_params((1,));
+    let params = match rsfbclient_core::IntoParams::to_params((1,)) {
+        rsfbclient_core::ParamsType::Unamed(params) => params,
+        _ => unreachable!(),
+    };
 
     conn.execute(tr_handle, stmt_handle, &params).unwrap();
 
