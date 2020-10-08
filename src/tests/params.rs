@@ -10,8 +10,37 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
-    fn struct_namedparams() -> Result<(), FbError> {
+    fn struct_namedparams_insert() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
 
+        conn.execute("DROP TABLE PNAMED_USER", ()).ok();
+        conn.execute("CREATE TABLE PNAMED_USER (name varchar(50), age int)", ())?;
+
+        #[derive(Clone, IntoParams)]
+        struct User {
+            pub name: String,
+            pub age: i32
+        };
+
+        let user1 = User {
+            name: "Pedro".to_string(),
+            age: 20
+        };
+
+        conn.execute("insert into pnamed_user (name, age) values (:name, :age)", user1.clone())?;
+
+        let suser1: Option<(String,i32,)> = conn.query_first(
+            "select name, age from pnamed_user where age >= :age",
+            user1,
+        )?;
+        assert!(suser1.is_some());
+        assert_eq!("Pedro", suser1.unwrap().0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn struct_namedparams() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
         #[derive(Clone, IntoParams)]
