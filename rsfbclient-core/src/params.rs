@@ -1,7 +1,7 @@
 //! Sql parameter types and traits
 
 use crate::{error::FbError, ibase, SqlType};
-use regex::Regex;
+use regex::{Captures, Regex};
 use std::collections::HashMap;
 
 pub use SqlType::*;
@@ -209,15 +209,27 @@ impl NamedParams {
     /// Parse the sql statement and return a
     /// named params instance
     pub fn parse(raw_sql: &str) -> Result<Self, FbError> {
-        let rparams = Regex::new(r"(:[a-zA-Z0-9]{1,})")
+        let rparams = Regex::new(r#"('[^']*')|:\w+"#)
             .map_err(|e| FbError::from(format!("Error on start the regex for named params: {}", e)))
             .unwrap();
 
         let mut params_names = vec![];
-        let sql = rparams.replace_all(raw_sql, "?").to_string();
+        let sql = rparams
+            .replace_all(raw_sql, |caps: &Captures| match caps.get(1) {
+                Some(same) => same.as_str().to_string(),
+                None => "?".to_string(),
+            })
+            .to_string();
 
-        for param in rparams.captures_iter(raw_sql) {
-            params_names.push(param[1].to_string().replace(":", ""));
+        for params in rparams.captures_iter(raw_sql) {
+            for param in params
+                .iter()
+                .filter(|p| p.is_some())
+                .map(|p| p.unwrap().as_str())
+                .filter(|p| p.starts_with(":"))
+            {
+                params_names.push(param.replace(":", ""));
+            }
         }
 
         Ok(NamedParams { sql, params_names })
