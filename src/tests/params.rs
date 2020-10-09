@@ -10,6 +10,42 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
+    fn struct_namedparams_optional() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        conn.execute("DROP TABLE PNAMED_TEST", ()).ok();
+        conn.execute("CREATE TABLE PNAMED_TEST (id int, num1 int, str1 varchar(50))", ())?;
+
+        #[derive(Clone, IntoParams)]
+        struct ParamTest {
+            pub num1: Option<i32>,
+            pub str1: Option<String>
+        };
+
+        let ptest = ParamTest {
+            num1: Some(10),
+            str1: None
+        };
+
+        let res1: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where 10 = :num1",
+            ptest.clone(),
+        )?;
+        assert!(res1.is_some());
+
+        conn.execute("insert into pnamed_test (id, str1) values (1, :str1)", ptest.clone())?;
+        conn.execute("insert into pnamed_test (id, num1) values (2, :num1)", ptest.clone())?;
+
+        let res2: Option<(i32,)> = conn.query_first("select 1 from pnamed_test where id = 1 and str1 is null", ())?;
+        assert!(res2.is_some());
+
+        let res3: Option<(i32,)> = conn.query_first("select 1 from pnamed_test where id = 2 and num1 is not null", ())?;
+        assert!(res3.is_some());
+
+        Ok(())
+    }
+
+    #[test]
     fn struct_namedparams_insert() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
