@@ -27,7 +27,7 @@ pub fn into_params_derive(input: TokenStream) -> TokenStream {
         });
 
     let st_impl = quote! {
-        use rsfbclient_core::{IntoParams, IntoParam, ParamsType};
+        use rsfbclient::{IntoParams, IntoParam, ParamsType};
         use std::collections::HashMap;
 
         impl IntoParams for #st_name {
