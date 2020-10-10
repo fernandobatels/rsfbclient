@@ -4,16 +4,22 @@
 //! R2D2 Connection Pool
 //!
 
-use super::{ConnectionConfiguration, FirebirdClientFactory};
+use super::{ConnectionConfiguration, FirebirdClientDbOps, FirebirdClientFactory};
 use crate::{Connection, FbError, Transaction};
 
 pub struct FirebirdConnectionManager<F: FirebirdClientFactory> {
     client_factory: F,
-    conn_conf: ConnectionConfiguration<F::C>,
+    conn_conf: ConnectionConfiguration<<F::C as FirebirdClientDbOps>::AttachmentConfig>,
 }
 
-impl<F: FirebirdClientFactory> FirebirdConnectionManager<F> {
-    pub fn new(client_factory: F, conn_conf: ConnectionConfiguration<F::C>) -> Self {
+impl<F> FirebirdConnectionManager<F>
+where
+    F: FirebirdClientFactory,
+{
+    pub fn new(
+        client_factory: F,
+        conn_conf: ConnectionConfiguration<<F::C as FirebirdClientDbOps>::AttachmentConfig>,
+    ) -> Self {
         Self {
             client_factory,
             conn_conf,
@@ -22,13 +28,15 @@ impl<F: FirebirdClientFactory> FirebirdConnectionManager<F> {
 }
 
 impl<F: FirebirdClientFactory + 'static> r2d2::ManageConnection for FirebirdConnectionManager<F>
-// TODO: Allow embedded database
+where
+    F: Send + Sync,
+    <F::C as FirebirdClientDbOps>::AttachmentConfig: Send + Sync + Clone, // TODO: Allow embedded database
 {
     type Connection = Connection<F::C>;
     type Error = FbError;
 
     fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        let cli = self.client_factory.new()?;
+        let cli = self.client_factory.new_instance()?;
         Connection::open(cli, &self.conn_conf)
     }
 

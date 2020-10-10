@@ -15,7 +15,7 @@ where
 impl<Hdl, A: FirebirdClientDbOps<DbHandle = Hdl> + FirebirdClientSqlOps<DbHandle = Hdl>>
     FirebirdClient for A
 where
-    Hdl: Send + Clone + Copy,
+    Hdl: Send + Copy,
 {
 }
 
@@ -28,7 +28,7 @@ pub trait FirebirdClientDbOps: Send {
     /// A user of an implementation of this trait can configure attachment details
     /// (database name, user name, etcetera) and then pass this configuration to the implementation
     /// via this type when a new attachment is requested
-    type AttachmentConfig: Send + Sync + Clone;
+    type AttachmentConfig: Send + Clone;
 
     /// Create a new attachment to a database with the provided configuration
     /// Returns a database handle on success

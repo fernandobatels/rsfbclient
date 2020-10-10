@@ -4,9 +4,15 @@
 //! Connection functions
 //!
 
-pub mod builder;
 #[cfg(feature = "pool")]
 pub mod pool;
+
+#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
+pub mod builder_native;
+
+#[cfg(feature = "pure_rust")]
+pub mod builder_pure_rust;
+
 pub mod stmt_cache;
 
 use rsfbclient_core::{Dialect, FbError, FirebirdClient, FirebirdClientDbOps, FromRow, IntoParams};
@@ -15,19 +21,30 @@ use std::{cell::RefCell, marker, mem::ManuallyDrop};
 use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
 
-/// A generic factory for creating multiple instances of a particular client implementation
-pub trait FirebirdClientFactory: Send + Sync {
+// A generic factory for creating multiple instances of a particular client implementation
+// Intended mainly for use by connection pool
+pub trait FirebirdClientFactory {
     type C: FirebirdClient;
-    fn new(&self) -> Result<Self::C, FbError>;
+    fn new_instance(&self) -> Result<Self::C, FbError>;
 }
 
-///Configuration required for a connection
-///C is a specific implementation of the client traits in rsfbclient_core
+#[doc(hidden)]
 #[derive(Clone)]
-pub struct ConnectionConfiguration<C: FirebirdClient> {
-    attachment_conf: C::AttachmentConfig,
+pub struct ConnectionConfiguration<A> {
+    attachment_conf: A,
     dialect: Dialect,
     stmt_cache_size: usize,
+}
+
+#[doc(hidden)]
+impl<A: Default> Default for ConnectionConfiguration<A> {
+    fn default() -> Self {
+        Self {
+            attachment_conf: Default::default(),
+            dialect: Dialect::D3,
+            stmt_cache_size: 20,
+        }
+    }
 }
 
 /// A connection to a firebird database
@@ -46,7 +63,10 @@ pub struct Connection<C: FirebirdClient> {
 }
 
 impl<C: FirebirdClient> Connection<C> {
-    fn open(mut cli: C, conf: &ConnectionConfiguration<C>) -> Result<Connection<C>, FbError> {
+    fn open(
+        mut cli: C,
+        conf: &ConnectionConfiguration<C::AttachmentConfig>,
+    ) -> Result<Connection<C>, FbError> {
         let handle = cli.attach_database(&conf.attachment_conf)?;
         let stmt_cache = RefCell::new(StmtCache::new(conf.stmt_cache_size));
 
@@ -67,9 +87,9 @@ impl<C: FirebirdClient> Connection<C> {
 
     /// Close the current connection.
     pub fn close(mut self) -> Result<(), FbError> {
-      let res = self.cleanup_and_detach();
-      ManuallyDrop::new(self);
-      res
+        let res = self.cleanup_and_detach();
+        ManuallyDrop::new(self);
+        res
     }
 
     //cleans up statement cache and releases the database handle
@@ -103,8 +123,8 @@ impl<C: FirebirdClient> Connection<C> {
 
 impl<C: FirebirdClient> Drop for Connection<C> {
     fn drop(&mut self) {
-      //ignore the possible error value
-      let _ = self.cleanup_and_detach();
+        //ignore the possible error value
+        let _ = self.cleanup_and_detach();
     }
 }
 

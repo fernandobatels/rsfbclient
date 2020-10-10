@@ -6,7 +6,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::ibase;
+use crate::ibase::{self, IBase};
 
 pub struct Status(Box<ibase::ISC_STATUS_ARRAY>);
 
@@ -32,11 +32,11 @@ impl DerefMut for Status {
 
 // Firebird status vector
 impl Status {
-    pub fn sql_code(&self, ibase: &ibase::IBase) -> i32 {
+    pub fn sql_code<T: IBase>(&self, ibase: &T) -> i32 {
         unsafe { ibase.isc_sqlcode()(self.0.as_ptr()) }
     }
 
-    pub fn message(&self, ibase: &ibase::IBase) -> String {
+    pub fn message<T: IBase>(&self, ibase: &T) -> String {
         let mut buffer: Vec<u8> = Vec::with_capacity(256);
         let mut msg = String::new();
 
@@ -69,7 +69,7 @@ impl Status {
         msg
     }
 
-    pub fn as_error(&self, ibase: &ibase::IBase) -> FbError {
+    pub fn as_error<T: IBase>(&self, ibase: &T) -> FbError {
         FbError::Sql {
             code: self.sql_code(ibase),
             msg: self.message(ibase),

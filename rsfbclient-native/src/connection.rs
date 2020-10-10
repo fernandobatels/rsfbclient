@@ -1,6 +1,12 @@
 //! `FirebirdConnection` implementation for the native fbclient
 
-use crate::{ibase::IBase, params::Params, row::ColumnBuffer, status::Status, xsqlda::XSqlDa};
+use crate::{
+    ibase::{self, IBase},
+    params::Params,
+    row::ColumnBuffer,
+    status::Status,
+    xsqlda::XSqlDa,
+};
 use rsfbclient_core::*;
 use std::{collections::HashMap, convert::TryFrom, ptr};
 
@@ -9,8 +15,8 @@ type NativeTrHandle = ibase::isc_tr_handle;
 type NativeStmtHandle = ibase::isc_stmt_handle;
 
 /// Client that wraps the native fbclient library
-pub struct NativeFbClient {
-    ibase: IBase,
+pub struct NativeFbClient<T: LinkageMarker> {
+    ibase: T::L,
     status: Status,
     /// Output xsqldas and column buffers for the prepared statements
     stmt_data_map: HashMap<ibase::isc_tr_handle, (XSqlDa, Vec<ColumnBuffer>)>,
@@ -21,7 +27,7 @@ pub struct NativeFbClient {
 pub struct RemoteConfig {
     pub host: String,
     pub port: u16,
-    pub password: String,
+    pub pass: String,
 }
 
 #[derive(Clone, Default)]
@@ -31,32 +37,54 @@ pub struct NativeFbAttachmentConfig {
     pub remote: Option<RemoteConfig>,
 }
 
-impl NativeFbClient {
-    #[cfg(feature = "linking")]
-    pub fn new_static_linked(charset: Charset) -> Result<Self, FbError> {
-        Ok(Self {
-            ibase: IBase::Linking,
+pub trait LinkageMarker: Send + Sync {
+    type L: IBase + Send;
+}
+
+pub struct DynLink(pub Charset);
+#[cfg(feature = "linking")]
+impl LinkageMarker for DynLink {
+    type L = ibase::IBaseLinking;
+}
+#[cfg(feature = "linking")]
+impl DynLink {
+    pub fn to_client(&self) -> NativeFbClient<DynLink> {
+        let result: NativeFbClient<DynLink> = NativeFbClient {
+            ibase: ibase::IBaseLinking,
             status: Default::default(),
             stmt_data_map: Default::default(),
-            charset,
-        })
-    }
-
-    #[cfg(feature = "dynamic_loading")]
-    pub fn new_dyn_linked(charset: Charset, lib_path: &str) -> Result<Self, FbError> {
-        let dyn_client =
-            IBase::with_client(lib_path.to_string()).map_err(|e| FbError::from(e.to_string()))?;
-
-        Ok(Self {
-            ibase: dyn_client,
-            status: Default::default(),
-            stmt_data_map: Default::default(),
-            charset,
-        })
+            charset: self.0.clone(),
+        };
+        result
     }
 }
 
-impl FirebirdClientDbOps for NativeFbClient {
+pub struct DynLoad {
+    pub charset: Charset,
+    pub lib_path: String,
+}
+#[cfg(feature = "dynamic_loading")]
+impl LinkageMarker for DynLoad {
+    type L = ibase::IBaseDynLoading;
+}
+#[cfg(feature = "dynamic_loading")]
+impl DynLoad {
+    pub fn try_to_client(&self) -> Result<NativeFbClient<Self>, FbError> {
+        let load_result = ibase::IBaseDynLoading::with_client(self.lib_path.as_ref())
+            .map_err(|e| FbError::from(e.to_string()))?;
+
+        let result: NativeFbClient<DynLoad> = NativeFbClient {
+            ibase: load_result,
+            status: Default::default(),
+            stmt_data_map: Default::default(),
+            charset: self.charset.clone(),
+        };
+
+        Ok(result)
+    }
+}
+
+impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
     type DbHandle = NativeDbHandle;
     type AttachmentConfig = NativeFbAttachmentConfig;
 
@@ -72,7 +100,7 @@ impl FirebirdClientDbOps for NativeFbClient {
         let conn_string = match maybe_remote {
             None => db_name.clone(),
             Some(remote_conf) => {
-                password = Some(remote_conf.password.as_str());
+                password = Some(remote_conf.pass.as_str());
                 format!(
                     "{}/{}:{}",
                     remote_conf.host.as_str(),
@@ -149,7 +177,7 @@ impl FirebirdClientDbOps for NativeFbClient {
     }
 }
 
-impl FirebirdClientSqlOps for NativeFbClient {
+impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
     type DbHandle = NativeDbHandle;
     type TrHandle = NativeTrHandle;
     type StmtHandle = NativeStmtHandle;

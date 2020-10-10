@@ -1,6 +1,10 @@
 use std::{mem, ptr};
 
-use crate::{ibase, ibase::IBase, status::Status, xsqlda::XSqlDa};
+use crate::{
+    ibase::{self, IBase},
+    status::Status,
+    xsqlda::XSqlDa,
+};
 use rsfbclient_core::{Charset, FbError, SqlType, MAX_TEXT_LENGTH};
 
 use ParamBufferData::*;
@@ -16,10 +20,10 @@ pub struct Params {
 
 impl Params {
     /// Validate and set the parameters of a statement
-    pub(crate) fn new(
+    pub(crate) fn new<T: IBase>(
         db_handle: &mut ibase::isc_db_handle,
         tr_handle: &mut ibase::isc_tr_handle,
-        ibase: &ibase::IBase,
+        ibase: &T,
         status: &mut Status,
         stmt_handle: &mut ibase::isc_stmt_handle,
         infos: Vec<SqlType>,
@@ -143,12 +147,12 @@ impl ParamBufferData {
 
 impl ParamBuffer {
     /// Allocate a buffer from a value to use in an input (parameter) XSQLVAR
-    pub fn from_parameter(
+    pub fn from_parameter<T: IBase>(
         info: SqlType,
         var: &mut ibase::XSQLVAR,
         db: &mut ibase::isc_db_handle,
         tr: &mut ibase::isc_tr_handle,
-        ibase: &IBase,
+        ibase: &T,
         charset: &Charset,
     ) -> Result<Self, FbError> {
         let mut null = 0;
@@ -209,11 +213,11 @@ impl ParamBuffer {
 }
 
 // Convert the binary vec to a blob
-fn binary_to_blob(
+fn binary_to_blob<T: IBase>(
     bytes: &[u8],
     db_handle: &mut ibase::isc_db_handle,
     tr_handle: &mut ibase::isc_tr_handle,
-    ibase: &IBase,
+    ibase: &T,
 ) -> Result<Vec<u8>, FbError> {
     let mut status = Status::default();
     let mut handle = 0;
@@ -232,7 +236,7 @@ fn binary_to_blob(
             &mut blob_id,
         ) != 0
         {
-            return Err(status.as_error(&ibase));
+            return Err(status.as_error(ibase));
         }
     }
 
@@ -247,13 +251,13 @@ fn binary_to_blob(
             bytes.as_ptr() as *mut std::os::raw::c_char,
         ) != 0
         {
-            return Err(status.as_error(&ibase));
+            return Err(status.as_error(ibase));
         }
     }
 
     unsafe {
         if ibase.isc_close_blob()(&mut status[0], &mut handle) != 0 {
-            return Err(status.as_error(&ibase));
+            return Err(status.as_error(ibase));
         }
     }
 
