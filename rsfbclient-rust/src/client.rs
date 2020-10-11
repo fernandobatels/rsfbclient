@@ -204,6 +204,15 @@ impl FirebirdClient for RustFbClient {
             .map(|conn| conn.fetch(tr_handle, stmt_handle))
             .unwrap_or_else(err_client_not_connected)
     }
+    fn execute2(
+        &mut self,
+        mut db_handle: Self::DbHandle,
+        mut tr_handle: Self::TrHandle,
+        mut stmt_handle: Self::StmtHandle,
+        params: Vec<SqlType>,
+    ) -> Result<Vec<Vec<Column>>, FbError> {
+        todo!()
+    }
 }
 
 fn err_client_not_connected<T>() -> Result<T, FbError> {

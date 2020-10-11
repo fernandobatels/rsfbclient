@@ -169,6 +169,24 @@ where
         Ok(())
     }
 
+    /// Execute the current statement with input and output paramters
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
+    pub fn execute2<T, C>(
+        &mut self,
+        conn: &Connection<C>,
+        tr: &mut TransactionData<C::TrHandle>,
+        params: T,
+    ) -> Result<Vec<Vec<Column>>, FbError>
+    where
+        T: IntoParams,
+        C: FirebirdClient<StmtHandle = H>,
+    {
+        conn.cli
+            .borrow_mut()
+            .execute2(conn.handle, tr.handle, self.handle, params.to_params())
+    }
+
     /// Execute the current statement
     /// and returns the column buffer
     ///

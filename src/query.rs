@@ -51,4 +51,14 @@ pub trait Execute {
     fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
     where
         P: IntoParams;
+
+    /// Execute a query that will return data,
+    /// like the 'insert ... returning ..' or 'execute block'
+    ///
+    /// Use `()` for no parameters or a tuple of parameters
+    fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<Vec<R>, FbError>
+    where
+        P: IntoParams,
+        R: FromRow + 'static;
+
 }

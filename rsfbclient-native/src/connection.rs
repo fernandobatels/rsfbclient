@@ -350,6 +350,7 @@ impl FirebirdClient for NativeFbClient {
             })
             .collect::<Result<_, _>>()?;
 
+
         self.stmt_data_map.insert(handle, (xsqlda, col_buffers));
 
         Ok((stmt_type, handle))
@@ -454,5 +455,53 @@ impl FirebirdClient for NativeFbClient {
             .collect::<Result<_, _>>()?;
 
         Ok(Some(cols))
+    }
+
+    fn execute2(
+        &mut self,
+        mut db_handle: Self::DbHandle,
+        mut tr_handle: Self::TrHandle,
+        mut stmt_handle: Self::StmtHandle,
+        params: Vec<SqlType>,
+    ) -> Result<Vec<Vec<Column>>, FbError> {
+        let _ = self
+            .stmt_data_map
+            .get(&stmt_handle)
+            .ok_or_else(|| FbError::from("Tried to fetch a dropped statement"))?;
+
+        let params = Params::new(
+            &mut db_handle,
+            &mut tr_handle,
+            &self.ibase,
+            &mut self.status,
+            &mut stmt_handle,
+            params,
+            &self.charset,
+        )?;
+
+        let mut results = XSqlDa::new(1);
+
+        unsafe {
+            if self.ibase.isc_dsql_execute2()(
+                &mut self.status[0],
+                &mut tr_handle,
+                &mut stmt_handle,
+                1,
+                if let Some(xsqlda) = &params.xsqlda {
+                    &**xsqlda
+                } else {
+                    ptr::null()
+                },
+                &*results
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+
+        // Just to make sure the params are not dropped too soon
+        drop(params);
+
+        todo!("native result")
     }
 }

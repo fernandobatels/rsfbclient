@@ -525,6 +525,38 @@ where
 
         Ok(())
     }
+
+    fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<Vec<R>, FbError>
+    where
+        P: IntoParams,
+        R: FromRow + 'static
+    {
+        let mut tr = Transaction::new(self)?;
+
+        // Get a statement from the cache
+        let mut stmt_cache_data =
+            self.stmt_cache
+            .borrow_mut()
+            .get_or_prepare(self, &mut tr.data, sql)?;
+
+        // Do not return now in case of error, because we need to return the statement to the cache
+        let res = stmt_cache_data.stmt.execute2(self, &mut tr.data, params);
+
+        // Return the statement to the cache
+        self.stmt_cache
+            .borrow_mut()
+            .insert_and_close(self, stmt_cache_data)?;
+
+        println!("{:?}", res);
+        //let f_res = res?.iter()
+        //    .map(|row| FromRow::try_from(row.to_vec()).transpose())
+        //    .collect::<R>();
+
+        tr.commit()?;
+
+        todo!("mod conn")
+        //Ok(f_res)
+    }
 }
 
 #[cfg(test)]

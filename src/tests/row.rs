@@ -12,6 +12,20 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
+    fn insert_returing() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        conn.execute("DROP TABLE RINSERT_RETURNING", ()).ok();
+        conn.execute("CREATE TABLE RINSERT_RETURNING (id int)", ())?;
+
+        let ids: Vec<(i32,)> = conn.execute_returnable("insert into rinsert_returning (id) values (10) returning id", ())?;
+
+        //assert_eq!(Some((10,)), id);
+
+        Ok(())
+    }
+
+    #[test]
     fn boolean() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
