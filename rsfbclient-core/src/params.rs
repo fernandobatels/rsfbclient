@@ -209,7 +209,7 @@ impl NamedParams {
     /// Parse the sql statement and return a
     /// named params instance
     pub fn parse(raw_sql: &str) -> Result<Self, FbError> {
-        let rparams = Regex::new(r#"('[^']*')|:\w+"#)
+        let rparams = Regex::new(r#"('[^']*')|::\w+"#)
             .map_err(|e| FbError::from(format!("Error on start the regex for named params: {}", e)))
             .unwrap();
 
@@ -226,9 +226,9 @@ impl NamedParams {
                 .iter()
                 .filter(|p| p.is_some())
                 .map(|p| p.unwrap().as_str())
-                .filter(|p| p.starts_with(":"))
+                .filter(|p| p.starts_with("::"))
             {
-                params_names.push(param.replace(":", ""));
+                params_names.push(param.replace("::", ""));
             }
         }
 

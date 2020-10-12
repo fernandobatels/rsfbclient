@@ -10,6 +10,35 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
+    fn optional_named_support() -> Result<(), FbError> {
+        let exec_block_select : &str = "
+            EXECUTE BLOCK RETURNS (outval bigint) as
+            declare loopvar int = 0;
+            begin
+                while (loopvar < 100) do begin
+                    for select
+                        :loopvar
+                    from
+                        rdb$database
+                    into
+                        :outval
+                    do begin
+                        loopvar = loopvar + 1;
+                        suspend;
+                    end
+                end
+            end;";
+
+        let mut conn = cbuilder().connect()?;
+
+        let rows = conn.query::<(), (i64,)>(exec_block_select,())?;
+
+        assert_eq!(100, rows.len());
+
+        Ok(())
+    }
+
+    #[test]
     fn struct_namedparams_optional() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
@@ -28,13 +57,13 @@ mk_tests_default! {
         };
 
         let res1: Option<(i32,)> = conn.query_first(
-            "select 1 from rdb$database where 10 = :num1",
+            "select 1 from rdb$database where 10 = ::num1",
             ptest.clone(),
         )?;
         assert!(res1.is_some());
 
-        conn.execute("insert into pnamed_test (id, str1) values (1, :str1)", ptest.clone())?;
-        conn.execute("insert into pnamed_test (id, num1) values (2, :num1)", ptest.clone())?;
+        conn.execute("insert into pnamed_test (id, str1) values (1, ::str1)", ptest.clone())?;
+        conn.execute("insert into pnamed_test (id, num1) values (2, ::num1)", ptest.clone())?;
 
         let res2: Option<(i32,)> = conn.query_first("select 1 from pnamed_test where id = 1 and str1 is null", ())?;
         assert!(res2.is_some());
@@ -63,10 +92,10 @@ mk_tests_default! {
             age: 20
         };
 
-        conn.execute("insert into pnamed_user (name, age) values (:name, :age)", user1.clone())?;
+        conn.execute("insert into pnamed_user (name, age) values (::name, ::age)", user1.clone())?;
 
         let suser1: Option<(String,i32,)> = conn.query_first(
-            "select name, age from pnamed_user where age >= :age",
+            "select name, age from pnamed_user where age >= ::age",
             user1,
         )?;
         assert!(suser1.is_some());
@@ -93,25 +122,25 @@ mk_tests_default! {
         };
 
         let res1: Option<(i32,)> = conn.query_first(
-            "select 1 from rdb$database where 10 = :num ",
+            "select 1 from rdb$database where 10 = ::num ",
             ptest.clone(),
         )?;
         assert!(res1.is_some());
 
         let res2: Option<(i32,)> = conn.query_first(
-            "select 1 from rdb$database where 11.11 = :num2 ",
+            "select 1 from rdb$database where 11.11 = ::num2 ",
             ptest.clone(),
         )?;
         assert!(res2.is_some());
 
         let res3: Option<(i32,)> = conn.query_first(
-            "select 1 from rdb$database where 10 = :num and 11.11 = :num2 ",
+            "select 1 from rdb$database where 10 = ::num and 11.11 = ::num2 ",
             ptest.clone(),
         )?;
         assert!(res3.is_some());
 
         let res4: Option<(i32,)> = conn.query_first(
-            "select 1 from rdb$database where 'olá mundo' = :str1 ",
+            "select 1 from rdb$database where 'olá mundo' = ::str1 ",
             ptest,
         )?;
         assert!(res4.is_some());
