@@ -2,13 +2,14 @@
 
 #![allow(non_upper_case_globals)]
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use std::{convert::TryFrom, str};
 
 use crate::{
     client::{BlobId, FirebirdWireConnection},
     consts::{gds_to_msg, AuthPluginType, Cnct, ProtocolVersion, WireOp},
     srp::*,
+    util::*,
     xsqlda::{XSqlVar, XSQLDA_DESCRIBE_VARS},
 };
 use rsfbclient_core::{ibase, Charset, Column, ColumnType, FbError, FreeStmtOp, TrOp};
@@ -434,11 +435,8 @@ pub struct Response {
 
 /// Parse a server response (`WireOp::Response`)
 pub fn parse_response(resp: &mut Bytes) -> Result<Response, FbError> {
-    if resp.remaining() < 12 {
-        return err_invalid_response();
-    }
-    let handle = resp.get_u32();
-    let object_id = resp.get_u64();
+    let handle = resp.get_u32()?;
+    let object_id = resp.get_u64()?;
 
     let data = resp.get_wire_bytes()?;
 
@@ -460,13 +458,9 @@ pub fn parse_fetch_response(
 ) -> Result<Option<Vec<ParsedColumn>>, FbError> {
     const END_OF_STREAM: u32 = 100;
 
-    if resp.remaining() < 8 {
-        return err_invalid_response();
-    }
+    let status = resp.get_u32()?;
 
-    let status = resp.get_u32();
-
-    let has_row = resp.get_u32() != 0;
+    let has_row = resp.get_u32()? != 0;
     if !has_row && status != END_OF_STREAM {
         return Err("Fetch returned no columns".into());
     }
@@ -488,7 +482,7 @@ pub fn parse_fetch_response(
             return err_invalid_response();
         }
         let null_map = resp.slice(..len);
-        resp.advance(len);
+        resp.advance(len)?;
 
         Some(null_map)
     } else {
@@ -498,13 +492,10 @@ pub fn parse_fetch_response(
     let read_null = |resp: &mut Bytes, i: usize| {
         if version >= ProtocolVersion::V13 {
             // read from the null bitmap
-            Ok((null_map.as_ref().unwrap()[i / 8] >> (i % 8)) & 1 != 0)
+            Ok::<_, FbError>((null_map.as_ref().unwrap()[i / 8] >> (i % 8)) & 1 != 0)
         } else {
             // read from the response
-            if resp.remaining() < 4 {
-                return err_invalid_response();
-            }
-            Ok(resp.get_u32() != 0)
+            Ok(resp.get_u32()? != 0)
         }
     };
 
@@ -542,11 +533,7 @@ pub fn parse_fetch_response(
             }
 
             ibase::SQL_INT64 => {
-                if resp.remaining() < 8 {
-                    return err_invalid_response();
-                }
-
-                let i = resp.get_i64();
+                let i = resp.get_i64()?;
 
                 let null = read_null(resp, col_index)?;
                 if null {
@@ -563,11 +550,7 @@ pub fn parse_fetch_response(
             }
 
             ibase::SQL_DOUBLE => {
-                if resp.remaining() < 8 {
-                    return err_invalid_response();
-                }
-
-                let f = resp.get_f64();
+                let f = resp.get_f64()?;
 
                 let null = read_null(resp, col_index)?;
                 if null {
@@ -584,13 +567,9 @@ pub fn parse_fetch_response(
             }
 
             ibase::SQL_TIMESTAMP => {
-                if resp.remaining() < 8 {
-                    return err_invalid_response();
-                }
-
                 let ts = ibase::ISC_TIMESTAMP {
-                    timestamp_date: resp.get_i32(),
-                    timestamp_time: resp.get_u32(),
+                    timestamp_date: resp.get_i32()?,
+                    timestamp_time: resp.get_u32()?,
                 };
 
                 let null = read_null(resp, col_index)?;
@@ -608,11 +587,7 @@ pub fn parse_fetch_response(
             }
 
             ibase::SQL_BLOB if var.sqlsubtype == 0 || var.sqlsubtype == 1 => {
-                if resp.remaining() < 8 {
-                    return err_invalid_response();
-                }
-
-                let id = resp.get_u64();
+                let id = resp.get_u64()?;
 
                 let null = read_null(resp, col_index)?;
                 if null {
@@ -630,11 +605,8 @@ pub fn parse_fetch_response(
             }
 
             ibase::SQL_BOOLEAN => {
-                if resp.remaining() < 4 {
-                    return err_invalid_response();
-                }
-                let b = resp.get_u8() == 1;
-                resp.advance(3); // Pad to 4 bytes
+                let b = resp.get_u8()? == 1;
+                resp.advance(3)?; // Pad to 4 bytes
 
                 let null = read_null(resp, col_index)?;
 
@@ -735,17 +707,10 @@ pub fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
     let mut num_arg = 0;
 
     loop {
-        if resp.remaining() < 4 {
-            return err_invalid_response();
-        }
-
-        match resp.get_u32() {
+        match resp.get_u32()? {
             // New error message
             ibase::isc_arg_gds => {
-                if resp.remaining() < 4 {
-                    return err_invalid_response();
-                }
-                gds_code = resp.get_u32();
+                gds_code = resp.get_u32()?;
 
                 if gds_code != 0 {
                     message += gds_to_msg(gds_code);
@@ -755,10 +720,7 @@ pub fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
 
             // Error message arg number
             ibase::isc_arg_number => {
-                if resp.remaining() < 4 {
-                    return err_invalid_response();
-                }
-                let num = resp.get_i32();
+                let num = resp.get_i32()?;
                 // Sql error code
                 if gds_code == 335544436 {
                     sql_code = num
@@ -828,10 +790,7 @@ pub struct AuthPlugin {
 
 /// Parse the connect response response (`WireOp::Accept`, `WireOp::AcceptData`, `WireOp::CondAccept` )
 pub fn parse_accept(resp: &mut Bytes) -> Result<ConnectionResponse, FbError> {
-    if resp.remaining() < 4 {
-        return err_invalid_response();
-    }
-    let op_code = resp.get_u32();
+    let op_code = resp.get_u32()?;
 
     if op_code == WireOp::Response as u32 {
         // Returned an error
@@ -845,14 +804,10 @@ pub fn parse_accept(resp: &mut Bytes) -> Result<ConnectionResponse, FbError> {
         return err_conn_rejected(op_code);
     }
 
-    if resp.remaining() < 12 {
-        return err_invalid_response();
-    }
-
     let version =
-        ProtocolVersion::try_from(resp.get_u32()).map_err(|e| FbError::Other(e.to_string()))?;
-    resp.get_u32(); // Arch
-    resp.get_u32(); // Type
+        ProtocolVersion::try_from(resp.get_u32()?).map_err(|e| FbError::Other(e.to_string()))?;
+    resp.get_u32()?; // Arch
+    resp.get_u32()?; // Type
 
     let auth_plugin =
         if op_code == WireOp::AcceptData as u32 || op_code == WireOp::CondAccept as u32 {
@@ -860,10 +815,7 @@ pub fn parse_accept(resp: &mut Bytes) -> Result<ConnectionResponse, FbError> {
 
             let plugin = AuthPluginType::parse(&resp.get_wire_bytes()?)?;
 
-            if resp.remaining() < 4 {
-                return err_invalid_response();
-            }
-            let authenticated = resp.get_u32() != 0;
+            let authenticated = resp.get_u32()? != 0;
 
             let keys = resp.get_wire_bytes()?;
 
@@ -888,10 +840,7 @@ pub fn parse_accept(resp: &mut Bytes) -> Result<ConnectionResponse, FbError> {
 
 /// Parse an authentication continuation response (`WireOp::ContAuth`)
 pub fn parse_cont_auth(resp: &mut Bytes) -> Result<AuthPlugin, FbError> {
-    if resp.remaining() < 4 {
-        return err_invalid_response();
-    }
-    let op_code = resp.get_u32();
+    let op_code = resp.get_u32()?;
 
     if op_code == WireOp::Response as u32 {
         // Returned an error
@@ -926,22 +875,16 @@ pub fn parse_srp_auth_data(resp: &mut Bytes) -> Result<Option<SrpAuthData>, FbEr
         return Ok(None);
     }
 
-    if resp.remaining() < 2 {
-        return err_invalid_response();
-    }
-    let len = resp.get_u16_le() as usize;
+    let len = resp.get_u16_le()? as usize;
     if resp.remaining() < len {
         return err_invalid_response();
     }
     let salt = resp.slice(..len);
     // * DO NOT PARSE AS HEXADECIMAL *
     let salt = salt.to_vec();
-    resp.advance(len);
+    resp.advance(len)?;
 
-    if resp.remaining() < 2 {
-        return err_invalid_response();
-    }
-    let len = resp.get_u16_le() as usize;
+    let len = resp.get_u16_le()? as usize;
     if resp.remaining() < len {
         return err_invalid_response();
     }
@@ -952,76 +895,10 @@ pub fn parse_srp_auth_data(resp: &mut Bytes) -> Result<Option<SrpAuthData>, FbEr
     }
     let pub_key =
         hex::decode(&pub_key).map_err(|_| FbError::from("Invalid hex pub_key in srp data"))?;
-    resp.advance(len);
+    resp.advance(len)?;
 
     Ok(Some(SrpAuthData {
         salt: salt.into_boxed_slice(),
         pub_key: pub_key.into_boxed_slice(),
     }))
-}
-
-trait BufMutWireExt: BufMut {
-    /// Put a u32 with the bytes length and the byte data
-    /// with padding to align for 4 bytes
-    fn put_wire_bytes(&mut self, bytes: &[u8])
-    where
-        Self: Sized,
-    {
-        let len = bytes.len() as usize;
-
-        self.put_u32(len as u32);
-        self.put(bytes);
-        if len % 4 != 0 {
-            self.put_slice(&[0; 4][..4 - (len % 4)]);
-        }
-    }
-}
-
-impl<T> BufMutWireExt for T where T: BufMut {}
-
-trait BytesWireExt {
-    /// Get the length of the bytes from the first u32
-    /// and return the bytes read, advancing the cursor
-    /// to align to 4 bytes
-    fn get_wire_bytes(&mut self) -> Result<Bytes, FbError>;
-}
-
-impl BytesWireExt for Bytes {
-    fn get_wire_bytes(&mut self) -> Result<Bytes, FbError> {
-        if self.remaining() < 4 {
-            return err_invalid_response();
-        }
-        let len = self.get_u32() as usize;
-
-        if self.remaining() < len {
-            return err_invalid_response();
-        }
-        let bytes = self.slice(..len);
-
-        self.advance(len);
-        if len % 4 != 0 {
-            let pad = 4 - (len % 4);
-            if self.remaining() < pad {
-                return err_invalid_response();
-            }
-            self.advance(pad);
-        }
-
-        Ok(bytes)
-    }
-}
-
-pub fn err_invalid_response<T>() -> Result<T, FbError> {
-    Err("Invalid server response, missing bytes".into())
-}
-
-pub fn err_conn_rejected<T>(op_code: u32) -> Result<T, FbError> {
-    Err(format!(
-        "Connection rejected with code {}{}",
-        op_code,
-        WireOp::try_from(op_code as u8)
-            .map(|op| format!(" ({:?})", op))
-            .unwrap_or_default()
-    )
-    .into())
 }
