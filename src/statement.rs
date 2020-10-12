@@ -22,8 +22,12 @@ where
     C: FirebirdClient,
 {
     /// Prepare the statement that will be executed
-    pub fn prepare(tr: &mut Transaction<'c, C>, sql: &str) -> Result<Self, FbError> {
-        let data = StatementData::prepare(tr.conn, &mut tr.data, sql)?;
+    pub fn prepare(
+        tr: &mut Transaction<'c, C>,
+        sql: &str,
+        named_params: bool,
+    ) -> Result<Self, FbError> {
+        let data = StatementData::prepare(tr.conn, &mut tr.data, sql, named_params)?;
 
         Ok(Statement {
             data,
@@ -135,12 +139,17 @@ where
         conn: &Connection<C>,
         tr: &mut TransactionData<C::TrHandle>,
         raw_sql: &str,
+        named_params: bool,
     ) -> Result<Self, FbError>
     where
         C: FirebirdClient<StmtHandle = H>,
     {
-        let named_params = NamedParams::parse(raw_sql)?;
-        let sql = &named_params.sql.clone();
+        let named_params = if named_params {
+            NamedParams::parse(raw_sql)?
+        } else {
+            NamedParams::empty(raw_sql)
+        };
+        let sql = &named_params.sql;
 
         let (stmt_type, handle) =
             conn.cli
@@ -288,7 +297,7 @@ mk_tests_default! {
 
         conn.with_transaction(|tr| {
             let mut stmt = tr
-                .prepare(&format!("insert into {} (id, name) values (?, ?)", table))
+                .prepare(&format!("insert into {} (id, name) values (?, ?)", table), false)
                 .expect("Error preparing the insert statement");
 
             for val in &vals {
@@ -301,7 +310,7 @@ mk_tests_default! {
 
         conn.with_transaction(|tr| {
             let mut stmt = tr
-                .prepare(&format!("select id, name from {}", table))
+                .prepare(&format!("select id, name from {}", table), false)
                 .expect("Error on prepare the select");
 
             let rows: Vec<(Option<i32>, String)> = stmt

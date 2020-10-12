@@ -86,6 +86,7 @@ where
         conn: &Connection<C>,
         tr: &mut TransactionData<C::TrHandle>,
         sql: &str,
+        named_params: bool,
     ) -> Result<StmtCacheData<StatementData<H>>, FbError>
     where
         C: FirebirdClient<StmtHandle = H>,
@@ -95,7 +96,7 @@ where
         } else {
             Ok(StmtCacheData {
                 sql: sql.to_string(),
-                stmt: StatementData::prepare(conn, tr, sql)?,
+                stmt: StatementData::prepare(conn, tr, sql, named_params)?,
             })
         }
     }
