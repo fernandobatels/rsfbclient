@@ -127,9 +127,24 @@ pub enum ParamsType {
     Named(HashMap<String, SqlType>),
 }
 
+impl ParamsType {
+    pub fn named(&self) -> bool {
+        match self {
+            ParamsType::Unamed(_) => false,
+            ParamsType::Named(_) => true,
+        }
+    }
+}
+
 /// Implemented for types that represents a list of parameters
 pub trait IntoParams {
     fn to_params(self) -> ParamsType;
+}
+
+impl IntoParams for ParamsType {
+    fn to_params(self) -> ParamsType {
+        self
+    }
 }
 
 /// Allow use of a vector instead of tuples, for when the number of parameters are unknow at compile time
@@ -209,7 +224,7 @@ impl NamedParams {
     /// Parse the sql statement and return a
     /// named params instance
     pub fn parse(raw_sql: &str) -> Result<Self, FbError> {
-        let rparams = Regex::new(r#"('[^']*')|::\w+"#)
+        let rparams = Regex::new(r#"('[^']*')|:\w+"#)
             .map_err(|e| FbError::from(format!("Error on start the regex for named params: {}", e)))
             .unwrap();
 
@@ -226,13 +241,21 @@ impl NamedParams {
                 .iter()
                 .filter(|p| p.is_some())
                 .map(|p| p.unwrap().as_str())
-                .filter(|p| p.starts_with("::"))
+                .filter(|p| p.starts_with(':'))
             {
-                params_names.push(param.replace("::", ""));
+                params_names.push(param.replace(":", ""));
             }
         }
 
         Ok(NamedParams { sql, params_names })
+    }
+
+    /// Just returns the sql as is, disabling named parameter function
+    pub fn empty(raw_sql: &str) -> Self {
+        Self {
+            sql: raw_sql.to_string(),
+            params_names: Default::default(),
+        }
     }
 
     /// Re-sort/convert the params applying

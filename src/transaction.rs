@@ -66,8 +66,8 @@ where
     }
 
     /// Prepare a new statement for execute
-    pub fn prepare(&mut self, sql: &str) -> Result<Statement<'c, C>, FbError> {
-        Statement::prepare(self, sql)
+    pub fn prepare(&mut self, sql: &str, named_params: bool) -> Result<Statement<'c, C>, FbError> {
+        Statement::prepare(self, sql, named_params)
     }
 }
 
@@ -151,12 +151,15 @@ where
         P: IntoParams,
         R: FromRow + 'static,
     {
+        let params = params.to_params();
+
         // Get a statement from the cache
-        let mut stmt_cache_data =
-            self.conn
-                .stmt_cache
-                .borrow_mut()
-                .get_or_prepare(self.conn, &mut self.data, sql)?;
+        let mut stmt_cache_data = self.conn.stmt_cache.borrow_mut().get_or_prepare(
+            self.conn,
+            &mut self.data,
+            sql,
+            params.named(),
+        )?;
 
         match stmt_cache_data
             .stmt
@@ -195,12 +198,15 @@ where
     where
         P: IntoParams,
     {
+        let params = params.to_params();
+
         // Get a statement from the cache
-        let mut stmt_cache_data =
-            self.conn
-                .stmt_cache
-                .borrow_mut()
-                .get_or_prepare(self.conn, &mut self.data, sql)?;
+        let mut stmt_cache_data = self.conn.stmt_cache.borrow_mut().get_or_prepare(
+            self.conn,
+            &mut self.data,
+            sql,
+            params.named(),
+        )?;
 
         // Do not return now in case of error, because we need to return the statement to the cache
         let res = stmt_cache_data
