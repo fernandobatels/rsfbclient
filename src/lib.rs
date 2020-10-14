@@ -28,8 +28,6 @@ pub use rsfbclient_core::{
 #[cfg(feature = "pool")]
 pub use crate::connection::pool::FirebirdConnectionManager;
 
-#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
-pub use crate::connection::builder_native::*;
-
-#[cfg(feature = "pure_rust")]
-pub use crate::connection::builder_pure_rust::*;
+//builders are behind feature gates inside this module
+pub use crate::connection::builders;
+pub use builders::*;

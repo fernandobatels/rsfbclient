@@ -8,19 +8,22 @@
 
 #![allow(unused_variables, unused_mut)]
 
-use rsfbclient::{prelude::*, ConnectionBuilder, FirebirdConnectionManager};
+use rsfbclient::prelude::*;
+use rsfbclient::FirebirdConnectionManager;
 use std::{sync::Arc, thread, time::Duration};
 
 fn main() {
     let builder = {
         #[cfg(feature = "linking")]
-        let mut builder = ConnectionBuilder::linked();
+        let mut builder = rsfbclient::builder_native().with_dyn_link().as_remote();
 
         #[cfg(feature = "dynamic_loading")]
-        let mut builder = ConnectionBuilder::with_client("./fbclient.lib");
+        let mut builder = rsfbclient::builder_native()
+            .with_dyn_load("./fbclient.lib")
+            .as_remote();
 
         #[cfg(feature = "pure_rust")]
-        let mut builder = ConnectionBuilder::pure_rust();
+        let mut builder = rsfbclient::builder_pure_rust();
 
         builder
             .host("localhost")
@@ -31,7 +34,14 @@ fn main() {
         builder
     };
 
-    let manager = FirebirdConnectionManager::new(builder);
+    //FirebirdConnectionManager is designed to be used without needing a builder
+    //however the default builders have all the necessary ingredients to use it.
+    //We simply clone the ConnectionConfiguration<...> out from the builder.
+    //A From<BuilderType> implementation is provided for both default builders.
+    //the output type of into() is inferred automatically from subsequent use of connection_conf
+    let connection_conf = (&builder).into();
+
+    let manager = FirebirdConnectionManager::new(builder, connection_conf);
     let pool = Arc::new(r2d2::Pool::builder().max_size(4).build(manager).unwrap());
 
     let mut tasks = vec![];

@@ -70,11 +70,11 @@ struct StmtData {
 
 impl RustFbClient {
     ///Construct a new instance of the pure rust client
-    pub fn new(charset: Charset) -> Result<Self, FbError> {
-        Ok(Self {
+    pub fn new(charset: Charset) -> Self {
+        Self {
             conn: None,
             charset,
-        })
+        }
     }
 }
 

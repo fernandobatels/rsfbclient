@@ -9,13 +9,15 @@
 
 #![allow(unused_variables, unused_mut)]
 
-use rsfbclient::{prelude::*, ConnectionBuilder, FbError};
+use rsfbclient::{prelude::*, FbError};
 
 const SQL_INSERT: &str = "insert into test (col_b, col_c) values (?, ?)";
 
 fn main() -> Result<(), FbError> {
     #[cfg(feature = "linking")]
-    let conn = ConnectionBuilder::linked()
+    let conn = rsfbclient::builder_native()
+        .with_dyn_link()
+        .as_remote()
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")
@@ -23,7 +25,9 @@ fn main() -> Result<(), FbError> {
         .connect()?;
 
     #[cfg(feature = "dynamic_loading")]
-    let conn = ConnectionBuilder::with_client("./fbclient.lib")
+    let conn = rsfbclient::builder_native()
+        .with_dyn_load("./fbclient.lib")
+        .as_remote()
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")
@@ -31,7 +35,7 @@ fn main() -> Result<(), FbError> {
         .connect()?;
 
     #[cfg(feature = "pure_rust")]
-    let mut conn = ConnectionBuilder::pure_rust()
+    let mut conn = rsfbclient::builder_pure_rust()
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")

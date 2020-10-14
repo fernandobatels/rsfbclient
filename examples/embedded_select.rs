@@ -15,16 +15,17 @@ fn main() -> Result<(), FbError> {
         let mut conn = rsfbclient::builder_native()
             .with_dyn_link()
             .as_embedded()
-            .db_name("/tmp/examples.fdb")
+            .db_name("/opt/firebird-kit/fbclient/employee.fdb")
             .user("SYSDBA")
             .connect()?;
 
         #[cfg(feature = "dynamic_loading")]
         let mut conn = rsfbclient::builder_native()
-            .with_dyn_load("./fbclient.lib")
-            .as_embedded()
-            .db_name("/tmp/examples.fdb")
-            .user("SYSDBA")
+            .with_dyn_load("/opt/firebird259/libfbembed.so")
+            .as_remote()
+            .db_name("/opt/firebird259/examples/empbuild/employee.fdb")
+            .user("sysdba")
+            .pass("masterkey")
             .connect()?;
 
         let rows: Vec<(String, String)> = conn.query(

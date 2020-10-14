@@ -3,23 +3,40 @@
 //!
 //! Connection functions
 //!
-
-#[cfg(feature = "pool")]
-pub mod pool;
-
-#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
-pub mod builder_native;
-
-#[cfg(feature = "pure_rust")]
-pub mod builder_pure_rust;
-
-pub mod stmt_cache;
-
 use rsfbclient_core::{Dialect, FbError, FirebirdClient, FirebirdClientDbOps, FromRow, IntoParams};
 use std::{cell::RefCell, marker, mem::ManuallyDrop};
 
 use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
+
+#[cfg(feature = "pool")]
+pub mod pool;
+
+pub mod builders {
+
+    #![allow(unused_imports)]
+    use super::{
+        super::{charset, Charset},
+        Connection, ConnectionConfiguration, Dialect, FbError, FirebirdClient,
+        FirebirdClientFactory,
+    };
+
+    pub trait HasAttachmentConfig<C: FirebirdClient> {
+        fn get_connection_configuration(&self) -> ConnectionConfiguration<C::AttachmentConfig>;
+    }
+
+    #[cfg(feature = "native_client")]
+    mod builder_native;
+    #[cfg(feature = "native_client")]
+    pub use builder_native::*;
+
+    #[cfg(feature = "pure_rust")]
+    mod builder_pure_rust;
+    #[cfg(feature = "pure_rust")]
+    pub use builder_pure_rust::*;
+}
+
+pub mod stmt_cache;
 
 // A generic factory for creating multiple instances of a particular client implementation
 // Intended mainly for use by connection pool

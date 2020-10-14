@@ -12,14 +12,15 @@ pub struct FirebirdConnectionManager<F: FirebirdClientFactory> {
     conn_conf: ConnectionConfiguration<<F::C as FirebirdClientDbOps>::AttachmentConfig>,
 }
 
+type FactoryAssociatedConnectionConfig<F> = ConnectionConfiguration<
+    <<F as FirebirdClientFactory>::C as FirebirdClientDbOps>::AttachmentConfig,
+>;
+
 impl<F> FirebirdConnectionManager<F>
 where
     F: FirebirdClientFactory,
 {
-    pub fn new(
-        client_factory: F,
-        conn_conf: ConnectionConfiguration<<F::C as FirebirdClientDbOps>::AttachmentConfig>,
-    ) -> Self {
+    pub fn new(client_factory: F, conn_conf: FactoryAssociatedConnectionConfig<F>) -> Self {
         Self {
             client_factory,
             conn_conf,

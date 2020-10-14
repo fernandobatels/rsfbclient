@@ -1,20 +1,27 @@
-use super::{Connection, ConnectionConfiguration, FirebirdClientFactory};
-use crate::{charset, Charset, Dialect, FbError};
-use rsfbclient_core::FirebirdClient;
+use super::*;
+use std::marker::PhantomData;
+
 pub use rsfbclient_native::{DynLink, DynLoad};
 use rsfbclient_native::{LinkageMarker, NativeFbAttachmentConfig, NativeFbClient, RemoteConfig};
-use std::marker::PhantomData;
 
 //used as markers
 #[doc(hidden)]
+#[derive(Clone)]
 pub struct LinkageNotConfigured;
 #[doc(hidden)]
+#[derive(Clone)]
 pub struct ConnTypeNotConfigured;
 #[doc(hidden)]
+#[derive(Clone)]
 pub struct Embedded;
 #[doc(hidden)]
+#[derive(Clone)]
 pub struct Remote;
 
+//These traits are used to avoid duplicating some impl blocks
+//while at the same time statically disallowing certain methods for
+//NativeConnectionBuilder<A,B> where one of A or B is
+//XYZNotConfigured
 #[doc(hidden)]
 pub trait ConfiguredConnType: Send + Sync {}
 #[doc(hidden)]
@@ -23,8 +30,9 @@ impl ConfiguredConnType for Embedded {}
 impl ConfiguredConnType for Remote {}
 
 #[doc(hidden)]
+//note that there is also LinkageMarker implemented for DynLink and
+//DynLoad in rsfbclient-native
 pub trait ConfiguredLinkage {}
-
 #[doc(hidden)]
 impl ConfiguredLinkage for DynLink {}
 #[doc(hidden)]
@@ -43,27 +51,23 @@ pub struct NativeConnectionBuilder<LinkageType, ConnectionType> {
     lib_path: Option<String>,
 }
 
+impl<A, B> From<&NativeConnectionBuilder<A, B>>
+    for ConnectionConfiguration<NativeFbAttachmentConfig>
+{
+    fn from(arg: &NativeConnectionBuilder<A, B>) -> Self {
+        arg.conn_conf.clone()
+    }
+}
+
 // dev notes: impl combinations for NativeConnectionBuilder:
-// <LinkageNotconfigured, ConnTypeNotConfigured): What you get when you first call builder_native()
-// (A,B): methods user can use at any time, common to all implementations
-// (A,ConnTypeNotConfigured): user can still choose a connection type
-// (NotConfigured,A): user can still choose a linkage type
-// (Configured,Configured) user configured everything needed, and can call connect()
+// <LinkageNotConfigured, ConnTypeNotConfigured>: What you get when you first call builder_native()
+// <A,ConnTypeNotConfigured>: user still has to choose a connection type
+// (LinkageNotConfigured,A): user still has to choose a linkage type
+// <Configured,Configured> user configured linkage and connectiontype,
+//   so they can continue to do other configuration or call connect()
 
 pub fn builder_native() -> NativeConnectionBuilder<LinkageNotConfigured, ConnTypeNotConfigured> {
     Default::default()
-}
-
-impl<A, B> NativeConnectionBuilder<A, B>
-where
-    A: ConfiguredLinkage,
-    A: LinkageMarker,
-    B: ConfiguredConnType,
-    Self: FirebirdClientFactory<C = NativeFbClient<A>>,
-{
-    pub fn connect(&self) -> Result<Connection<impl FirebirdClient>, FbError> {
-        Connection::open(self.new_instance()?, &self.conn_conf)
-    }
 }
 
 #[cfg(feature = "dynamic_loading")]
@@ -100,7 +104,24 @@ where
     }
 }
 
-impl<A, B> NativeConnectionBuilder<A, B> {
+impl<A, B> NativeConnectionBuilder<A, B>
+where
+    A: ConfiguredLinkage,
+    B: ConfiguredConnType,
+    //Needed to satisfy the bounds in rsfbclient_native
+    A: LinkageMarker,
+    Self: FirebirdClientFactory<C = NativeFbClient<A>>,
+{
+    pub fn connect(&self) -> Result<Connection<impl FirebirdClient>, FbError> {
+        Connection::open(self.new_instance()?, &self.conn_conf)
+    }
+}
+
+impl<A, B> NativeConnectionBuilder<A, B>
+where
+    A: ConfiguredLinkage,
+    B: ConfiguredConnType,
+{
     /// Username. Default: SYSDBA
     pub fn user<S: Into<String>>(&mut self, user: S) -> &mut Self {
         self.conn_conf.attachment_conf.user = user.into();
@@ -124,7 +145,9 @@ impl<A, B> NativeConnectionBuilder<A, B> {
         self.conn_conf.stmt_cache_size = stmt_cache_size;
         self
     }
+}
 
+impl<A, B> NativeConnectionBuilder<A, B> {
     //never export this. It would allow users to bypass the type safety.
     fn safe_transmute<X, Y>(self) -> NativeConnectionBuilder<X, Y> {
         NativeConnectionBuilder {
@@ -220,17 +243,19 @@ impl<A> NativeConnectionBuilder<LinkageNotConfigured, A> {
     /// # Example
     ///
     /// ```no_run
-    /// use rsfbclient::ConnectionBuilder;
-    ///
     /// // On windows
-    /// ConnectionBuilder::with_dynlib("fbclient.dll");
+    /// rsfbclient::native_builder::new()
+    ///   .with_dyn_load("fbclient.dll");
+    ///
     ///
     /// // On linux
-    /// ConnectionBuilder::with_dynlib("libfbclient.so");
+    /// rsfbclient::native_builder::new()
+    ///   .with_dyn_load("libfbclient.so");
     ///
     /// // Any platform, file located relative to the
     /// // folder where the executable was run
-    /// ConnectionBuilder::with_dynlib("./fbclient.lib");
+    /// rsfbclient::native_builder::new()
+    ///   .with_dyn_load("./fbclient.lib");
     /// ```
     /// Requires feature 'dynamic_loading'.
     pub fn with_dyn_load<S: Into<String>>(

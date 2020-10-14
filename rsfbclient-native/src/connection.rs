@@ -41,6 +41,7 @@ pub trait LinkageMarker: Send + Sync {
     type L: IBase + Send;
 }
 
+#[derive(Clone)]
 pub struct DynLink(pub Charset);
 #[cfg(feature = "linking")]
 impl LinkageMarker for DynLink {
@@ -59,6 +60,7 @@ impl DynLink {
     }
 }
 
+#[derive(Clone)]
 pub struct DynLoad {
     pub charset: Charset,
     pub lib_path: String,
