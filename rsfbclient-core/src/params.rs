@@ -10,7 +10,7 @@ pub use SqlType::*;
 pub const MAX_TEXT_LENGTH: usize = 32767;
 
 impl SqlType {
-    /// Return the sql type to coerce the data
+    /// Convert the sql value to interbase format
     pub fn sql_type_and_subtype(&self) -> (u32, u32) {
         match self {
             Text(s) => {
@@ -86,7 +86,7 @@ impl IntoParam for f32 {
     }
 }
 
-/// Implements for all nullable variants
+/// Implements `IntoParam` for all nullable variants
 impl<T> IntoParam for Option<T>
 where
     T: IntoParam,
@@ -100,7 +100,7 @@ where
     }
 }
 
-/// Implements for all borrowed variants (&str, Cow and etc)
+/// Implements `IntoParam` for all borrowed variants (&str, Cow and etc)
 impl<T, B> IntoParam for &B
 where
     B: ToOwned<Owned = T> + ?Sized,
@@ -123,35 +123,45 @@ where
 
 /// Parameters type
 pub enum ParamsType {
-    /// When you have position paramters, using the '?' mark. This is the default option.
+    /// Positional parameters, using '?'. This is the default option.
     ///
-    /// This resource is provided by the firebird itself.
-    Unamed(Vec<SqlType>),
+    /// Firebird provides direct support for this kind of parameter, which this crate makes use of.
+    Positional(Vec<SqlType>),
 
-    /// When you have named parameters, using the ':' prefix.
+    /// Named parameters, using the common `:`-prefixed `:param` syntax.
     ///
-    /// This resource is provided by this lib, so we can't support complex querys
-    /// for now.
+    /// Support for this kind of parameter is provided by this library.
     ///
-    /// The preverable way to use this variation is using the [IntoParams derive](prelude/derive.IntoParams.html)
-    /// in the struct.
+    /// Currently only a naive regex-based approach is used, to support very basic
+    /// select, insert, etc statements
+    ///
+    /// **CAUTION!**
+    /// Named parameter support is still very preliminary.
+    /// Use of named parameters may currently give unexpected results. Please test your queries carefully
+    /// when using this feature.
+    ///
+    /// In particular, thie regex-based parser is known to definitely to have trouble with:
+    ///   * occurences of apostrophe (`'`) anywhere except as string literal delimiters (for example, in comments)
+    ///   * statements with closed variable bindings (which uses the `:var` syntax) (for example, in PSQL via `EXECUTE BLOCK` or `EXECUTE PROCEDURE`)
+    ///
+    ///
+    /// This crate provides a [derive macro](prelude/derive.IntoParams.html) for supplying arguments via the fields of a struct and their labels.
     Named(HashMap<String, SqlType>),
 }
 
 impl ParamsType {
     pub fn named(&self) -> bool {
         match self {
-            ParamsType::Unamed(_) => false,
+            ParamsType::Positional(_) => false,
             ParamsType::Named(_) => true,
         }
     }
 }
 
-/// Implemented for types that represents a list of parameters.
+/// Types with an associated boolean flag function, `named()` indiciating support for named or positional parameters.
 ///
-/// Regardless of the [parameters types](enum.ParamsType.html) you will use,
-/// you can use optional parameters. In the named parameters this make more sense,
-/// because you can have some filds like 'Option<i32>'.
+///
+/// With both named (as a struct field) or positional (as a Vector or tuple element) parameters, `Option<T>`, with `T` an `IntoParam`,  may be used to indicate a nullable argument, wherein the `None` variant provides a `null` value.
 pub trait IntoParams {
     fn to_params(self) -> ParamsType;
 }
@@ -162,18 +172,18 @@ impl IntoParams for ParamsType {
     }
 }
 
-/// Allow use of a vector instead of tuples, for when the number of parameters are unknow at compile time
-/// or more parameters are needed than what can be used with the tuples
+/// Allow use of a vector instead of tuples, for run-time-determined parameter count, or
+/// for when there are too many parameters to use one of the provided tuple implementations
 impl IntoParams for Vec<SqlType> {
     fn to_params(self) -> ParamsType {
-        ParamsType::Unamed(self)
+        ParamsType::Positional(self)
     }
 }
 
-/// Represents no parameters
+/// Represents 0 parameters
 impl IntoParams for () {
     fn to_params(self) -> ParamsType {
-        ParamsType::Unamed(vec![])
+        ParamsType::Positional(vec![])
     }
 }
 
@@ -187,7 +197,7 @@ macro_rules! impl_into_params {
             fn to_params(self) -> ParamsType {
                 let ( $($v,)+ ) = self;
 
-                ParamsType::Unamed(vec![ $(
+                ParamsType::Positional(vec![ $(
                     $v.into_param(),
                 )+ ])
             }
@@ -228,8 +238,7 @@ impls_into_params!(
 
 /// Named params implementation.
 ///
-/// Works on top of firebird unamed
-/// params '?'
+/// Works on top of firebird positional parameters (`?`)
 pub struct NamedParams {
     pub sql: String,
     params_names: Vec<String>,
@@ -237,7 +246,7 @@ pub struct NamedParams {
 
 impl NamedParams {
     /// Parse the sql statement and return a
-    /// named params instance
+    /// structure representing the named parameters found
     pub fn parse(raw_sql: &str) -> Result<Self, FbError> {
         let rparams = Regex::new(r#"('[^']*')|:\w+"#)
             .map_err(|e| FbError::from(format!("Error on start the regex for named params: {}", e)))
@@ -265,7 +274,7 @@ impl NamedParams {
         Ok(NamedParams { sql, params_names })
     }
 
-    /// Just returns the sql as is, disabling named parameter function
+    /// Returns the sql as is, disabling named parameter function
     pub fn empty(raw_sql: &str) -> Self {
         Self {
             sql: raw_sql.to_string(),
@@ -273,7 +282,7 @@ impl NamedParams {
         }
     }
 
-    /// Re-sort/convert the params applying
+    /// Re-sort/convert the parameters, applying
     /// the named params support
     pub fn convert<P>(&self, params: P) -> Result<Vec<SqlType>, FbError>
     where
@@ -296,7 +305,7 @@ impl NamedParams {
 
                 Ok(new_params)
             }
-            ParamsType::Unamed(p) => Ok(p),
+            ParamsType::Positional(p) => Ok(p),
         }
     }
 }

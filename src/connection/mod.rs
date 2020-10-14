@@ -450,9 +450,6 @@ impl<C> Queryable for Connection<C>
 where
     C: FirebirdClient,
 {
-    /// Prepare, execute, return the rows and commit the sql query
-    ///
-    /// Use `()` for no parameters or a tuple of parameters
     fn query_iter<'a, P, R>(
         &'a mut self,
         sql: &str,
@@ -497,9 +494,6 @@ impl<C> Execute for Connection<C>
 where
     C: FirebirdClient,
 {
-    /// Prepare, execute and commit the sql query
-    ///
-    /// Use `()` for no parameters or a tuple of parameters
     fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
     where
         P: IntoParams,
