@@ -53,7 +53,7 @@ pub trait Execute {
         P: IntoParams;
 
     /// Execute a query that will return data,
-    /// like the 'insert ... returning ..' or 'execute block'
+    /// like the 'insert ... returning ..' or 'execute procedure'
     ///
     /// Use `()` for no parameters or a tuple of parameters
     fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<Vec<R>, FbError>

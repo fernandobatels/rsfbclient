@@ -16,11 +16,11 @@ mk_tests_default! {
         let mut conn = cbuilder().connect()?;
 
         conn.execute("DROP TABLE RINSERT_RETURNING", ()).ok();
-        conn.execute("CREATE TABLE RINSERT_RETURNING (id int)", ())?;
+        conn.execute("CREATE TABLE RINSERT_RETURNING (id int, name varchar(10))", ())?;
 
-        let ids: Vec<(i32,)> = conn.execute_returnable("insert into rinsert_returning (id) values (10) returning id", ())?;
+        let returning: Vec<(i32, String,)> = conn.execute_returnable("insert into rinsert_returning (id, name) values (10, 'abc 132') returning id, name", ())?;
 
-        //assert_eq!(Some((10,)), id);
+        assert_eq!(vec![(10, "abc 132".to_string(),)], returning);
 
         Ok(())
     }

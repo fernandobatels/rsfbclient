@@ -547,15 +547,15 @@ where
             .borrow_mut()
             .insert_and_close(self, stmt_cache_data)?;
 
-        println!("{:?}", res);
-        //let f_res = res?.iter()
-        //    .map(|row| FromRow::try_from(row.to_vec()).transpose())
-        //    .collect::<R>();
+        let mut f_res = vec![];
+
+        for row in res? {
+            f_res.push(FromRow::try_from(row)?);
+        }
 
         tr.commit()?;
 
-        todo!("mod conn")
-        //Ok(f_res)
+        Ok(f_res)
     }
 }
 
