@@ -121,9 +121,20 @@ where
     }
 }
 
+/// Parameters type
 pub enum ParamsType {
+    /// When you have position paramters, using the '?' mark. This is the default option.
+    ///
+    /// This resource is provided by the firebird itself.
     Unamed(Vec<SqlType>),
 
+    /// When you have named parameters, using the ':' prefix.
+    ///
+    /// This resource is provided by this lib, so we can't support complex querys
+    /// for now.
+    ///
+    /// The preverable way to use this variation is using the [IntoParams derive](prelude/derive.IntoParams.html)
+    /// in the struct.
     Named(HashMap<String, SqlType>),
 }
 
@@ -136,7 +147,11 @@ impl ParamsType {
     }
 }
 
-/// Implemented for types that represents a list of parameters
+/// Implemented for types that represents a list of parameters.
+///
+/// Regardless of the [parameters types](enum.ParamsType.html) you will use,
+/// you can use optional parameters. In the named parameters this make more sense,
+/// because you can have some filds like 'Option<i32>'.
 pub trait IntoParams {
     fn to_params(self) -> ParamsType;
 }
