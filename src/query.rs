@@ -56,7 +56,7 @@ pub trait Execute {
     /// like the 'insert ... returning ..' or 'execute procedure'
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<Vec<R>, FbError>
+    fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
     where
         P: IntoParams,
         R: FromRow + 'static;

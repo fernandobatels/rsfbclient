@@ -526,7 +526,7 @@ where
         Ok(())
     }
 
-    fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<Vec<R>, FbError>
+    fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
     where
         P: IntoParams,
         R: FromRow + 'static
@@ -547,11 +547,7 @@ where
             .borrow_mut()
             .insert_and_close(self, stmt_cache_data)?;
 
-        let mut f_res = vec![];
-
-        for row in res? {
-            f_res.push(FromRow::try_from(row)?);
-        }
+        let f_res = FromRow::try_from(res?)?;
 
         tr.commit()?;
 

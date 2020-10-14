@@ -210,7 +210,7 @@ impl FirebirdClient for RustFbClient {
         mut tr_handle: Self::TrHandle,
         mut stmt_handle: Self::StmtHandle,
         params: Vec<SqlType>,
-    ) -> Result<Vec<Vec<Column>>, FbError> {
+    ) -> Result<Vec<Column>, FbError> {
         todo!()
     }
 }

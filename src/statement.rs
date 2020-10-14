@@ -177,7 +177,7 @@ where
         conn: &Connection<C>,
         tr: &mut TransactionData<C::TrHandle>,
         params: T,
-    ) -> Result<Vec<Vec<Column>>, FbError>
+    ) -> Result<Vec<Column>, FbError>
     where
         T: IntoParams,
         C: FirebirdClient<StmtHandle = H>,

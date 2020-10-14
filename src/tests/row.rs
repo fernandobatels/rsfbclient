@@ -18,9 +18,17 @@ mk_tests_default! {
         conn.execute("DROP TABLE RINSERT_RETURNING", ()).ok();
         conn.execute("CREATE TABLE RINSERT_RETURNING (id int, name varchar(10))", ())?;
 
-        let returning: Vec<(i32, String,)> = conn.execute_returnable("insert into rinsert_returning (id, name) values (10, 'abc 132') returning id, name", ())?;
+        let returning: (i32, String,) = conn.execute_returnable("insert into rinsert_returning (id, name) values (10, 'abc 132') returning id, name", ())?;
 
-        assert_eq!(vec![(10, "abc 132".to_string(),)], returning);
+        assert_eq!((10, "abc 132".to_string(),), returning);
+
+        conn.with_transaction(|tr| {
+            let id: (i32,) = tr.execute_returnable("insert into rinsert_returning (id) values (11) returning id", ())?;
+
+            assert_eq!((11,), id);
+
+            Ok(())
+        })?;
 
         Ok(())
     }

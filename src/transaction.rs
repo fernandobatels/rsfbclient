@@ -218,12 +218,30 @@ where
         Ok(())
     }
 
-    fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<Vec<R>, FbError>
+    fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
     where
         P: IntoParams,
         R: FromRow + 'static
     {
-        todo!("transaction")
+        // Get a statement from the cache
+        let mut stmt_cache_data =
+            self.conn
+            .stmt_cache
+            .borrow_mut()
+            .get_or_prepare(self.conn, &mut self.data, sql)?;
+
+        // Do not return now in case of error, because we need to return the statement to the cache
+        let res = stmt_cache_data
+            .stmt
+            .execute2(self.conn, &mut self.data, params);
+
+        // Return the statement to the cache
+        self.conn
+            .stmt_cache
+            .borrow_mut()
+            .insert_and_close(self.conn, stmt_cache_data)?;
+
+        FromRow::try_from(res?)
     }
 }
 

@@ -100,7 +100,7 @@ pub trait FirebirdClient: Send {
         tr_handle: Self::TrHandle,
         stmt_handle: Self::StmtHandle,
         params: Vec<SqlType>,
-    ) -> Result<Vec<Vec<Column>>, FbError>;
+    ) -> Result<Vec<Column>, FbError>;
 
     /// Fetch rows from the executed statement, coercing the types
     /// according to the provided blr
