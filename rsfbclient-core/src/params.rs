@@ -140,7 +140,7 @@ pub enum ParamsType {
     /// Use of named parameters may currently give unexpected results. Please test your queries carefully
     /// when using this feature.
     ///
-    /// In particular, thie regex-based parser is known to definitely to have trouble with:
+    /// In particular, the simple regex-based parser is known to definitely to have trouble with:
     ///   * occurences of apostrophe (`'`) anywhere except as string literal delimiters (for example, in comments)
     ///   * statements with closed variable bindings (which uses the `:var` syntax) (for example, in PSQL via `EXECUTE BLOCK` or `EXECUTE PROCEDURE`)
     ///
