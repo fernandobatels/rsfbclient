@@ -355,6 +355,33 @@ pub fn execute(tr_handle: u32, stmt_handle: u32, input_blr: &[u8], input_data: &
     req.freeze()
 }
 
+/// Execute prepared statement request.
+pub fn execute2(
+    tr_handle: u32,
+    stmt_handle: u32,
+    input_blr: &[u8],
+    input_data: &[u8],
+    output_blr: &[u8],
+) -> Bytes {
+    let mut req =
+        BytesMut::with_capacity(40 + input_blr.len() + input_data.len() + output_blr.len());
+
+    req.put_u32(WireOp::Execute2 as u32);
+    req.put_u32(stmt_handle);
+    req.put_u32(tr_handle);
+
+    req.put_wire_bytes(input_blr);
+    req.put_u32(0); // Input message number
+    req.put_u32(if input_blr.is_empty() { 0 } else { 1 }); // Messages
+
+    req.put_slice(input_data);
+
+    req.put_wire_bytes(output_blr);
+    req.put_u32(0); // Output message number
+
+    req.freeze()
+}
+
 /// Fetch row request
 pub fn fetch(stmt_handle: u32, blr: &[u8]) -> Bytes {
     let mut req = BytesMut::with_capacity(20 + blr.len());
@@ -458,21 +485,31 @@ pub fn parse_fetch_response(
     version: ProtocolVersion,
     charset: &Charset,
 ) -> Result<Option<Vec<ParsedColumn>>, FbError> {
-    const END_OF_STREAM: u32 = 100;
 
     if resp.remaining() < 8 {
         return err_invalid_response();
     }
 
-    let status = resp.get_u32();
-
-    let has_row = resp.get_u32() != 0;
-    if !has_row && status != END_OF_STREAM {
-        return Err("Fetch returned no columns".into());
+    // End of stream
+    if resp.get_u32() == 100 {
+        return Ok(None);
     }
 
-    if status == END_OF_STREAM {
-        return Ok(None);
+    Ok(Some(parse_sql_response(resp, xsqlda, version, charset)?))
+}
+
+/// Parse a server sql response (`WireOp::SqlResponse`)
+/// Identical to the FetchResponse, but has no status
+pub fn parse_sql_response(
+    resp: &mut Bytes,
+    xsqlda: &[XSqlVar],
+    version: ProtocolVersion,
+    charset: &Charset,
+) -> Result<Vec<ParsedColumn>, FbError> {
+
+    let has_row = resp.get_u32() != 0;
+    if !has_row {
+        return Err("Fetch returned no columns".into());
     }
 
     let null_map = if version >= ProtocolVersion::V13 {
@@ -662,7 +699,7 @@ pub fn parse_fetch_response(
         }
     }
 
-    Ok(Some(data))
+    Ok(data)
 }
 
 /// Column data parsed from a fetch response
