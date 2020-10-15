@@ -2,7 +2,6 @@
 
 use bytes::{BufMut, Bytes, BytesMut};
 use std::{
-    collections::HashMap,
     env,
     io::{Read, Write},
     net::TcpStream,
@@ -40,14 +39,13 @@ pub struct FirebirdWireConnection {
     /// Buffer to read the network data
     buff: Box<[u8]>,
 
-    /// Data for the prepared statements
-    stmt_data_map: HashMap<StmtHandle, StmtData>,
-
     pub(crate) charset: Charset,
 }
 
 /// Data to keep track about a prepared statement
-struct StmtData {
+pub struct StmtHandleData {
+    /// Statement handle
+    handle: StmtHandle,
     /// Output xsqlda
     xsqlda: Vec<XSqlVar>,
     /// Blr representation of the above
@@ -94,7 +92,7 @@ impl FirebirdClientRemoteAttach for RustFbClient {
 impl FirebirdClient for RustFbClient {
     type DbHandle = DbHandle;
     type TrHandle = TrHandle;
-    type StmtHandle = StmtHandle;
+    type StmtHandle = StmtHandleData;
 
     type Args = ();
 
@@ -327,7 +325,6 @@ impl FirebirdWireConnection {
             socket,
             version,
             buff,
-            stmt_data_map: Default::default(),
             charset,
         })
     }
@@ -437,7 +434,7 @@ impl FirebirdWireConnection {
         tr_handle: &mut TrHandle,
         dialect: Dialect,
         sql: &str,
-    ) -> Result<(StmtType, StmtHandle), FbError> {
+    ) -> Result<(StmtType, StmtHandleData), FbError> {
         // Alloc statement
         self.socket.write_all(&allocate_statement(db_handle.0))?;
         // Prepare statement
@@ -494,31 +491,26 @@ impl FirebirdWireConnection {
         }
         let blr = xsqlda_to_blr(&xsqlda)?;
 
-        // Store the statement data
-        self.stmt_data_map.insert(
-            stmt_handle,
-            StmtData {
+        Ok((
+            stmt_type,
+            StmtHandleData {
+                handle: stmt_handle,
                 xsqlda,
                 blr,
                 param_count,
             },
-        );
-
-        Ok((stmt_type, stmt_handle))
+        ))
     }
 
     /// Closes or drops a statement
     pub fn free_statement(
         &mut self,
-        stmt_handle: &mut StmtHandle,
+        stmt_handle: &mut StmtHandleData,
         op: FreeStmtOp,
     ) -> Result<(), FbError> {
-        self.socket.write_all(&free_statement(stmt_handle.0, op))?;
+        self.socket
+            .write_all(&free_statement(stmt_handle.handle.0, op))?;
         // Obs.: Lazy response
-
-        if op == FreeStmtOp::Drop {
-            self.stmt_data_map.remove(&stmt_handle);
-        }
 
         Ok(())
     }
@@ -527,101 +519,89 @@ impl FirebirdWireConnection {
     pub fn execute(
         &mut self,
         tr_handle: &mut TrHandle,
-        stmt_handle: &mut StmtHandle,
+        stmt_handle: &mut StmtHandleData,
         params: &[SqlType],
     ) -> Result<(), FbError> {
-        if let Some(StmtData { param_count, .. }) = self.stmt_data_map.get_mut(&stmt_handle) {
-            if params.len() != *param_count {
-                return Err(format!(
-                    "Tried to execute a statement that has {} parameters while providing {}",
-                    param_count,
-                    params.len()
-                )
-                .into());
-            }
-
-            let params = blr::params_to_blr(self, tr_handle, params)?;
-
-            self.socket
-                .write_all(&execute(
-                    tr_handle.0,
-                    stmt_handle.0,
-                    &params.blr,
-                    &params.values,
-                ))
-                .unwrap();
-            self.socket.flush()?;
-
-            self.read_response()?;
-
-            Ok(())
-        } else {
-            Err("Tried to execute a dropped statement".into())
+        if params.len() != stmt_handle.param_count {
+            return Err(format!(
+                "Tried to execute a statement that has {} parameters while providing {}",
+                stmt_handle.param_count,
+                params.len()
+            )
+            .into());
         }
+
+        let params = blr::params_to_blr(self, tr_handle, params)?;
+
+        self.socket
+            .write_all(&execute(
+                tr_handle.0,
+                stmt_handle.handle.0,
+                &params.blr,
+                &params.values,
+            ))
+            .unwrap();
+        self.socket.flush()?;
+
+        self.read_response()?;
+
+        Ok(())
     }
 
     /// Execute the prepared statement with parameters, returning data
     pub fn execute2(
         &mut self,
         tr_handle: &mut TrHandle,
-        stmt_handle: &mut StmtHandle,
+        stmt_handle: &mut StmtHandleData,
         params: &[SqlType],
     ) -> Result<Vec<Column>, FbError> {
-        let params =
-            if let Some(StmtData { param_count, .. }) = self.stmt_data_map.get_mut(&stmt_handle) {
-                if params.len() != *param_count {
-                    return Err(format!(
-                        "Tried to execute a statement that has {} parameters while providing {}",
-                        param_count,
-                        params.len()
-                    )
-                    .into());
-                }
-
-                blr::params_to_blr(self, tr_handle, params)?
-            } else {
-                return Err("Tried to execute a dropped statement".into());
-            };
-
-        if let Some(StmtData { blr, xsqlda, .. }) = self.stmt_data_map.get(&stmt_handle) {
-            self.socket
-                .write_all(&execute2(
-                    tr_handle.0,
-                    stmt_handle.0,
-                    &params.blr,
-                    &params.values,
-                    &blr,
-                ))
-                .unwrap();
-            self.socket.flush()?;
-
-            let (op_code, mut resp) = read_packet(&mut self.socket, &mut self.buff)?;
-
-            if op_code == WireOp::Response as u32 {
-                // An error ocurred
-                parse_response(&mut resp)?;
-            }
-
-            if op_code != WireOp::SqlResponse as u32 {
-                return err_conn_rejected(op_code);
-            }
-
-            dbg!(&resp);
-
-            let parsed_cols = parse_sql_response(&mut resp, xsqlda, self.version, &self.charset)?;
-
-            parse_response(&mut resp)?;
-
-            let mut cols = Vec::with_capacity(parsed_cols.len());
-
-            for pc in parsed_cols {
-                cols.push(pc.into_column(self, tr_handle)?);
-            }
-
-            Ok(cols)
-        } else {
-            Err("Tried to execute a dropped statement".into())
+        if params.len() != stmt_handle.param_count {
+            return Err(format!(
+                "Tried to execute a statement that has {} parameters while providing {}",
+                stmt_handle.param_count,
+                params.len()
+            )
+            .into());
         }
+
+        let params = blr::params_to_blr(self, tr_handle, params)?;
+
+        self.socket
+            .write_all(&execute2(
+                tr_handle.0,
+                stmt_handle.handle.0,
+                &params.blr,
+                &params.values,
+                &stmt_handle.blr,
+            ))
+            .unwrap();
+        self.socket.flush()?;
+
+        let (op_code, mut resp) = read_packet(&mut self.socket, &mut self.buff)?;
+
+        if op_code == WireOp::Response as u32 {
+            // An error ocurred
+            parse_response(&mut resp)?;
+        }
+
+        if op_code != WireOp::SqlResponse as u32 {
+            return err_conn_rejected(op_code);
+        }
+
+        dbg!(&resp);
+
+        let parsed_cols =
+            parse_sql_response(&mut resp, &stmt_handle.xsqlda, self.version, &self.charset)?;
+
+        parse_response(&mut resp)?;
+
+        let mut cols = Vec::with_capacity(parsed_cols.len());
+
+        for pc in parsed_cols {
+            cols.push(pc.into_column(self, tr_handle)?);
+        }
+
+        Ok(cols)
     }
 
     /// Fetch rows from the executed statement, coercing the types
@@ -629,38 +609,35 @@ impl FirebirdWireConnection {
     pub fn fetch(
         &mut self,
         tr_handle: &mut TrHandle,
-        stmt_handle: &mut StmtHandle,
+        stmt_handle: &mut StmtHandleData,
     ) -> Result<Option<Vec<Column>>, FbError> {
-        if let Some(StmtData { blr, xsqlda, .. }) = self.stmt_data_map.get_mut(&stmt_handle) {
-            self.socket.write_all(&fetch(stmt_handle.0, &blr))?;
-            self.socket.flush()?;
+        self.socket
+            .write_all(&fetch(stmt_handle.handle.0, &stmt_handle.blr))?;
+        self.socket.flush()?;
 
-            let (op_code, mut resp) = read_packet(&mut self.socket, &mut self.buff)?;
+        let (op_code, mut resp) = read_packet(&mut self.socket, &mut self.buff)?;
 
-            if op_code == WireOp::Response as u32 {
-                // An error ocurred
-                parse_response(&mut resp)?;
+        if op_code == WireOp::Response as u32 {
+            // An error ocurred
+            parse_response(&mut resp)?;
+        }
+
+        if op_code != WireOp::FetchResponse as u32 {
+            return err_conn_rejected(op_code);
+        }
+
+        if let Some(parsed_cols) =
+            parse_fetch_response(&mut resp, &stmt_handle.xsqlda, self.version, &self.charset)?
+        {
+            let mut cols = Vec::with_capacity(parsed_cols.len());
+
+            for pc in parsed_cols {
+                cols.push(pc.into_column(self, tr_handle)?);
             }
 
-            if op_code != WireOp::FetchResponse as u32 {
-                return err_conn_rejected(op_code);
-            }
-
-            if let Some(parsed_cols) =
-                parse_fetch_response(&mut resp, xsqlda, self.version, &self.charset)?
-            {
-                let mut cols = Vec::with_capacity(parsed_cols.len());
-
-                for pc in parsed_cols {
-                    cols.push(pc.into_column(self, tr_handle)?);
-                }
-
-                Ok(Some(cols))
-            } else {
-                Ok(None)
-            }
+            Ok(Some(cols))
         } else {
-            Err("Tried to fetch a dropped statement".into())
+            Ok(None)
         }
     }
 
