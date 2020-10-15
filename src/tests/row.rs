@@ -12,6 +12,31 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
+    fn execute_procedure() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        let ddl_procedure = "create or alter procedure get_value()
+                                returns (val int not null)
+                                as
+                                begin
+                                    val = 150;
+                                    suspend;
+                                end;";
+        conn.execute(ddl_procedure, ())?;
+
+        // Using select
+        let (val,): (i32,) = conn.query_first("select p.val from get_value p", ())?
+            .unwrap();
+        assert_eq!(150, val);
+
+        // Using exec proc
+        let (val,): (i32,) = conn.execute_returnable("execute procedure get_value", ())?;
+        assert_eq!(150, val);
+
+        Ok(())
+    }
+
+    #[test]
     fn execute_block() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
