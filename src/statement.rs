@@ -204,9 +204,12 @@ where
         T: IntoParams,
         C: FirebirdClient<StmtHandle = H>,
     {
-        conn.cli
-            .borrow_mut()
-            .execute2(conn.handle, tr.handle, self.handle, self.named_params.convert(params)?)
+        conn.cli.borrow_mut().execute2(
+            conn.handle,
+            tr.handle,
+            self.handle,
+            self.named_params.convert(params)?,
+        )
     }
 
     /// Execute the current statement

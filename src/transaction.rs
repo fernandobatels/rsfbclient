@@ -226,11 +226,12 @@ where
         let params = params.to_params();
 
         // Get a statement from the cache
-        let mut stmt_cache_data =
-            self.conn
-                .stmt_cache
-                .borrow_mut()
-                .get_or_prepare(self.conn, &mut self.data, sql, params.named(),)?;
+        let mut stmt_cache_data = self.conn.stmt_cache.borrow_mut().get_or_prepare(
+            self.conn,
+            &mut self.data,
+            sql,
+            params.named(),
+        )?;
 
         // Do not return now in case of error, because we need to return the statement to the cache
         let res = stmt_cache_data
