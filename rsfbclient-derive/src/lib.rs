@@ -6,6 +6,13 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DataStruct, DeriveInput, Fields};
 
+/// Provide a [IntoParams<T>](../trait.IntoParams.html) implementation
+/// for structs.
+///
+/// All fields will be 'serialized' using his names and values. `Option<T>`
+/// fields with `None` values will be considered `null`.
+///
+/// The fields types must be implement the [IntoParam<T>](../trait.IntoParam.html) trait.
 #[proc_macro_derive(IntoParams)]
 pub fn into_params_derive(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as DeriveInput);

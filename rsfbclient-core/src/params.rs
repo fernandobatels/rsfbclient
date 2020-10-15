@@ -162,6 +162,8 @@ impl ParamsType {
 ///
 ///
 /// With both named (as a struct field) or positional (as a Vector or tuple element) parameters, `Option<T>`, with `T` an `IntoParam`,  may be used to indicate a nullable argument, wherein the `None` variant provides a `null` value.
+///
+/// This crate provides a [derive macro](prelude/derive.IntoParams.html) for supplying arguments via the fields of a struct and their labels.
 pub trait IntoParams {
     fn to_params(self) -> ParamsType;
 }
