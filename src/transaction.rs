@@ -139,9 +139,6 @@ impl<'c, C> Queryable for Transaction<'c, C>
 where
     C: FirebirdClient,
 {
-    /// Prepare, execute and return the rows of the sql query
-    ///
-    /// Use `()` for no parameters or a tuple of parameters
     fn query_iter<'a, P, R>(
         &'a mut self,
         sql: &str,
@@ -191,9 +188,6 @@ impl<C> Execute for Transaction<'_, C>
 where
     C: FirebirdClient,
 {
-    /// Prepare and execute the sql query
-    ///
-    /// Use `()` for no parameters or a tuple of parameters
     fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
     where
         P: IntoParams,
