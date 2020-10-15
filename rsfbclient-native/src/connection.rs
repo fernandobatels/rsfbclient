@@ -3,14 +3,12 @@
 use rsfbclient_core::*;
 
 use crate::{ibase::IBase, params::Params, row::ColumnBuffer, status::Status, xsqlda::XSqlDa};
-use std::{collections::HashMap, convert::TryFrom, ptr};
+use std::{convert::TryFrom, ptr};
 
 /// Client that wraps the native fbclient library
 pub struct NativeFbClient {
     ibase: IBase,
     status: Status,
-    /// Output xsqldas and column buffers for the prepared statements
-    stmt_data_map: HashMap<ibase::isc_tr_handle, (XSqlDa, Vec<ColumnBuffer>)>,
     charset: Charset,
 }
 
@@ -23,6 +21,13 @@ pub enum Args {
     #[cfg(feature = "dynamic_loading")]
     /// Dynamic Loading needs the path to the client
     DynamicLoading { lib_path: String },
+}
+
+/// Data associated with a prepared statement
+pub struct StmtHandleData {
+    handle: ibase::isc_stmt_handle,
+    xsqlda: XSqlDa,
+    col_buffers: Vec<ColumnBuffer>,
 }
 
 impl FirebirdClientEmbeddedAttach for NativeFbClient {
@@ -122,7 +127,7 @@ impl FirebirdClientRemoteAttach for NativeFbClient {
 impl FirebirdClient for NativeFbClient {
     type DbHandle = ibase::isc_db_handle;
     type TrHandle = ibase::isc_tr_handle;
-    type StmtHandle = ibase::isc_stmt_handle;
+    type StmtHandle = StmtHandleData;
 
     type Args = Args;
 
@@ -132,7 +137,6 @@ impl FirebirdClient for NativeFbClient {
             Args::Linking => Ok(Self {
                 ibase: IBase::Linking,
                 status: Default::default(),
-                stmt_data_map: Default::default(),
                 charset,
             }),
 
@@ -140,7 +144,6 @@ impl FirebirdClient for NativeFbClient {
             Args::DynamicLoading { lib_path } => Ok(Self {
                 ibase: IBase::with_client(lib_path).map_err(|e| FbError::from(e.to_string()))?,
                 status: Default::default(),
-                stmt_data_map: Default::default(),
                 charset,
             }),
         }
@@ -343,9 +346,14 @@ impl FirebirdClient for NativeFbClient {
             })
             .collect::<Result<_, _>>()?;
 
-        self.stmt_data_map.insert(handle, (xsqlda, col_buffers));
-
-        Ok((stmt_type, handle))
+        Ok((
+            stmt_type,
+            StmtHandleData {
+                handle,
+                xsqlda,
+                col_buffers,
+            },
+        ))
     }
 
     fn free_statement(
@@ -354,15 +362,14 @@ impl FirebirdClient for NativeFbClient {
         op: FreeStmtOp,
     ) -> Result<(), FbError> {
         unsafe {
-            if self.ibase.isc_dsql_free_statement()(&mut self.status[0], stmt_handle, op as u16)
-                != 0
+            if self.ibase.isc_dsql_free_statement()(
+                &mut self.status[0],
+                &mut stmt_handle.handle,
+                op as u16,
+            ) != 0
             {
                 return Err(self.status.as_error(&self.ibase));
             }
-        }
-
-        if op == FreeStmtOp::Drop {
-            self.stmt_data_map.remove(&stmt_handle);
         }
 
         Ok(())
@@ -375,17 +382,12 @@ impl FirebirdClient for NativeFbClient {
         stmt_handle: &mut Self::StmtHandle,
         params: Vec<SqlType>,
     ) -> Result<(), FbError> {
-        let _ = self
-            .stmt_data_map
-            .get(&stmt_handle)
-            .ok_or_else(|| FbError::from("Tried to fetch a dropped statement"))?;
-
         let params = Params::new(
             db_handle,
             tr_handle,
             &self.ibase,
             &mut self.status,
-            stmt_handle,
+            &mut stmt_handle.handle,
             params,
             &self.charset,
         )?;
@@ -394,7 +396,7 @@ impl FirebirdClient for NativeFbClient {
             if self.ibase.isc_dsql_execute()(
                 &mut self.status[0],
                 tr_handle,
-                stmt_handle,
+                &mut stmt_handle.handle,
                 1,
                 if let Some(xsqlda) = &params.xsqlda {
                     &**xsqlda
@@ -419,14 +421,13 @@ impl FirebirdClient for NativeFbClient {
         tr_handle: &mut Self::TrHandle,
         stmt_handle: &mut Self::StmtHandle,
     ) -> Result<Option<Vec<Column>>, FbError> {
-        let (xsqlda, col_buf) = self
-            .stmt_data_map
-            .get(&stmt_handle)
-            .ok_or_else(|| FbError::from("Tried to fetch a dropped statement"))?;
-
         unsafe {
-            let fetch_status =
-                self.ibase.isc_dsql_fetch()(&mut self.status[0], stmt_handle, 1, &**xsqlda);
+            let fetch_status = self.ibase.isc_dsql_fetch()(
+                &mut self.status[0],
+                &mut stmt_handle.handle,
+                1,
+                &*stmt_handle.xsqlda,
+            );
 
             // 100 indicates that no more rows: http://docwiki.embarcadero.com/InterBase/2020/en/Isc_dsql_fetch()
             if fetch_status == 100 {
@@ -438,7 +439,8 @@ impl FirebirdClient for NativeFbClient {
             };
         }
 
-        let cols = col_buf
+        let cols = stmt_handle
+            .col_buffers
             .iter()
             .map(|cb| cb.to_column(db_handle, tr_handle, &self.ibase, &self.charset))
             .collect::<Result<_, _>>()?;
@@ -453,17 +455,12 @@ impl FirebirdClient for NativeFbClient {
         stmt_handle: &mut Self::StmtHandle,
         params: Vec<SqlType>,
     ) -> Result<Vec<Column>, FbError> {
-        let (out_xsqlda, _) = self
-            .stmt_data_map
-            .get(&stmt_handle)
-            .ok_or_else(|| FbError::from("Tried to fetch a dropped statement"))?;
-
         let params = Params::new(
             db_handle,
             tr_handle,
             &self.ibase,
             &mut self.status,
-            stmt_handle,
+            &mut stmt_handle.handle,
             params,
             &self.charset,
         )?;
@@ -472,14 +469,14 @@ impl FirebirdClient for NativeFbClient {
             if self.ibase.isc_dsql_execute2()(
                 &mut self.status[0],
                 tr_handle,
-                stmt_handle,
+                &mut stmt_handle.handle,
                 1,
                 if let Some(xsqlda) = &params.xsqlda {
                     &**xsqlda
                 } else {
                     ptr::null()
                 },
-                &**out_xsqlda,
+                &*stmt_handle.xsqlda,
             ) != 0
             {
                 return Err(self.status.as_error(&self.ibase));
@@ -489,12 +486,8 @@ impl FirebirdClient for NativeFbClient {
         // Just to make sure the params are not dropped too soon
         drop(params);
 
-        let (_, col_buf) = self
-            .stmt_data_map
-            .get(&stmt_handle)
-            .ok_or_else(|| FbError::from("Tried to fetch a dropped statement"))?;
-
-        let rcol = col_buf
+        let rcol = stmt_handle
+            .col_buffers
             .iter()
             .map(|cb| cb.to_column(db_handle, tr_handle, &self.ibase, &self.charset))
             .collect::<Result<_, _>>()?;
