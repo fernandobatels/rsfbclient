@@ -1,4 +1,3 @@
-
 # Contributing to rsfbclient
 
 Currently this github repository is the main place for official discussion (via issues and pull requests)
@@ -7,9 +6,9 @@ Currently this github repository is the main place for official discussion (via 
 
 ### Pull request or issue?
 * For small improvements or obvious bug fixes to code or documentation you can just make a pull request.
- * For larger changes/suggestions that modify the API or bigger architectural changes, open an issue for discussion and feedback. 
+ * For larger changes/suggestions that modify the API or bigger architectural changes, open an issue for discussion and feedback.
  * If you believe something should be changed in the crate's meta information (documentation, README.md, CONTRIBUTING.md, etc) you can create an issue for that. If appropriate, please provide links to existing resources that you feel may be useful.
-* Updates to out-of-date information, and small changes to existing files can be submitted directly as a PR. 
+* Updates to out-of-date information, and small changes to existing files can be submitted directly as a PR.
 
 ### In all cases
 * Please read the section about Github Workflow. It is important that submitted PRs pass our automated tests and are correctly formatted.
@@ -18,14 +17,58 @@ Currently this github repository is the main place for official discussion (via 
 * You may be asked to write or modify some tests after submitting an issue or PR. We will help with this where we can, if needed. See the section on testing for more information.
 
 ### A template for commit messages
-(TODO)
+([based on this](https://github.com/torvalds/subsurface-for-dirk/blob/a48494d2fbed58c751e9b7e8fbff88582f9b2d02/README#L88))
+
+    Header line: explain the commit in one line
+
+    Body of commit message is a few lines of text, explaining things in more
+    detail, possibly giving some background about the issue being fixed, etc
+    etc.
+
+    It is important that the header be one line that is not too long This is
+    because many tools (including github) will show only this line in some
+    parts of their UI
+
+    The body of the commit message can be several paragraphs.  Please do
+    proper word-wrap and keep columns shorter than about 74 characters or
+    so.
+
+    That way "git log" and other tools will show things nicely even when
+    it's indented.
+
+    For Vim, 'set textwidth=x colorcolumn=x' can be useful here.
+
+    Consider explaining your solution and why you're doing what you're doing,
+    as opposed to only describing what you're doing.
+    Reviewers and your future self can read the commit, but might not
+    understand why a particular solution was implemented.
+
+    You may also choose to organize the body in a more structured way.
+
+    For example:
+
+    src/xyz/module_that_was_changed.rs:
+      * using indentation and bullets/lists
+      * to break down the description by file change
+
+    or
+
+    todo:
+      1. adding
+      2. todo
+      3. items
+
+
+
+
+
 
 ## Github workflow
 This repository uses Github actions. Upon submitting a pull request, it will automatically:
 * Check that code formatting in the PR commit agrees with the output of `cargo fmt --all`
 * Run all tests  from rust modules declared at the bottom of `src/tests/mod.rs`. These tests are run for many different combinations of platform and Firebird configurations.
 
-You can (and should) run these tests for your configuration using the command `cargo test -- --test-threads 1` 
+You can (and should) run these tests for your configuration using the command `cargo test -- --test-threads 1`
 
 See the section on testing for more information.
 
@@ -36,7 +79,7 @@ See the section on testing for more information.
 #### Manually
   * To set up a Firebird database for testing you will need to install the Firebird server. This process may vary by platform. (TODO: notes for different platforms/server versions)
   * With a version of the server installed, you may run these commands to create a database: (TODO)
- 
+
 ### Notes about running the tests
 #### TL;DR
 Run `cargo test -- --test-threads 1` for testing. Running only `cargo test` may cause tests to fail when they should not.
@@ -48,14 +91,14 @@ Therefore, it is not expected that all tests will pass unless invoking `cargo te
 It is possible that in the future we will implement better support for parallel transactions in testing.
 
 ### Improvements of the testing experience
-We currently have an issue for discussing improvements to test development: #59 
+We currently have an issue for discussing improvements to test development: #59
 
 ## Short term roadmap
   * Stabilize the high level API  and default high level implementation
   * Improve the pure rust client and Firebird wire protocol implementation
   * Integrate with existing database-agnostic crates (query builders, ORMs, etc)
   * Develop adapters and tooling for working with/migrating from other programming languages
- 
+
 ## Supported use cases
 For now, this crate is mostly geared towards migration of old applications that use Firebird.
 We don't imagine anyone writing a new e-commerce site using Rust and Firebird, but if you are doing such a thing, or have other use specific cases in mind, please let us know.
@@ -64,12 +107,12 @@ We don't imagine anyone writing a new e-commerce site using Rust and Firebird, b
 It's recognized here that users of the Firebird database are most likely to also be users of several other languages (C#, Pascal variants, Java, C++), and possibly be working with older versions of the database.
 
 Your contributions and expertise about Firebird are very much welcome.
-Even if you aren't yet comfortable submitting Rust code, it might be possible for you to help with documentation if you have some arcane knowledge about Firebird internals, since this information is a bit hard to find. 
+Even if you aren't yet comfortable submitting Rust code, it might be possible for you to help with documentation if you have some arcane knowledge about Firebird internals, since this information is a bit hard to find.
 
 Currently we have a single issue for questions and answers about the internals of clients here: #62
 
 ## Notes for users of non-english spoken languages
-Due to its history Firebird finds much of its usage among users where English is not an official language. 
+Due to its history Firebird finds much of its usage among users where English is not an official language.
 Although English is typically considered the lingua-franca of software development, there is a desire to translate resources around this crate into languages where Firebird finds high usage.
 Portuguese is the most desired at present, since many of the current contributors are from Brasil.
 
