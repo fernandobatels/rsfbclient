@@ -23,11 +23,11 @@ pub trait FirebirdClientRemoteAttach: FirebirdClient {
 
 pub trait FirebirdClient: Send {
     /// A database handle
-    type DbHandle: Send + Clone + Copy;
+    type DbHandle: Send;
     /// A transaction handle
-    type TrHandle: Send + Clone + Copy;
+    type TrHandle: Send;
     /// A statement handle
-    type StmtHandle: Send + Clone + Copy;
+    type StmtHandle: Send;
 
     /// Arguments to instantiate the client
     type Args: Send + Sync + Clone;
@@ -37,27 +37,30 @@ pub trait FirebirdClient: Send {
         Self: Sized;
 
     /// Disconnect from the database
-    fn detach_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError>;
+    fn detach_database(&mut self, db_handle: &mut Self::DbHandle) -> Result<(), FbError>;
 
     /// Drop the database
-    fn drop_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError>;
+    fn drop_database(&mut self, db_handle: &mut Self::DbHandle) -> Result<(), FbError>;
 
     /// Start a new transaction, with the specified transaction parameter buffer
     fn begin_transaction(
         &mut self,
-        db_handle: Self::DbHandle,
+        db_handle: &mut Self::DbHandle,
         isolation_level: TrIsolationLevel,
     ) -> Result<Self::TrHandle, FbError>;
 
     /// Commit / Rollback a transaction
-    fn transaction_operation(&mut self, tr_handle: Self::TrHandle, op: TrOp)
-        -> Result<(), FbError>;
+    fn transaction_operation(
+        &mut self,
+        tr_handle: &mut Self::TrHandle,
+        op: TrOp,
+    ) -> Result<(), FbError>;
 
     /// Execute a sql immediately, without returning rows
     fn exec_immediate(
         &mut self,
-        db_handle: Self::DbHandle,
-        tr_handle: Self::TrHandle,
+        db_handle: &mut Self::DbHandle,
+        tr_handle: &mut Self::TrHandle,
         dialect: Dialect,
         sql: &str,
     ) -> Result<(), FbError>;
@@ -67,8 +70,8 @@ pub trait FirebirdClient: Send {
     /// Returns the statement type and handle
     fn prepare_statement(
         &mut self,
-        db_handle: Self::DbHandle,
-        tr_handle: Self::TrHandle,
+        db_handle: &mut Self::DbHandle,
+        tr_handle: &mut Self::TrHandle,
         dialect: Dialect,
         sql: &str,
     ) -> Result<(StmtType, Self::StmtHandle), FbError>;
@@ -76,16 +79,16 @@ pub trait FirebirdClient: Send {
     /// Closes or drops a statement
     fn free_statement(
         &mut self,
-        stmt_handle: Self::StmtHandle,
+        stmt_handle: &mut Self::StmtHandle,
         op: FreeStmtOp,
     ) -> Result<(), FbError>;
 
     /// Execute the prepared statement with parameters
     fn execute(
         &mut self,
-        db_handle: Self::DbHandle,
-        tr_handle: Self::TrHandle,
-        stmt_handle: Self::StmtHandle,
+        db_handle: &mut Self::DbHandle,
+        tr_handle: &mut Self::TrHandle,
+        stmt_handle: &mut Self::StmtHandle,
         params: Vec<SqlType>,
     ) -> Result<(), FbError>;
 
@@ -96,9 +99,9 @@ pub trait FirebirdClient: Send {
     /// as in the Result
     fn execute2(
         &mut self,
-        db_handle: Self::DbHandle,
-        tr_handle: Self::TrHandle,
-        stmt_handle: Self::StmtHandle,
+        db_handle: &mut Self::DbHandle,
+        tr_handle: &mut Self::TrHandle,
+        stmt_handle: &mut Self::StmtHandle,
         params: Vec<SqlType>,
     ) -> Result<Vec<Column>, FbError>;
 
@@ -106,9 +109,9 @@ pub trait FirebirdClient: Send {
     /// according to the provided blr
     fn fetch(
         &mut self,
-        db_handle: Self::DbHandle,
-        tr_handle: Self::TrHandle,
-        stmt_handle: Self::StmtHandle,
+        db_handle: &mut Self::DbHandle,
+        tr_handle: &mut Self::TrHandle,
+        stmt_handle: &mut Self::StmtHandle,
     ) -> Result<Option<Vec<Column>>, FbError>;
 }
 

@@ -14,7 +14,7 @@ chrono = { version = "0.4.13", optional = true }
 num_enum = "0.5.1"
 thiserror = "1.0.20"
 encoding = "0.2"
-regex = "1.3.9"
+regex = "1.4"
 
 [features]
 date_time = ["chrono"]

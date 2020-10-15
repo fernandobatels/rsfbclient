@@ -51,9 +51,9 @@ where
     /// Use `()` for no parameters or a tuple of parameters
     pub fn query<'s, R, P>(
         &'s mut self,
-        tr: &'s mut Transaction<C>,
+        tr: &'s mut Transaction<'c, C>,
         params: P,
-    ) -> Result<StatementFetch<'s, R, C>, FbError>
+    ) -> Result<StatementFetch<'c, 's, R, C>, FbError>
     where
         R: FromRow,
         P: IntoParams,
@@ -62,7 +62,7 @@ where
 
         Ok(StatementFetch {
             stmt: &mut self.data,
-            _tr: tr,
+            tr,
             conn: self.conn,
             _marker: Default::default(),
         })
@@ -78,16 +78,16 @@ where
     }
 }
 /// Cursor to fetch the results of a statement
-pub struct StatementFetch<'s, R, C: FirebirdClient> {
+pub struct StatementFetch<'c, 's, R, C: FirebirdClient> {
     pub(crate) stmt: &'s mut StatementData<C::StmtHandle>,
     /// Transaction needs to be alive for the fetch to work
-    pub(crate) _tr: &'s Transaction<'s, C>,
+    pub(crate) tr: &'s mut Transaction<'c, C>,
     pub(crate) conn: &'s Connection<C>,
     /// Type to convert the rows
     _marker: std::marker::PhantomData<R>,
 }
 
-impl<'s, R, C> StatementFetch<'s, R, C>
+impl<'c, 's, R, C> StatementFetch<'c, 's, R, C>
 where
     R: FromRow,
     C: FirebirdClient,
@@ -95,12 +95,12 @@ where
     /// Fetch for the next row
     pub fn fetch(&mut self) -> Result<Option<R>, FbError> {
         self.stmt
-            .fetch(self.conn, &self._tr.data)
+            .fetch(self.conn, &mut self.tr.data)
             .and_then(|row| row.map(FromRow::try_from).transpose())
     }
 }
 
-impl<T, C> Iterator for StatementFetch<'_, T, C>
+impl<T, C> Iterator for StatementFetch<'_, '_, T, C>
 where
     T: FromRow,
     C: FirebirdClient,
@@ -112,7 +112,7 @@ where
     }
 }
 
-impl<R, C> Drop for StatementFetch<'_, R, C>
+impl<R, C> Drop for StatementFetch<'_, '_, R, C>
 where
     C: FirebirdClient,
 {
@@ -132,7 +132,7 @@ pub struct StatementData<H> {
 
 impl<H> StatementData<H>
 where
-    H: Send + Clone + Copy,
+    H: Send,
 {
     /// Prepare the statement that will be executed
     pub fn prepare<C>(
@@ -151,10 +151,12 @@ where
         };
         let sql = &named_params.sql;
 
-        let (stmt_type, handle) =
-            conn.cli
-                .borrow_mut()
-                .prepare_statement(conn.handle, tr.handle, conn.dialect, sql)?;
+        let (stmt_type, handle) = conn.cli.borrow_mut().prepare_statement(
+            &mut *conn.handle.borrow_mut(),
+            &mut tr.handle,
+            conn.dialect,
+            sql,
+        )?;
 
         Ok(Self {
             stmt_type,
@@ -177,9 +179,9 @@ where
         C: FirebirdClient<StmtHandle = H>,
     {
         conn.cli.borrow_mut().execute(
-            conn.handle,
-            tr.handle,
-            self.handle,
+            &mut *conn.handle.borrow_mut(),
+            &mut tr.handle,
+            &mut self.handle,
             self.named_params.convert(params)?,
         )?;
 
@@ -205,9 +207,9 @@ where
         C: FirebirdClient<StmtHandle = H>,
     {
         conn.cli.borrow_mut().execute2(
-            conn.handle,
-            tr.handle,
-            self.handle,
+            &mut *conn.handle.borrow_mut(),
+            &mut tr.handle,
+            &mut self.handle,
             self.named_params.convert(params)?,
         )
     }
@@ -227,9 +229,9 @@ where
         C: FirebirdClient<StmtHandle = H>,
     {
         conn.cli.borrow_mut().execute(
-            conn.handle,
-            tr.handle,
-            self.handle,
+            &mut *conn.handle.borrow_mut(),
+            &mut tr.handle,
+            &mut self.handle,
             self.named_params.convert(params)?,
         )
     }
@@ -238,14 +240,16 @@ where
     pub fn fetch<C>(
         &mut self,
         conn: &Connection<C>,
-        tr: &TransactionData<C::TrHandle>,
+        tr: &mut TransactionData<C::TrHandle>,
     ) -> Result<Option<Vec<Column>>, FbError>
     where
         C: FirebirdClient<StmtHandle = H>,
     {
-        conn.cli
-            .borrow_mut()
-            .fetch(conn.handle, tr.handle, self.handle)
+        conn.cli.borrow_mut().fetch(
+            &mut *conn.handle.borrow_mut(),
+            &mut tr.handle,
+            &mut self.handle,
+        )
     }
 
     /// Closes the statement cursor, if it was open
@@ -255,7 +259,7 @@ where
     {
         conn.cli
             .borrow_mut()
-            .free_statement(self.handle, FreeStmtOp::Close)
+            .free_statement(&mut self.handle, FreeStmtOp::Close)
     }
 
     /// Closes the statement
@@ -265,7 +269,7 @@ where
     {
         conn.cli
             .borrow_mut()
-            .free_statement(self.handle, FreeStmtOp::Drop)
+            .free_statement(&mut self.handle, FreeStmtOp::Drop)
     }
 }
 

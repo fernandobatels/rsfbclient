@@ -78,7 +78,7 @@ impl<T> StmtCache<T> {
 /// Functions specific for when the data is a `StatementData`
 impl<H> StmtCache<StatementData<H>>
 where
-    H: Send + Clone + Copy,
+    H: Send,
 {
     /// Get a prepared statement from the cache, or prepare one
     pub fn get_or_prepare<C>(

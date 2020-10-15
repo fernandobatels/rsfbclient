@@ -81,7 +81,7 @@ where
 }
 
 /// Variant of the `StatementIter` that uses the statement cache
-pub struct StmtIter<'a, R, C>
+pub struct StmtIter<'c, 'a, R, C>
 where
     C: FirebirdClient,
 {
@@ -89,12 +89,12 @@ where
     stmt_cache_data: Option<StmtCacheData<StatementData<C::StmtHandle>>>,
 
     /// Transaction needs to be alive for the fetch to work
-    tr: &'a Transaction<'a, C>,
+    tr: &'a mut Transaction<'c, C>,
 
     _marker: marker::PhantomData<R>,
 }
 
-impl<R, C> Drop for StmtIter<'_, R, C>
+impl<R, C> Drop for StmtIter<'_, '_, R, C>
 where
     C: FirebirdClient,
 {
@@ -117,7 +117,7 @@ where
     }
 }
 
-impl<R, C> Iterator for StmtIter<'_, R, C>
+impl<R, C> Iterator for StmtIter<'_, '_, R, C>
 where
     R: FromRow,
     C: FirebirdClient,
@@ -129,7 +129,7 @@ where
             .as_mut()
             .unwrap()
             .stmt
-            .fetch(&self.tr.conn, &self.tr.data)
+            .fetch(&self.tr.conn, &mut self.tr.data)
             .and_then(|row| row.map(FromRow::try_from).transpose())
             .transpose()
     }
@@ -258,17 +258,17 @@ pub struct TransactionData<H> {
 
 impl<H> TransactionData<H>
 where
-    H: Send + Clone + Copy,
+    H: Send,
 {
     /// Start a new transaction
     fn new<C>(conn: &Connection<C>) -> Result<Self, FbError>
     where
         C: FirebirdClient<TrHandle = H>,
     {
-        let handle = conn
-            .cli
-            .borrow_mut()
-            .begin_transaction(conn.handle, TrIsolationLevel::ReadCommited)?;
+        let handle = conn.cli.borrow_mut().begin_transaction(
+            &mut *conn.handle.borrow_mut(),
+            TrIsolationLevel::ReadCommited,
+        )?;
 
         Ok(Self { handle })
     }
@@ -278,9 +278,12 @@ where
     where
         C: FirebirdClient<TrHandle = H>,
     {
-        conn.cli
-            .borrow_mut()
-            .exec_immediate(conn.handle, self.handle, conn.dialect, sql)
+        conn.cli.borrow_mut().exec_immediate(
+            &mut *conn.handle.borrow_mut(),
+            &mut self.handle,
+            conn.dialect,
+            sql,
+        )
     }
 
     /// Commit the current transaction changes, not allowing to reuse the transaction
@@ -290,7 +293,7 @@ where
     {
         conn.cli
             .borrow_mut()
-            .transaction_operation(self.handle, TrOp::Commit)
+            .transaction_operation(&mut self.handle, TrOp::Commit)
     }
 
     /// Commit the current transaction changes, but allowing to reuse the transaction
@@ -300,7 +303,7 @@ where
     {
         conn.cli
             .borrow_mut()
-            .transaction_operation(self.handle, TrOp::CommitRetaining)
+            .transaction_operation(&mut self.handle, TrOp::CommitRetaining)
     }
 
     /// Rollback the current transaction changes, but allowing to reuse the transaction
@@ -310,7 +313,7 @@ where
     {
         conn.cli
             .borrow_mut()
-            .transaction_operation(self.handle, TrOp::RollbackRetaining)
+            .transaction_operation(&mut self.handle, TrOp::RollbackRetaining)
     }
 
     /// Rollback the transaction, invalidating it
@@ -320,6 +323,6 @@ where
     {
         conn.cli
             .borrow_mut()
-            .transaction_operation(self.handle, TrOp::Rollback)
+            .transaction_operation(&mut self.handle, TrOp::Rollback)
     }
 }

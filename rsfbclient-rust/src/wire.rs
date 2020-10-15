@@ -695,7 +695,7 @@ impl ParsedColumn {
     pub fn into_column(
         self,
         conn: &mut FirebirdWireConnection,
-        tr_handle: crate::TrHandle,
+        tr_handle: &mut crate::TrHandle,
     ) -> Result<Column, FbError> {
         Ok(match self {
             ParsedColumn::Complete(c) => c,

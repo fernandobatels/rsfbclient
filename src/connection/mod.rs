@@ -278,7 +278,7 @@ where
     C: FirebirdClient,
 {
     /// Database handler
-    pub(crate) handle: C::DbHandle,
+    pub(crate) handle: RefCell<C::DbHandle>,
 
     /// Firebird dialect for the statements
     pub(crate) dialect: Dialect,
@@ -307,7 +307,7 @@ where
         let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
 
         Ok(Connection {
-            handle,
+            handle: RefCell::new(handle),
             dialect: builder.dialect,
             stmt_cache,
             cli: RefCell::new(cli),
@@ -329,7 +329,7 @@ where
         let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
 
         Ok(Connection {
-            handle,
+            handle: RefCell::new(handle),
             dialect: builder.dialect,
             stmt_cache,
             cli: RefCell::new(cli),
@@ -343,7 +343,7 @@ where
 {
     /// Drop the current database
     pub fn drop_database(mut self) -> Result<(), FbError> {
-        self.cli.get_mut().drop_database(self.handle)?;
+        self.cli.get_mut().drop_database(self.handle.get_mut())?;
 
         Ok(())
     }
@@ -376,7 +376,7 @@ where
     fn __close(&mut self) -> Result<(), FbError> {
         self.stmt_cache.borrow_mut().close_all(self);
 
-        self.cli.get_mut().detach_database(self.handle)?;
+        self.cli.get_mut().detach_database(self.handle.get_mut())?;
 
         Ok(())
     }
@@ -440,7 +440,7 @@ where
             .as_mut()
             .unwrap()
             .stmt
-            .fetch(&self.tr.conn, &self.tr.data)
+            .fetch(&self.tr.conn, &mut self.tr.data)
             .and_then(|row| row.map(FromRow::try_from).transpose())
             .transpose()
     }
