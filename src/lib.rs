@@ -8,6 +8,7 @@ pub(crate) mod tests;
 
 pub mod prelude {
     pub use crate::query::{Execute, Queryable};
+    pub use rsfbclient_derive::IntoParams;
 }
 
 mod connection;
@@ -21,7 +22,9 @@ pub use crate::{
     statement::Statement,
     transaction::Transaction,
 };
-pub use rsfbclient_core::{charset, Column, Dialect, FbError, FromRow, IntoParam, Row, SqlType};
+pub use rsfbclient_core::{
+    charset, Column, Dialect, FbError, FromRow, IntoParam, IntoParams, ParamsType, Row, SqlType,
+};
 
 #[cfg(feature = "pool")]
 pub use crate::connection::pool::FirebirdConnectionManager;

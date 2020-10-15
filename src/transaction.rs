@@ -66,8 +66,8 @@ where
     }
 
     /// Prepare a new statement for execute
-    pub fn prepare(&mut self, sql: &str) -> Result<Statement<'c, C>, FbError> {
-        Statement::prepare(self, sql)
+    pub fn prepare(&mut self, sql: &str, named_params: bool) -> Result<Statement<'c, C>, FbError> {
+        Statement::prepare(self, sql, named_params)
     }
 }
 
@@ -139,9 +139,6 @@ impl<'c, C> Queryable for Transaction<'c, C>
 where
     C: FirebirdClient,
 {
-    /// Prepare, execute and return the rows of the sql query
-    ///
-    /// Use `()` for no parameters or a tuple of parameters
     fn query_iter<'a, P, R>(
         &'a mut self,
         sql: &str,
@@ -151,12 +148,15 @@ where
         P: IntoParams,
         R: FromRow + 'static,
     {
+        let params = params.to_params();
+
         // Get a statement from the cache
-        let mut stmt_cache_data =
-            self.conn
-                .stmt_cache
-                .borrow_mut()
-                .get_or_prepare(self.conn, &mut self.data, sql)?;
+        let mut stmt_cache_data = self.conn.stmt_cache.borrow_mut().get_or_prepare(
+            self.conn,
+            &mut self.data,
+            sql,
+            params.named(),
+        )?;
 
         match stmt_cache_data
             .stmt
@@ -188,19 +188,19 @@ impl<C> Execute for Transaction<'_, C>
 where
     C: FirebirdClient,
 {
-    /// Prepare and execute the sql query
-    ///
-    /// Use `()` for no parameters or a tuple of parameters
     fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
     where
         P: IntoParams,
     {
+        let params = params.to_params();
+
         // Get a statement from the cache
-        let mut stmt_cache_data =
-            self.conn
-                .stmt_cache
-                .borrow_mut()
-                .get_or_prepare(self.conn, &mut self.data, sql)?;
+        let mut stmt_cache_data = self.conn.stmt_cache.borrow_mut().get_or_prepare(
+            self.conn,
+            &mut self.data,
+            sql,
+            params.named(),
+        )?;
 
         // Do not return now in case of error, because we need to return the statement to the cache
         let res = stmt_cache_data
@@ -223,12 +223,14 @@ where
         P: IntoParams,
         R: FromRow + 'static,
     {
+        let params = params.to_params();
+
         // Get a statement from the cache
         let mut stmt_cache_data =
             self.conn
                 .stmt_cache
                 .borrow_mut()
-                .get_or_prepare(self.conn, &mut self.data, sql)?;
+                .get_or_prepare(self.conn, &mut self.data, sql, params.named(),)?;
 
         // Do not return now in case of error, because we need to return the statement to the cache
         let res = stmt_cache_data

@@ -39,9 +39,6 @@ pub enum SqlType {
 impl SqlType {
     /// Returns `true` if the type is `NULL`
     pub fn is_null(&self) -> bool {
-        match self {
-            Null => true,
-            _ => false,
-        }
+        matches!(self, Null)
     }
 }

@@ -8,7 +8,9 @@ use crate::{
     transaction::{Transaction, TransactionData},
     Connection,
 };
-use rsfbclient_core::{Column, FbError, FirebirdClient, FreeStmtOp, FromRow, IntoParams, StmtType};
+use rsfbclient_core::{
+    Column, FbError, FirebirdClient, FreeStmtOp, FromRow, IntoParams, NamedParams, StmtType,
+};
 
 pub struct Statement<'c, C: FirebirdClient> {
     pub(crate) data: StatementData<C::StmtHandle>,
@@ -20,8 +22,12 @@ where
     C: FirebirdClient,
 {
     /// Prepare the statement that will be executed
-    pub fn prepare(tr: &mut Transaction<'c, C>, sql: &str) -> Result<Self, FbError> {
-        let data = StatementData::prepare(tr.conn, &mut tr.data, sql)?;
+    pub fn prepare(
+        tr: &mut Transaction<'c, C>,
+        sql: &str,
+        named_params: bool,
+    ) -> Result<Self, FbError> {
+        let data = StatementData::prepare(tr.conn, &mut tr.data, sql, named_params)?;
 
         Ok(Statement {
             data,
@@ -121,6 +127,7 @@ where
 pub struct StatementData<H> {
     pub(crate) handle: H,
     pub(crate) stmt_type: StmtType,
+    named_params: NamedParams,
 }
 
 impl<H> StatementData<H>
@@ -131,17 +138,29 @@ where
     pub fn prepare<C>(
         conn: &Connection<C>,
         tr: &mut TransactionData<C::TrHandle>,
-        sql: &str,
+        raw_sql: &str,
+        named_params: bool,
     ) -> Result<Self, FbError>
     where
         C: FirebirdClient<StmtHandle = H>,
     {
+        let named_params = if named_params {
+            NamedParams::parse(raw_sql)?
+        } else {
+            NamedParams::empty(raw_sql)
+        };
+        let sql = &named_params.sql;
+
         let (stmt_type, handle) =
             conn.cli
                 .borrow_mut()
                 .prepare_statement(conn.handle, tr.handle, conn.dialect, sql)?;
 
-        Ok(Self { stmt_type, handle })
+        Ok(Self {
+            stmt_type,
+            handle,
+            named_params,
+        })
     }
 
     /// Execute the current statement without returnig any row
@@ -157,9 +176,12 @@ where
         T: IntoParams,
         C: FirebirdClient<StmtHandle = H>,
     {
-        conn.cli
-            .borrow_mut()
-            .execute(conn.handle, tr.handle, self.handle, params.to_params())?;
+        conn.cli.borrow_mut().execute(
+            conn.handle,
+            tr.handle,
+            self.handle,
+            self.named_params.convert(params)?,
+        )?;
 
         if self.stmt_type == StmtType::Select {
             // Close the cursor, as it will not be used
@@ -184,7 +206,7 @@ where
     {
         conn.cli
             .borrow_mut()
-            .execute2(conn.handle, tr.handle, self.handle, params.to_params())
+            .execute2(conn.handle, tr.handle, self.handle, self.named_params.convert(params)?)
     }
 
     /// Execute the current statement
@@ -201,9 +223,12 @@ where
         T: IntoParams,
         C: FirebirdClient<StmtHandle = H>,
     {
-        conn.cli
-            .borrow_mut()
-            .execute(conn.handle, tr.handle, self.handle, params.to_params())
+        conn.cli.borrow_mut().execute(
+            conn.handle,
+            tr.handle,
+            self.handle,
+            self.named_params.convert(params)?,
+        )
     }
 
     /// Fetch for the next row, needs to be called after `query`
@@ -290,7 +315,7 @@ mk_tests_default! {
 
         conn.with_transaction(|tr| {
             let mut stmt = tr
-                .prepare(&format!("insert into {} (id, name) values (?, ?)", table))
+                .prepare(&format!("insert into {} (id, name) values (?, ?)", table), false)
                 .expect("Error preparing the insert statement");
 
             for val in &vals {
@@ -303,7 +328,7 @@ mk_tests_default! {
 
         conn.with_transaction(|tr| {
             let mut stmt = tr
-                .prepare(&format!("select id, name from {}", table))
+                .prepare(&format!("select id, name from {}", table), false)
                 .expect("Error on prepare the select");
 
             let rows: Vec<(Option<i32>, String)> = stmt
