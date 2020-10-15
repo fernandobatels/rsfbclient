@@ -15,6 +15,14 @@ mk_tests_default! {
     fn execute_procedure() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
+        let (engine_version,): (String,) = conn.query_first(
+            "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') from rdb$database;",
+            (),
+        )?.unwrap();
+        if engine_version.starts_with("2.") {
+            return Ok(());
+        }
+
         let ddl_procedure = "create or alter procedure get_value()
                                 returns (val int not null)
                                 as
