@@ -23,7 +23,7 @@ struct ParamTest {
 
 fn main() -> Result<(), FbError> {
     #[cfg(feature = "linking")]
-    let conn = ConnectionBuilder::linked()
+    let mut conn = ConnectionBuilder::linked()
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")
@@ -31,7 +31,7 @@ fn main() -> Result<(), FbError> {
         .connect()?;
 
     #[cfg(feature = "dynamic_loading")]
-    let conn = ConnectionBuilder::with_client("./fbclient.lib")
+    let mut conn = ConnectionBuilder::with_client("./fbclient.lib")
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")
