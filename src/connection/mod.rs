@@ -450,9 +450,6 @@ impl<C> Queryable for Connection<C>
 where
     C: FirebirdClient,
 {
-    /// Prepare, execute, return the rows and commit the sql query
-    ///
-    /// Use `()` for no parameters or a tuple of parameters
     fn query_iter<'a, P, R>(
         &'a mut self,
         sql: &str,
@@ -463,12 +460,13 @@ where
         R: FromRow + 'static,
     {
         let mut tr = Transaction::new(self)?;
+        let params = params.to_params();
 
         // Get a statement from the cache
         let mut stmt_cache_data =
             self.stmt_cache
                 .borrow_mut()
-                .get_or_prepare(self, &mut tr.data, sql)?;
+                .get_or_prepare(self, &mut tr.data, sql, params.named())?;
 
         match stmt_cache_data.stmt.query(self, &mut tr.data, params) {
             Ok(_) => {
@@ -496,20 +494,18 @@ impl<C> Execute for Connection<C>
 where
     C: FirebirdClient,
 {
-    /// Prepare, execute and commit the sql query
-    ///
-    /// Use `()` for no parameters or a tuple of parameters
     fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
     where
         P: IntoParams,
     {
         let mut tr = Transaction::new(self)?;
+        let params = params.to_params();
 
         // Get a statement from the cache
         let mut stmt_cache_data =
             self.stmt_cache
                 .borrow_mut()
-                .get_or_prepare(self, &mut tr.data, sql)?;
+                .get_or_prepare(self, &mut tr.data, sql, params.named())?;
 
         // Do not return now in case of error, because we need to return the statement to the cache
         let res = stmt_cache_data.stmt.execute(self, &mut tr.data, params);
