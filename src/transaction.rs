@@ -9,14 +9,17 @@ use std::marker;
 use std::mem::ManuallyDrop;
 
 use super::{connection::Connection, statement::Statement};
-use crate::{connection::stmt_cache::StmtCacheData, statement::StatementData, Execute, Queryable};
+use crate::{
+    connection::stmt_cache::StmtCache, connection::stmt_cache::StmtCacheData,
+    statement::StatementData, Execute, Queryable,
+};
 
 pub struct Transaction<'c, C>
 where
     C: FirebirdClient,
 {
     pub(crate) data: TransactionData<C::TrHandle>,
-    pub(crate) conn: &'c Connection<C>,
+    pub(crate) conn: &'c mut Connection<C>,
 }
 
 impl<'c, C> Transaction<'c, C>
@@ -24,7 +27,7 @@ where
     C: FirebirdClient,
 {
     /// Start a new transaction
-    pub fn new(conn: &'c Connection<C>) -> Result<Self, FbError> {
+    pub fn new(conn: &'c mut Connection<C>) -> Result<Self, FbError> {
         let data = TransactionData::new(conn)?;
 
         Ok(Transaction { data, conn })
@@ -66,7 +69,11 @@ where
     }
 
     /// Prepare a new statement for execute
-    pub fn prepare(&mut self, sql: &str, named_params: bool) -> Result<Statement<'c, C>, FbError> {
+    pub fn prepare<'t>(
+        &'t mut self,
+        sql: &str,
+        named_params: bool,
+    ) -> Result<Statement<'c, 't, C>, FbError> {
         Statement::prepare(self, sql, named_params)
     }
 }
@@ -108,12 +115,7 @@ where
             .ok();
 
         // Send the statement back to the cache
-        self.tr
-            .conn
-            .stmt_cache
-            .borrow_mut()
-            .insert_and_close(self.tr.conn, self.stmt_cache_data.take().unwrap())
-            .ok();
+        StmtCache::insert_and_close(self.tr.conn, self.stmt_cache_data.take().unwrap()).ok();
     }
 }
 
@@ -129,7 +131,7 @@ where
             .as_mut()
             .unwrap()
             .stmt
-            .fetch(&self.tr.conn, &mut self.tr.data)
+            .fetch(self.tr.conn, &mut self.tr.data)
             .and_then(|row| row.map(FromRow::try_from).transpose())
             .transpose()
     }
@@ -151,12 +153,7 @@ where
         let params = params.to_params();
 
         // Get a statement from the cache
-        let mut stmt_cache_data = self.conn.stmt_cache.borrow_mut().get_or_prepare(
-            self.conn,
-            &mut self.data,
-            sql,
-            params.named(),
-        )?;
+        let mut stmt_cache_data = StmtCache::get_or_prepare(self, sql, params.named())?;
 
         match stmt_cache_data
             .stmt
@@ -173,10 +170,7 @@ where
             }
             Err(e) => {
                 // Return the statement to the cache
-                self.conn
-                    .stmt_cache
-                    .borrow_mut()
-                    .insert_and_close(self.conn, stmt_cache_data)?;
+                StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
 
                 Err(e)
             }
@@ -195,12 +189,7 @@ where
         let params = params.to_params();
 
         // Get a statement from the cache
-        let mut stmt_cache_data = self.conn.stmt_cache.borrow_mut().get_or_prepare(
-            self.conn,
-            &mut self.data,
-            sql,
-            params.named(),
-        )?;
+        let mut stmt_cache_data = StmtCache::get_or_prepare(self, sql, params.named())?;
 
         // Do not return now in case of error, because we need to return the statement to the cache
         let res = stmt_cache_data
@@ -208,10 +197,7 @@ where
             .execute(self.conn, &mut self.data, params);
 
         // Return the statement to the cache
-        self.conn
-            .stmt_cache
-            .borrow_mut()
-            .insert_and_close(self.conn, stmt_cache_data)?;
+        StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
 
         res?;
 
@@ -226,12 +212,7 @@ where
         let params = params.to_params();
 
         // Get a statement from the cache
-        let mut stmt_cache_data = self.conn.stmt_cache.borrow_mut().get_or_prepare(
-            self.conn,
-            &mut self.data,
-            sql,
-            params.named(),
-        )?;
+        let mut stmt_cache_data = StmtCache::get_or_prepare(self, sql, params.named())?;
 
         // Do not return now in case of error, because we need to return the statement to the cache
         let res = stmt_cache_data
@@ -239,10 +220,7 @@ where
             .execute2(self.conn, &mut self.data, params);
 
         // Return the statement to the cache
-        self.conn
-            .stmt_cache
-            .borrow_mut()
-            .insert_and_close(self.conn, stmt_cache_data)?;
+        StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
 
         FromRow::try_from(res?)
     }
@@ -261,68 +239,59 @@ where
     H: Send,
 {
     /// Start a new transaction
-    fn new<C>(conn: &Connection<C>) -> Result<Self, FbError>
+    fn new<C>(conn: &mut Connection<C>) -> Result<Self, FbError>
     where
         C: FirebirdClient<TrHandle = H>,
     {
-        let handle = conn.cli.borrow_mut().begin_transaction(
-            &mut *conn.handle.borrow_mut(),
-            TrIsolationLevel::ReadCommited,
-        )?;
+        let handle = conn
+            .cli
+            .begin_transaction(&mut conn.handle, TrIsolationLevel::ReadCommited)?;
 
         Ok(Self { handle })
     }
 
     /// Execute the statement without returning any row
-    fn execute_immediate<C>(&mut self, conn: &Connection<C>, sql: &str) -> Result<(), FbError>
-    where
-        C: FirebirdClient<TrHandle = H>,
-    {
-        conn.cli.borrow_mut().exec_immediate(
-            &mut *conn.handle.borrow_mut(),
-            &mut self.handle,
-            conn.dialect,
-            sql,
-        )
-    }
-
-    /// Commit the current transaction changes, not allowing to reuse the transaction
-    pub fn commit<C>(&mut self, conn: &Connection<C>) -> Result<(), FbError>
+    fn execute_immediate<C>(&mut self, conn: &mut Connection<C>, sql: &str) -> Result<(), FbError>
     where
         C: FirebirdClient<TrHandle = H>,
     {
         conn.cli
-            .borrow_mut()
+            .exec_immediate(&mut conn.handle, &mut self.handle, conn.dialect, sql)
+    }
+
+    /// Commit the current transaction changes, not allowing to reuse the transaction
+    pub fn commit<C>(&mut self, conn: &mut Connection<C>) -> Result<(), FbError>
+    where
+        C: FirebirdClient<TrHandle = H>,
+    {
+        conn.cli
             .transaction_operation(&mut self.handle, TrOp::Commit)
     }
 
     /// Commit the current transaction changes, but allowing to reuse the transaction
-    pub fn commit_retaining<C>(&mut self, conn: &Connection<C>) -> Result<(), FbError>
+    pub fn commit_retaining<C>(&mut self, conn: &mut Connection<C>) -> Result<(), FbError>
     where
         C: FirebirdClient<TrHandle = H>,
     {
         conn.cli
-            .borrow_mut()
             .transaction_operation(&mut self.handle, TrOp::CommitRetaining)
     }
 
     /// Rollback the current transaction changes, but allowing to reuse the transaction
-    pub fn rollback_retaining<C>(&mut self, conn: &Connection<C>) -> Result<(), FbError>
+    pub fn rollback_retaining<C>(&mut self, conn: &mut Connection<C>) -> Result<(), FbError>
     where
         C: FirebirdClient<TrHandle = H>,
     {
         conn.cli
-            .borrow_mut()
             .transaction_operation(&mut self.handle, TrOp::RollbackRetaining)
     }
 
     /// Rollback the transaction, invalidating it
-    pub fn rollback<C>(&mut self, conn: &Connection<C>) -> Result<(), FbError>
+    pub fn rollback<C>(&mut self, conn: &mut Connection<C>) -> Result<(), FbError>
     where
         C: FirebirdClient<TrHandle = H>,
     {
         conn.cli
-            .borrow_mut()
             .transaction_operation(&mut self.handle, TrOp::Rollback)
     }
 }

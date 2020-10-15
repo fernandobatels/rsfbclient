@@ -20,13 +20,14 @@ mk_tests_default! {
   }
 
   fn setup<C: FirebirdClient>( conn: &mut Connection<C>, table_name: &str ) ->  Result<(), FbError>{
-      let mut setup_transaction = Transaction::new(&conn)?;
+      let mut setup_transaction = Transaction::new(conn)?;
       setup_transaction.execute_immediate( format!(recreate_tbl_fmtstring!(), table_name).as_str() )?;
       setup_transaction.commit()
   }
 
   fn teardown<C: FirebirdClient>( conn: Connection<C>, table_name: &str ) -> Result<(), FbError> {
-      let mut setup_transaction = Transaction::new(&conn)?;
+      let mut conn = conn;
+      let mut setup_transaction = Transaction::new(&mut conn)?;
       setup_transaction.execute_immediate( format!(drop_tbl_fmtstring!(), table_name ).as_str() )?;
       setup_transaction.commit()?;
 
@@ -40,7 +41,7 @@ mk_tests_default! {
       let mut conn = cbuilder().connect()?;
       setup(&mut conn, TABLE_NAME)?;
 
-      let mut transaction = Transaction::new(&conn)?;
+      let mut transaction = Transaction::new(&mut conn)?;
       let _insert_result  = transaction.execute_immediate( format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str() );
       let commit_result   = transaction.commit();
 
@@ -55,7 +56,7 @@ mk_tests_default! {
       let mut conn = cbuilder().connect()?;
       setup(&mut conn, TABLE_NAME)?;
 
-      let mut transaction = Transaction::new(&conn)?;
+      let mut transaction = Transaction::new(&mut conn)?;
       let _insert_result  = transaction.execute_immediate( format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str() );
       let commit_result   = transaction.commit_retaining();
       drop(transaction);
@@ -71,7 +72,7 @@ mk_tests_default! {
       let mut conn = cbuilder().connect()?;
       setup(&mut conn, TABLE_NAME)?;
 
-      let mut transaction = Transaction::new(&conn)?;
+      let mut transaction = Transaction::new(&mut conn)?;
       let _insert_result  = transaction.execute_immediate( format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str() );
       let rollback_result = transaction.rollback();
 
@@ -86,7 +87,7 @@ mk_tests_default! {
       let mut conn = cbuilder().connect()?;
       setup(&mut conn, TABLE_NAME)?;
 
-      let mut transaction = Transaction::new(&conn)?;
+      let mut transaction = Transaction::new(&mut conn)?;
       let _insert_result  = transaction.execute_immediate( format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str() );
       let rollback_result = transaction.rollback_retaining();
       drop(transaction);

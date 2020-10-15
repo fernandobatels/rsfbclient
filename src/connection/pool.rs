@@ -33,7 +33,7 @@ where
 
     fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
         // If it can start a transaction, we are ok
-        Transaction::new(&conn)?;
+        Transaction::new(conn)?;
         Ok(())
     }
 

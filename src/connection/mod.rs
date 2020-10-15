@@ -12,7 +12,7 @@ use rsfbclient_core::{
     charset::Charset, charset::UTF_8, Dialect, FbError, FirebirdClient,
     FirebirdClientEmbeddedAttach, FirebirdClientRemoteAttach, FromRow, IntoParams,
 };
-use std::{cell::RefCell, marker};
+use std::marker;
 
 use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
@@ -278,16 +278,16 @@ where
     C: FirebirdClient,
 {
     /// Database handler
-    pub(crate) handle: RefCell<C::DbHandle>,
+    pub(crate) handle: C::DbHandle,
 
     /// Firebird dialect for the statements
     pub(crate) dialect: Dialect,
 
     /// Cache for the prepared statements
-    pub(crate) stmt_cache: RefCell<StmtCache<StatementData<C::StmtHandle>>>,
+    pub(crate) stmt_cache: StmtCache<StatementData<C::StmtHandle>>,
 
     /// Firebird client
-    pub(crate) cli: RefCell<C>,
+    pub(crate) cli: C,
 }
 
 impl<C> Connection<C>
@@ -304,13 +304,13 @@ where
             &builder.pass,
         )?;
 
-        let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
+        let stmt_cache = StmtCache::new(builder.stmt_cache_size);
 
         Ok(Connection {
-            handle: RefCell::new(handle),
+            handle,
             dialect: builder.dialect,
             stmt_cache,
-            cli: RefCell::new(cli),
+            cli,
         })
     }
 }
@@ -326,13 +326,13 @@ where
     ) -> Result<Connection<C>, FbError> {
         let handle = cli.attach_database(&builder.db_name, &builder.user)?;
 
-        let stmt_cache = RefCell::new(StmtCache::new(builder.stmt_cache_size));
+        let stmt_cache = StmtCache::new(builder.stmt_cache_size);
 
         Ok(Connection {
-            handle: RefCell::new(handle),
+            handle,
             dialect: builder.dialect,
             stmt_cache,
-            cli: RefCell::new(cli),
+            cli,
         })
     }
 }
@@ -343,7 +343,7 @@ where
 {
     /// Drop the current database
     pub fn drop_database(mut self) -> Result<(), FbError> {
-        self.cli.get_mut().drop_database(self.handle.get_mut())?;
+        self.cli.drop_database(&mut self.handle)?;
 
         Ok(())
     }
@@ -351,7 +351,7 @@ where
     /// Run a closure with a transaction, if the closure returns an error
     /// the transaction will rollback, else it will be committed
     pub fn with_transaction<T>(
-        &self,
+        &mut self,
         closure: impl FnOnce(&mut Transaction<C>) -> Result<T, FbError>,
     ) -> Result<T, FbError> {
         let mut tr = Transaction::new(self)?;
@@ -374,9 +374,9 @@ where
 
     /// Close the current connection. With an `&mut self` to be used in the drop code too
     fn __close(&mut self) -> Result<(), FbError> {
-        self.stmt_cache.borrow_mut().close_all(self);
+        StmtCache::close_all(self);
 
-        self.cli.get_mut().detach_database(self.handle.get_mut())?;
+        self.cli.detach_database(&mut self.handle)?;
 
         Ok(())
     }
@@ -416,12 +416,7 @@ where
             .ok();
 
         // Send the statement back to the cache
-        self.tr
-            .conn
-            .stmt_cache
-            .borrow_mut()
-            .insert_and_close(self.tr.conn, self.stmt_cache_data.take().unwrap())
-            .ok();
+        StmtCache::insert_and_close(self.tr.conn, self.stmt_cache_data.take().unwrap()).ok();
 
         // Commit the transaction
         self.tr.commit_retaining().ok();
@@ -440,7 +435,7 @@ where
             .as_mut()
             .unwrap()
             .stmt
-            .fetch(&self.tr.conn, &mut self.tr.data)
+            .fetch(self.tr.conn, &mut self.tr.data)
             .and_then(|row| row.map(FromRow::try_from).transpose())
             .transpose()
     }
@@ -463,12 +458,9 @@ where
         let params = params.to_params();
 
         // Get a statement from the cache
-        let mut stmt_cache_data =
-            self.stmt_cache
-                .borrow_mut()
-                .get_or_prepare(self, &mut tr.data, sql, params.named())?;
+        let mut stmt_cache_data = StmtCache::get_or_prepare(&mut tr, sql, params.named())?;
 
-        match stmt_cache_data.stmt.query(self, &mut tr.data, params) {
+        match stmt_cache_data.stmt.query(tr.conn, &mut tr.data, params) {
             Ok(_) => {
                 let iter = StmtIter {
                     stmt_cache_data: Some(stmt_cache_data),
@@ -480,9 +472,7 @@ where
             }
             Err(e) => {
                 // Return the statement to the cache
-                self.stmt_cache
-                    .borrow_mut()
-                    .insert_and_close(self, stmt_cache_data)?;
+                StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
 
                 Err(e)
             }
@@ -502,18 +492,13 @@ where
         let params = params.to_params();
 
         // Get a statement from the cache
-        let mut stmt_cache_data =
-            self.stmt_cache
-                .borrow_mut()
-                .get_or_prepare(self, &mut tr.data, sql, params.named())?;
+        let mut stmt_cache_data = StmtCache::get_or_prepare(&mut tr, sql, params.named())?;
 
         // Do not return now in case of error, because we need to return the statement to the cache
-        let res = stmt_cache_data.stmt.execute(self, &mut tr.data, params);
+        let res = stmt_cache_data.stmt.execute(tr.conn, &mut tr.data, params);
 
         // Return the statement to the cache
-        self.stmt_cache
-            .borrow_mut()
-            .insert_and_close(self, stmt_cache_data)?;
+        StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
 
         res?;
 
@@ -531,18 +516,13 @@ where
         let params = params.to_params();
 
         // Get a statement from the cache
-        let mut stmt_cache_data =
-            self.stmt_cache
-                .borrow_mut()
-                .get_or_prepare(self, &mut tr.data, sql, params.named())?;
+        let mut stmt_cache_data = StmtCache::get_or_prepare(&mut tr, sql, params.named())?;
 
         // Do not return now in case of error, because we need to return the statement to the cache
-        let res = stmt_cache_data.stmt.execute2(self, &mut tr.data, params);
+        let res = stmt_cache_data.stmt.execute2(tr.conn, &mut tr.data, params);
 
         // Return the statement to the cache
-        self.stmt_cache
-            .borrow_mut()
-            .insert_and_close(self, stmt_cache_data)?;
+        StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
 
         let f_res = FromRow::try_from(res?)?;
 

@@ -67,15 +67,15 @@ fn main() -> Result<(), FbError> {
         {
             let mut stmt = tr.prepare(SQL_INSERT, false)?;
 
-            stmt.execute(tr, (-39, "test"))?;
-            stmt.execute(tr, (12, "test 2"))?;
+            stmt.execute((-39, "test"))?;
+            stmt.execute((12, "test 2"))?;
         }
         // Fourth alternative, with named params
         {
             let mut stmt = tr.prepare(SQL_INSERT_NAMED, false)?;
 
-            stmt.execute(tr, p1.clone())?;
-            stmt.execute(tr, p2.clone())?;
+            stmt.execute(p1.clone())?;
+            stmt.execute(p2.clone())?;
         }
 
         Ok(())
