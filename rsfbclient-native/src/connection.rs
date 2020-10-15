@@ -350,7 +350,6 @@ impl FirebirdClient for NativeFbClient {
             })
             .collect::<Result<_, _>>()?;
 
-
         self.stmt_data_map.insert(handle, (xsqlda, col_buffers));
 
         Ok((stmt_type, handle))
@@ -490,7 +489,7 @@ impl FirebirdClient for NativeFbClient {
                 } else {
                     ptr::null()
                 },
-                &**out_xsqlda
+                &**out_xsqlda,
             ) != 0
             {
                 return Err(self.status.as_error(&self.ibase));
@@ -500,7 +499,8 @@ impl FirebirdClient for NativeFbClient {
         // Just to make sure the params are not dropped too soon
         drop(params);
 
-        let (_, col_buf) = self.stmt_data_map
+        let (_, col_buf) = self
+            .stmt_data_map
             .get(&stmt_handle)
             .ok_or_else(|| FbError::from("Tried to fetch a dropped statement"))?;
 

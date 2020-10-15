@@ -221,14 +221,14 @@ where
     fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
     where
         P: IntoParams,
-        R: FromRow + 'static
+        R: FromRow + 'static,
     {
         // Get a statement from the cache
         let mut stmt_cache_data =
             self.conn
-            .stmt_cache
-            .borrow_mut()
-            .get_or_prepare(self.conn, &mut self.data, sql)?;
+                .stmt_cache
+                .borrow_mut()
+                .get_or_prepare(self.conn, &mut self.data, sql)?;
 
         // Do not return now in case of error, because we need to return the statement to the cache
         let res = stmt_cache_data

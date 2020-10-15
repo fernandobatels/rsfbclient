@@ -529,15 +529,15 @@ where
     fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
     where
         P: IntoParams,
-        R: FromRow + 'static
+        R: FromRow + 'static,
     {
         let mut tr = Transaction::new(self)?;
 
         // Get a statement from the cache
         let mut stmt_cache_data =
             self.stmt_cache
-            .borrow_mut()
-            .get_or_prepare(self, &mut tr.data, sql)?;
+                .borrow_mut()
+                .get_or_prepare(self, &mut tr.data, sql)?;
 
         // Do not return now in case of error, because we need to return the statement to the cache
         let res = stmt_cache_data.stmt.execute2(self, &mut tr.data, params);

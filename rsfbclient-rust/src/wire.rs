@@ -485,7 +485,6 @@ pub fn parse_fetch_response(
     version: ProtocolVersion,
     charset: &Charset,
 ) -> Result<Option<Vec<ParsedColumn>>, FbError> {
-
     if resp.remaining() < 8 {
         return err_invalid_response();
     }
@@ -506,7 +505,6 @@ pub fn parse_sql_response(
     version: ProtocolVersion,
     charset: &Charset,
 ) -> Result<Vec<ParsedColumn>, FbError> {
-
     let has_row = resp.get_u32() != 0;
     if !has_row {
         return Err("Fetch returned no columns".into());

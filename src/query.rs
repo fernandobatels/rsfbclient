@@ -60,5 +60,4 @@ pub trait Execute {
     where
         P: IntoParams,
         R: FromRow + 'static;
-
 }
