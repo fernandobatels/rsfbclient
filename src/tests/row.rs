@@ -12,7 +12,31 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
-    fn insert_returing() -> Result<(), FbError> {
+    fn execute_block() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        let sql = "execute block (x double precision = ?, y double precision = ?)
+                    returns (gmean double precision)
+                    as
+                    begin
+                        gmean = sqrt(x*y);
+                        suspend;
+                    end";
+
+        // with execute_returnable
+        let (sqrt,): (f64,) = conn.execute_returnable(sql, (10, 20))?;
+        assert_eq!(14.142135623730951, sqrt);
+
+        // with query
+        let (sqrt,): (f64,) = conn.query_first(sql, (10, 20))?
+            .unwrap();
+        assert_eq!(14.142135623730951, sqrt);
+
+        Ok(())
+    }
+
+    #[test]
+    fn insert_returning() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
         conn.execute("DROP TABLE RINSERT_RETURNING", ()).ok();
