@@ -25,8 +25,11 @@ pub enum Args {
 
 /// Data associated with a prepared statement
 pub struct StmtHandleData {
+    /// Statement handle
     handle: ibase::isc_stmt_handle,
+    /// Output xsqlda
     xsqlda: XSqlDa,
+    /// Buffers for the output xsqlda
     col_buffers: Vec<ColumnBuffer>,
 }
 
