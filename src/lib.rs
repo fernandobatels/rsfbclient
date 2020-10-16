@@ -23,7 +23,8 @@ pub use crate::{
     transaction::Transaction,
 };
 pub use rsfbclient_core::{
-    charset, Charset, Column, Dialect, FbError, FromRow, IntoParam, Row, SqlType, IntoParams, ParamsType,
+    charset, Charset, Column, Dialect, FbError, FromRow, IntoParam, IntoParams, ParamsType, Row,
+    SqlType,
 };
 
 #[cfg(feature = "pool")]

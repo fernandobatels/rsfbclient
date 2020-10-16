@@ -140,8 +140,7 @@ where
         tr: &mut TransactionData<C>,
         raw_sql: &str,
         named_params: bool,
-    ) -> Result<Self, FbError>
-    {
+    ) -> Result<Self, FbError> {
         let named_params = if named_params {
             NamedParams::parse(raw_sql)?
         } else {

@@ -87,8 +87,7 @@ where
         tr: &mut TransactionData<C>,
         sql: &str,
         named_params: bool,
-    ) -> Result<StmtCacheData<StatementData<C>>, FbError>
-    {
+    ) -> Result<StmtCacheData<StatementData<C>>, FbError> {
         if let Some(data) = self.get(sql) {
             Ok(data)
         } else {
