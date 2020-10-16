@@ -140,6 +140,12 @@ where
         self
     }
 
+    /// SQL Dialect. Default: 3
+    pub fn charset(&mut self, charset: Charset) -> &mut Self {
+        self.charset = charset;
+        self
+    }
+
     /// Statement cache size. Default: 20
     pub fn stmt_cache_size(&mut self, stmt_cache_size: usize) -> &mut Self {
         self.conn_conf.stmt_cache_size = stmt_cache_size;
@@ -244,18 +250,21 @@ impl<A> NativeConnectionBuilder<LinkageNotConfigured, A> {
     ///
     /// ```no_run
     /// // On windows
-    /// rsfbclient::native_builder::new()
-    ///   .with_dyn_load("fbclient.dll");
+    /// rsfbclient::builder_native()
+    ///   .with_dyn_load("fbclient.dll")
+    ///   .as_embedded();
     ///
     ///
     /// // On linux
-    /// rsfbclient::native_builder::new()
-    ///   .with_dyn_load("libfbclient.so");
+    /// rsfbclient::builder_native()
+    ///   .with_dyn_load("libfbclient.so")
+    ///   .as_remote();
     ///
     /// // Any platform, file located relative to the
     /// // folder where the executable was run
-    /// rsfbclient::native_builder::new()
-    ///   .with_dyn_load("./fbclient.lib");
+    /// rsfbclient::builder_native()
+    ///   .with_dyn_load("./fbclient.lib")
+    ///   .as_embedded();
     /// ```
     /// Requires feature 'dynamic_loading'.
     pub fn with_dyn_load<S: Into<String>>(

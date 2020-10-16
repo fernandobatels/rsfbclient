@@ -45,24 +45,30 @@ macro_rules! mk_tests_default {
     ( $( $tests:tt )* ) => {
         mk_tests! {
             tests {
+                use crate::builders::*;
+
+
                 $( $tests )*
             }
 
             #[cfg(all(feature = "linking", not(feature = "embedded_tests")))]
-            for linking -> crate::ConnectionBuilder<rsfbclient_native::NativeFbClient> {
-                crate::ConnectionBuilder::linked()
+            for linking -> NativeConnectionBuilder<DynLink,Remote> {
+                crate::builder_native()
+                  .with_dyn_link()
+                  .as_remote()
             }
 
             #[cfg(all(feature = "linking", feature = "embedded_tests"))]
-            for linking_embedded -> crate::connection::ConnectionBuilderEmbedded<rsfbclient_native::NativeFbClient> {
-                crate::ConnectionBuilder::linked()
-                    .embedded()
+            for linking_embedded -> NativeConnectionBuilder<DynLink,Embedded> {
+                crate::builder_native()
+                    .with_dyn_link()
+                    .as_embedded()
                     .db_name("/tmp/embedded_tests.fdb")
                     .clone()
             }
 
             #[cfg(all(feature = "dynamic_loading", not(feature = "embedded_tests")))]
-            for dynamic_loading -> crate::ConnectionBuilder<rsfbclient_native::NativeFbClient> {
+            for dynamic_loading -> NativeConnectionBuilder<DynLoad, Remote> {
 
                 #[cfg(target_os = "linux")]
                 let libfbclient = "libfbclient.so";
@@ -71,11 +77,13 @@ macro_rules! mk_tests_default {
                 #[cfg(target_os = "macos")]
                 let libfbclient = "libfbclient.dylib";
 
-                crate::ConnectionBuilder::with_client(libfbclient)
+                crate::builder_native()
+                  .with_dyn_load(libfbclient)
+                  .as_remote()
             }
 
             #[cfg(all(feature = "dynamic_loading", feature = "embedded_tests"))]
-            for dynamic_loading_embedded -> crate::connection::ConnectionBuilderEmbedded<rsfbclient_native::NativeFbClient> {
+            for dynamic_loading_embedded -> NativeConnectionBuilder<DynLoad, Embedded> {
 
                 #[cfg(target_os = "linux")]
                 let libfbclient = "libfbclient.so";
@@ -84,15 +92,16 @@ macro_rules! mk_tests_default {
                 #[cfg(target_os = "macos")]
                 let libfbclient = "libfbclient.dylib";
 
-                crate::ConnectionBuilder::with_client(libfbclient)
-                    .embedded()
+                crate::builder_native()
+                    .with_dyn_load(libfbclient)
+                    .as_embedded()
                     .db_name("/tmp/embedded_tests.fdb")
                     .clone()
             }
 
             #[cfg(feature = "pure_rust")]
-            for pure_rust -> crate::ConnectionBuilder<rsfbclient_rust::RustFbClient> {
-                crate::ConnectionBuilder::pure_rust()
+            for pure_rust -> PureRustConnectionBuilder {
+                crate::builder_pure_rust()
             }
         }
     };
