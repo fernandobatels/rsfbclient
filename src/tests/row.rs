@@ -45,6 +45,7 @@ mk_tests_default! {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn execute_block() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
