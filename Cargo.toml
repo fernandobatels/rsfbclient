@@ -17,6 +17,7 @@ r2d2 = { version = "0.8.9", optional = true }
 rsfbclient-core = { version = "0.11.0", path = "rsfbclient-core" }
 rsfbclient-native = { version = "0.11.0", path = "rsfbclient-native", optional = true }
 rsfbclient-rust = { version = "0.11.0", path = "rsfbclient-rust", optional = true }
+rsfbclient-derive = { version = "0.11.0", path = "rsfbclient-derive" }
 
 [dev-dependencies]
 rand = "0.7.3"
@@ -32,5 +33,5 @@ pure_rust = ["rsfbclient-rust"]
 native_client = []
 
 [workspace]
-members = ["rsfbclient-core", "rsfbclient-native", "rsfbclient-rust"]
+members = ["rsfbclient-core", "rsfbclient-native", "rsfbclient-rust", "rsfbclient-derive"]
 

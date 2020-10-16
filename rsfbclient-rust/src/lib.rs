@@ -5,6 +5,7 @@ mod blr;
 mod client;
 mod consts;
 mod srp;
+mod util;
 mod wire;
 mod xsqlda;
 

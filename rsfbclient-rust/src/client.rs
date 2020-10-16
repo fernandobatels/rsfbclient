@@ -1,6 +1,6 @@
 //! `FirebirdConnection` implementation for the pure rust firebird client
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use std::{
     collections::HashMap,
     env,
@@ -13,6 +13,7 @@ use crate::{
     blr,
     consts::{AuthPluginType, ProtocolVersion, WireOp},
     srp::*,
+    util::*,
     wire::*,
     xsqlda::{parse_xsqlda, xsqlda_to_blr, PrepareInfo, XSqlVar},
 };
@@ -454,10 +455,7 @@ impl FirebirdWireConnection {
         let stmt_handle = StmtHandle(parse_response(&mut resp)?.handle);
 
         // Prepare resp
-        if resp.remaining() < 4 {
-            return err_invalid_response();
-        }
-        let op_code = resp.get_u32();
+        let op_code = resp.get_u32()?;
 
         if op_code != WireOp::Response as u32 {
             return err_conn_rejected(op_code);
@@ -648,12 +646,12 @@ impl FirebirdWireConnection {
             if data.remaining() < 2 {
                 break;
             }
-            let len = data.get_u16_le() as usize;
+            let len = data.get_u16_le()? as usize;
             if data.remaining() < len {
                 return err_invalid_response();
             }
             blob_data.put_slice(&data[..len]);
-            data.advance(len);
+            data.advance(len)?;
         }
 
         Ok((blob_data.freeze(), resp.handle == 2))
@@ -708,10 +706,8 @@ fn read_packet(socket: &mut impl Read, buff: &mut [u8]) -> Result<(u32, Bytes), 
     let mut resp = resp.freeze();
 
     let op_code = loop {
-        if resp.remaining() < 4 {
-            return err_invalid_response();
-        }
-        let op_code = resp.get_u32();
+        let op_code = resp.get_u32()?;
+
         if op_code != WireOp::Dummy as u32 {
             break op_code;
         }
@@ -867,7 +863,10 @@ fn connection_test() {
 
     println!("Statement type: {:?}", stmt_type);
 
-    let params = rsfbclient_core::IntoParams::to_params((1,));
+    let params = match rsfbclient_core::IntoParams::to_params((1,)) {
+        rsfbclient_core::ParamsType::Positional(params) => params,
+        _ => unreachable!(),
+    };
 
     conn.execute(tr_handle, stmt_handle, &params).unwrap();
 

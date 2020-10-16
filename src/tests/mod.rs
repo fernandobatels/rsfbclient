@@ -26,6 +26,10 @@ macro_rules! mk_tests {
         mod $name {
             $( $tests )*
 
+            // Used by the IntoParams derive
+            #[allow(unused_imports)]
+            use crate as rsfbclient;
+
             fn cbuilder() -> $type {
                 $( $cbuilder )*
             }

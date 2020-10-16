@@ -86,13 +86,15 @@ where
         conn: &Connection<C>,
         tr: &mut TransactionData<C>,
         sql: &str,
-    ) -> Result<StmtCacheData<StatementData<C>>, FbError> {
+        named_params: bool,
+    ) -> Result<StmtCacheData<StatementData<C>>, FbError>
+    {
         if let Some(data) = self.get(sql) {
             Ok(data)
         } else {
             Ok(StmtCacheData {
                 sql: sql.to_string(),
-                stmt: StatementData::prepare(conn, tr, sql)?,
+                stmt: StatementData::prepare(conn, tr, sql, named_params)?,
             })
         }
     }

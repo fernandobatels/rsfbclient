@@ -10,6 +10,145 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
+    fn optional_named_support() -> Result<(), FbError> {
+        let exec_block_select : &str = "
+            EXECUTE BLOCK RETURNS (outval bigint) as
+            declare loopvar int = 0;
+            begin
+                while (loopvar < 100) do begin
+                    for select
+                        :loopvar
+                    from
+                        rdb$database
+                    into
+                        :outval
+                    do begin
+                        loopvar = loopvar + 1;
+                        suspend;
+                    end
+                end
+            end;";
+
+        let mut conn = cbuilder().connect()?;
+
+        let rows = conn.query::<(), (i64,)>(exec_block_select,())?;
+
+        assert_eq!(100, rows.len());
+
+        Ok(())
+    }
+
+    #[test]
+    fn struct_namedparams_optional() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        conn.execute("DROP TABLE PNAMED_TEST", ()).ok();
+        conn.execute("CREATE TABLE PNAMED_TEST (id int, num1 int, str1 varchar(50))", ())?;
+
+        #[derive(Clone, IntoParams)]
+        struct ParamTest {
+            pub num1: Option<i32>,
+            pub str1: Option<String>
+        };
+
+        let ptest = ParamTest {
+            num1: Some(10),
+            str1: None
+        };
+
+        let res1: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where 10 = :num1",
+            ptest.clone(),
+        )?;
+        assert!(res1.is_some());
+
+        conn.execute("insert into pnamed_test (id, str1) values (1, :str1)", ptest.clone())?;
+        conn.execute("insert into pnamed_test (id, num1) values (2, :num1)", ptest)?;
+
+        let res2: Option<(i32,)> = conn.query_first("select 1 from pnamed_test where id = 1 and str1 is null", ())?;
+        assert!(res2.is_some());
+
+        let res3: Option<(i32,)> = conn.query_first("select 1 from pnamed_test where id = 2 and num1 is not null", ())?;
+        assert!(res3.is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn struct_namedparams_insert() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        conn.execute("DROP TABLE PNAMED_USER", ()).ok();
+        conn.execute("CREATE TABLE PNAMED_USER (name varchar(50), age int)", ())?;
+
+        #[derive(Clone, IntoParams)]
+        struct User {
+            pub name: String,
+            pub age: i32
+        };
+
+        let user1 = User {
+            name: "Pedro".to_string(),
+            age: 20
+        };
+
+        conn.execute("insert into pnamed_user (name, age) values (:name, :age)", user1.clone())?;
+
+        let suser1: Option<(String,i32,)> = conn.query_first(
+            "select name, age from pnamed_user where age >= :age",
+            user1,
+        )?;
+        assert!(suser1.is_some());
+        assert_eq!("Pedro", suser1.unwrap().0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn struct_namedparams() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        #[derive(Clone, IntoParams)]
+        struct ParamTest {
+            pub num: i32,
+            pub num2: f64,
+            pub str1: String
+        };
+
+        let ptest = ParamTest {
+            num: 10,
+            num2: 11.11,
+            str1: "olá mundo".to_string()
+        };
+
+        let res1: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where 10 = :num ",
+            ptest.clone(),
+        )?;
+        assert!(res1.is_some());
+
+        let res2: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where 11.11 = :num2 ",
+            ptest.clone(),
+        )?;
+        assert!(res2.is_some());
+
+        let res3: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where 10 = :num and 11.11 = :num2 ",
+            ptest.clone(),
+        )?;
+        assert!(res3.is_some());
+
+        let res4: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where 'olá mundo' = :str1 ",
+            ptest,
+        )?;
+        assert!(res4.is_some());
+
+        Ok(())
+    }
+
+    #[test]
     fn boolean() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 

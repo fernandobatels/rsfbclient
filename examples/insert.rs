@@ -12,6 +12,14 @@
 use rsfbclient::{prelude::*, FbError};
 
 const SQL_INSERT: &str = "insert into test (col_b, col_c) values (?, ?)";
+const SQL_INSERT_NAMED: &str = "insert into test (col_b, col_c) values (:colb, :colc)";
+const SQL_INSERT_PURE: &str = "insert into test (col_b, col_c) values (32, 'Leite')";
+
+#[derive(Clone, IntoParams)]
+struct ParamTest {
+    colb: f32,
+    colc: String,
+}
 
 fn main() -> Result<(), FbError> {
     #[cfg(feature = "linking")]
@@ -42,19 +50,36 @@ fn main() -> Result<(), FbError> {
         .pass("masterkey")
         .connect()?;
 
+    let p1 = ParamTest {
+        colb: 150.0,
+        colc: "Café".to_string(),
+    };
+    let p2 = ParamTest {
+        colb: 132.0,
+        colc: "Arroz".to_string(),
+    };
+
     conn.with_transaction(|tr| {
         // First alternative (Recommended) (Prepares if needed and executes automatically)
-        tr.execute(SQL_INSERT, (94, "Banana"))?;
+        tr.execute(SQL_INSERT, (94, "Banana"))?; // with position params
+        tr.execute(SQL_INSERT_NAMED, p1.clone())?; // with named params
 
         // Second alternative
-        // tr.execute_immediate(SQL_INSERT, (-39, "test"))?;
+        tr.execute_immediate(SQL_INSERT_PURE)?;
 
-        // Third alternative
+        // Third alternative, with position params
         {
-            let mut stmt = tr.prepare(SQL_INSERT)?;
+            let mut stmt = tr.prepare(SQL_INSERT, false)?;
 
             stmt.execute(tr, (-39, "test"))?;
             stmt.execute(tr, (12, "test 2"))?;
+        }
+        // Fourth alternative, with named params
+        {
+            let mut stmt = tr.prepare(SQL_INSERT_NAMED, false)?;
+
+            stmt.execute(tr, p1.clone())?;
+            stmt.execute(tr, p2.clone())?;
         }
 
         Ok(())

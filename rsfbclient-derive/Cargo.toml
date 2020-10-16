@@ -1,0 +1,20 @@
+[package]
+name = "rsfbclient-derive"
+version = "0.11.0"
+description = "Derives and macros for rsfbclient"
+authors = ["Luis Fernando Batels <luisfbatels@gmail.com>"]
+edition = "2018"
+repository = "https://github.com/fernandobatels/rsfbclient"
+keywords = ["firebird", "fbclient", "database", "ffi"]
+categories = ["database"]
+license = "MIT"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+syn = "1.0"
+quote = "1.0"
+
+[lib]
+proc-macro = true
