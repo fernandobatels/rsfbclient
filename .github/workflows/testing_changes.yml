@@ -41,11 +41,8 @@ jobs:
       || ( (github.event.action != 'labeled') && contains( github.event.pull_request.labels.*.name, 'force-ci' ) )
       || (github.event.label.name == 'force-ci')
     steps:
-        #helpful for debugging event
-      - name: dump action context 'github'
-        env:
-          GITHUB_CONTEXT: ${{ toJson(github) }}
-        run: echo "$GITHUB_CONTEXT"
+      - name: continue
+        run: echo not skipping CI. continuing now...
 
   linting:
     name: linting
@@ -85,9 +82,9 @@ jobs:
 
   testing:
     name: testing
-    needs: linting    
     strategy:
       fail-fast: false
+      needs: linting
       matrix:
         os: ["ubuntu-20.04", "windows-latest", "macos-latest"]
         firebird: [v3, v2, v4]
