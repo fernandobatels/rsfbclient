@@ -82,9 +82,9 @@ jobs:
 
   testing:
     name: testing
+    needs: linting
     strategy:
       fail-fast: false
-      needs: linting
       matrix:
         os: ["ubuntu-20.04", "windows-latest", "macos-latest"]
         firebird: [v3, v2, v4]
