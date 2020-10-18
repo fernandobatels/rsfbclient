@@ -588,8 +588,6 @@ impl FirebirdWireConnection {
             return err_conn_rejected(op_code);
         }
 
-        dbg!(&resp);
-
         let parsed_cols =
             parse_sql_response(&mut resp, &stmt_handle.xsqlda, self.version, &self.charset)?;
 

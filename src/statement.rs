@@ -181,7 +181,7 @@ where
         Ok(())
     }
 
-    /// Execute the current statement with input and output paramters
+    /// Execute the current statement with input and returns a single row
     ///
     /// Use `()` for no parameters or a tuple of parameters
     pub fn execute2<T, C>(
