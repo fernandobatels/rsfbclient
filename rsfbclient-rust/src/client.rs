@@ -601,9 +601,6 @@ impl FirebirdWireConnection {
             if op_code != WireOp::SqlResponse as u32 {
                 return err_conn_rejected(op_code);
             }
-
-            dbg!(&resp);
-
             let parsed_cols = parse_sql_response(&mut resp, xsqlda, self.version, &self.charset)?;
 
             parse_response(&mut resp)?;
