@@ -194,6 +194,19 @@ impl FirebirdClient for RustFbClient {
             .unwrap_or_else(err_client_not_connected)
     }
 
+    fn execute2(
+        &mut self,
+        _db_handle: Self::DbHandle,
+        tr_handle: Self::TrHandle,
+        stmt_handle: Self::StmtHandle,
+        params: Vec<SqlType>,
+    ) -> Result<Vec<Column>, FbError> {
+        self.conn
+            .as_mut()
+            .map(|conn| conn.execute2(tr_handle, stmt_handle, &params))
+            .unwrap_or_else(err_client_not_connected)
+    }
+
     fn fetch(
         &mut self,
         _db_handle: Self::DbHandle,
@@ -538,6 +551,67 @@ impl FirebirdWireConnection {
             self.read_response()?;
 
             Ok(())
+        } else {
+            Err("Tried to execute a dropped statement".into())
+        }
+    }
+
+    /// Execute the prepared statement with parameters, returning data
+    pub fn execute2(
+        &mut self,
+        tr_handle: TrHandle,
+        stmt_handle: StmtHandle,
+        params: &[SqlType],
+    ) -> Result<Vec<Column>, FbError> {
+        let params =
+            if let Some(StmtData { param_count, .. }) = self.stmt_data_map.get_mut(&stmt_handle) {
+                if params.len() != *param_count {
+                    return Err(format!(
+                        "Tried to execute a statement that has {} parameters while providing {}",
+                        param_count,
+                        params.len()
+                    )
+                    .into());
+                }
+
+                blr::params_to_blr(self, tr_handle, params)?
+            } else {
+                return Err("Tried to execute a dropped statement".into());
+            };
+
+        if let Some(StmtData { blr, xsqlda, .. }) = self.stmt_data_map.get(&stmt_handle) {
+            self.socket
+                .write_all(&execute2(
+                    tr_handle.0,
+                    stmt_handle.0,
+                    &params.blr,
+                    &params.values,
+                    &blr,
+                ))
+                .unwrap();
+            self.socket.flush()?;
+
+            let (op_code, mut resp) = read_packet(&mut self.socket, &mut self.buff)?;
+
+            if op_code == WireOp::Response as u32 {
+                // An error ocurred
+                parse_response(&mut resp)?;
+            }
+
+            if op_code != WireOp::SqlResponse as u32 {
+                return err_conn_rejected(op_code);
+            }
+            let parsed_cols = parse_sql_response(&mut resp, xsqlda, self.version, &self.charset)?;
+
+            parse_response(&mut resp)?;
+
+            let mut cols = Vec::with_capacity(parsed_cols.len());
+
+            for pc in parsed_cols {
+                cols.push(pc.into_column(self, tr_handle)?);
+            }
+
+            Ok(cols)
         } else {
             Err("Tried to execute a dropped statement".into())
         }

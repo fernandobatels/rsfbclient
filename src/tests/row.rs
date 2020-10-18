@@ -12,6 +12,86 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
+    fn execute_procedure() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        let (engine_version,): (String,) = conn.query_first(
+            "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') from rdb$database;",
+            (),
+        )?.unwrap();
+        if engine_version.starts_with("2.") {
+            return Ok(());
+        }
+
+        let ddl_procedure = "create or alter procedure get_value()
+                                returns (val int not null)
+                                as
+                                begin
+                                    val = 150;
+                                    suspend;
+                                end;";
+        conn.execute(ddl_procedure, ())?;
+
+        // Using select
+        let (val,): (i32,) = conn.query_first("select p.val from get_value p", ())?
+            .unwrap();
+        assert_eq!(150, val);
+
+        // Using exec proc
+        let (val,): (i32,) = conn.execute_returnable("execute procedure get_value", ())?;
+        assert_eq!(150, val);
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn execute_block() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        let sql = "execute block (x double precision = ?, y double precision = ?)
+                    returns (gmean double precision)
+                    as
+                    begin
+                        gmean = sqrt(x*y);
+                        suspend;
+                    end";
+
+        // with execute_returnable
+        let (sqrt,): (f64,) = conn.execute_returnable(sql, (10, 20))?;
+        assert_eq!(14.142135623730951, sqrt);
+
+        // with query
+        let (sqrt,): (f64,) = conn.query_first(sql, (10, 20))?
+            .unwrap();
+        assert_eq!(14.142135623730951, sqrt);
+
+        Ok(())
+    }
+
+    #[test]
+    fn insert_returning() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        conn.execute("DROP TABLE RINSERT_RETURNING", ()).ok();
+        conn.execute("CREATE TABLE RINSERT_RETURNING (id int, name varchar(10))", ())?;
+
+        let returning: (i32, String,) = conn.execute_returnable("insert into rinsert_returning (id, name) values (10, 'abc 132') returning id, name", ())?;
+
+        assert_eq!((10, "abc 132".to_string(),), returning);
+
+        conn.with_transaction(|tr| {
+            let id: (i32,) = tr.execute_returnable("insert into rinsert_returning (id) values (11) returning id", ())?;
+
+            assert_eq!((11,), id);
+
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    #[test]
     fn boolean() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 

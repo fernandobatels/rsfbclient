@@ -302,16 +302,16 @@ parse_functions! {
             arg5: *const XSQLDA,
         ) -> ISC_STATUS;
     }
-    // extern "C" {
-    //     pub fn isc_dsql_execute2(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_tr_handle,
-    //         arg3: *mut isc_stmt_handle,
-    //         arg4: ::std::os::raw::c_ushort,
-    //         arg5: *const XSQLDA,
-    //         arg6: *const XSQLDA,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "C" {
+         pub fn isc_dsql_execute2(
+             arg1: *mut ISC_STATUS,
+             arg2: *mut isc_tr_handle,
+             arg3: *mut isc_stmt_handle,
+             arg4: ::std::os::raw::c_ushort,
+             arg5: *const XSQLDA,
+             arg6: *const XSQLDA,
+         ) -> ISC_STATUS;
+    }
     extern "C" {
         pub fn isc_dsql_execute_immediate(
             arg1: *mut ISC_STATUS,

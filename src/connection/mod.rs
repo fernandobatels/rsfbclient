@@ -521,6 +521,35 @@ where
 
         Ok(())
     }
+
+    fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
+    where
+        P: IntoParams,
+        R: FromRow + 'static,
+    {
+        let mut tr = Transaction::new(self)?;
+        let params = params.to_params();
+
+        // Get a statement from the cache
+        let mut stmt_cache_data =
+            self.stmt_cache
+                .borrow_mut()
+                .get_or_prepare(self, &mut tr.data, sql, params.named())?;
+
+        // Do not return now in case of error, because we need to return the statement to the cache
+        let res = stmt_cache_data.stmt.execute2(self, &mut tr.data, params);
+
+        // Return the statement to the cache
+        self.stmt_cache
+            .borrow_mut()
+            .insert_and_close(self, stmt_cache_data)?;
+
+        let f_res = FromRow::try_from(res?)?;
+
+        tr.commit()?;
+
+        Ok(f_res)
+    }
 }
 
 #[cfg(test)]
