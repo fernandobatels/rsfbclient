@@ -12,14 +12,42 @@
 #   - cargo tarpaulin does not work on macos
 #   - cargo test fails with linking on macos
 
-on: [push, pull_request]
+on:
+  push:
+    paths-ignore:
+      - '.github/workflows/**'
+  pull_request:
+    types: [opened,reopened,synchronize,ready_for_review,labeled]
 
 name: testing_changes
 
 jobs:
+  run-guard:
+    # other jobs depend on this one using 'needs: run-guard' to avoid running when it is skipped.
+    # it succeeds if any of the following conditions are met:
+    #   - it is not a pr-labeling event AND the pr is not labeled 'prevent-ci' AND it is not a draft pr
+    #   - it is not a pr-labeling event AND the pr is labeled 'force-ci'
+    #   - it is a pr-labeling event AND the label being added is 'force-ci'
+    #
+    # on success it dumps the action's 'github' context
+    runs-on: ubuntu-latest
+    name: 'run-guard'
+    if: |
+      (
+           (github.event.action != 'labeled')
+        && !contains( github.event.pull_request.labels.*.name, 'prevent-ci')
+        && !github.event.pull_request.draft
+      )
+      || ( (github.event.action != 'labeled') && contains( github.event.pull_request.labels.*.name, 'force-ci' ) )
+      || (github.event.label.name == 'force-ci')
+    steps:
+      - name: continue
+        run: echo not skipping CI. continuing now...
+
   linting:
     name: linting
     runs-on: ubuntu-latest
+    needs: run-guard
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -54,6 +82,7 @@ jobs:
 
   testing:
     name: testing
+    needs: linting
     strategy:
       fail-fast: false
       matrix:
@@ -89,7 +118,6 @@ jobs:
           - build: pure_rust
             features: pure_rust date_time pool
     runs-on: "${{ matrix.os }}"
-    needs: linting
     steps:
       - name: Setup FirebirdSQL ${{ matrix.firebird }} with image  ${{ matrix.image }} on docker
         if: matrix.plataform == 'linux'
