@@ -1,7 +1,9 @@
 use super::*;
 use std::marker::PhantomData;
 
+#[doc(hidden)]
 pub use rsfbclient_native::{DynLink, DynLoad};
+
 use rsfbclient_native::{LinkageMarker, NativeFbAttachmentConfig, NativeFbClient, RemoteConfig};
 
 //used as markers
@@ -38,9 +40,14 @@ impl ConfiguredLinkage for DynLink {}
 #[doc(hidden)]
 impl ConfiguredLinkage for DynLoad {}
 
-//TODO: Doc. Include notes about needing to call
-//one of as_remote(), as_embedded()
-//and one of linked(), with_dynlib()
+/// A builder for a client using the official ('native') Firebird dll.
+///
+/// Use the `builder_native()` method to get a new builder instance, and the
+/// provided configuration methods to change the default configuration params.
+///
+/// Note that one of `as_remote()`/`as_embedded()` and one of
+/// `with_dyn_link()`/`with_dyn_load(...)` **must** be called in order to
+/// enable creating a connection or calling other configuration methods.
 #[derive(Clone)]
 pub struct NativeConnectionBuilder<LinkageType, ConnectionType> {
     _marker_linkage: PhantomData<LinkageType>,
@@ -66,6 +73,7 @@ impl<A, B> From<&NativeConnectionBuilder<A, B>>
 // <Configured,Configured> user configured linkage and connectiontype,
 //   so they can continue to do other configuration or call connect()
 
+/// Get a new instance of NativeConnectionBuilder
 pub fn builder_native() -> NativeConnectionBuilder<LinkageNotConfigured, ConnTypeNotConfigured> {
     Default::default()
 }
@@ -112,6 +120,7 @@ where
     A: LinkageMarker,
     Self: FirebirdClientFactory<C = NativeFbClient<A>>,
 {
+    /// Create a new connection from the fully-built builder
     pub fn connect(&self) -> Result<Connection<impl FirebirdClient>, FbError> {
         Connection::open(self.new_instance()?, &self.conn_conf)
     }
@@ -217,8 +226,8 @@ impl<A> NativeConnectionBuilder<A, Remote> {
 }
 
 impl<A> NativeConnectionBuilder<A, ConnTypeNotConfigured> {
-    //adds the default remote config and then allows user to configure it
-    //TODO: Doc
+    /// Configure the native client for remote connections.
+    /// This will allow configuration via the 'host', 'port' and 'pass' methods.
     pub fn as_remote(mut self) -> NativeConnectionBuilder<A, Remote> {
         let mut remote: RemoteConfig = Default::default();
         remote.host = "localhost".to_string();
@@ -229,22 +238,37 @@ impl<A> NativeConnectionBuilder<A, ConnTypeNotConfigured> {
     }
 
     //does nothing since the embedded config is common to both connection types
-    //TODO: Doc
+    /// Configure the native client for embedded connections.
+    /// There is no 'host', 'port' or 'pass' to configure on the result of this
+    /// method and attempts to call those methods will result in a
+    /// compile error.
+    ///
+    /// Note that the embedded builder is only tested for firebird >=3.0.
+    /// If the embedded connection fails, the client dll may attempt to use
+    /// other means of connection automatically, such as XNET or localhost.
+    ///
+    /// On firebird 3.0 and above this may be restricted via the `Providers`
+    /// config parameter of `firebird.conf` see official firebird documentation
+    /// for more information.
     pub fn as_embedded(self) -> NativeConnectionBuilder<A, Embedded> {
         self.safe_transmute()
     }
 }
 
 impl<A> NativeConnectionBuilder<LinkageNotConfigured, A> {
-    //TODO: Doc: note about how this is dynamic linking,
-    // not static linking in some way
+    /// Uses the native client with dynamic linking.
+    /// Requires that the dynamic library .dll/.so/.dylib can be found
+    /// at compile time as well as runtime.
+    ///
+    /// Requires feature `linking`
     #[cfg(feature = "linking")]
     pub fn with_dyn_link(self) -> NativeConnectionBuilder<DynLink, A> {
         self.safe_transmute()
     }
 
     #[cfg(feature = "dynamic_loading")]
-    /// Searches for the firebird client at runtime, in the specified path.
+    /// Searches for the firebird client at runtime only, at the specified
+    /// location.
     ///
     /// # Example
     ///

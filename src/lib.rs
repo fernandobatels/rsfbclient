@@ -23,9 +23,11 @@ pub use crate::{
     transaction::Transaction,
 };
 pub use rsfbclient_core::{
-    charset, Charset, Column, Dialect, FbError, FromRow, IntoParam, IntoParams, ParamsType, Row,
-    SqlType,
+    Column, Dialect, FbError, FromRow, IntoParam, IntoParams, ParamsType, Row, SqlType,
 };
+
+#[doc(hidden)]
+pub use rsfbclient_core::{charset, Charset};
 
 #[cfg(feature = "pool")]
 pub use crate::connection::pool::FirebirdConnectionManager;

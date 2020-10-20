@@ -23,6 +23,7 @@ pub struct NativeFbClient<T: LinkageMarker> {
     charset: Charset,
 }
 
+/// The remote part of native client configuration
 #[derive(Clone, Default)]
 pub struct RemoteConfig {
     pub host: String,
@@ -30,6 +31,7 @@ pub struct RemoteConfig {
     pub pass: String,
 }
 
+///The common part of native client configuration (for both embedded/remote)
 #[derive(Clone, Default)]
 pub struct NativeFbAttachmentConfig {
     pub db_name: String,
@@ -37,10 +39,13 @@ pub struct NativeFbAttachmentConfig {
     pub remote: Option<RemoteConfig>,
 }
 
+/// A marker trait which can be used to
+/// obtain the associated client instance
 pub trait LinkageMarker: Send + Sync {
     type L: IBase + Send;
 }
 
+/// Configuration details for dynamic linking
 #[derive(Clone)]
 pub struct DynLink(pub Charset);
 #[cfg(feature = "linking")]
@@ -60,6 +65,7 @@ impl DynLink {
     }
 }
 
+/// Configuration details for dynamic loading
 #[derive(Clone)]
 pub struct DynLoad {
     pub charset: Charset,

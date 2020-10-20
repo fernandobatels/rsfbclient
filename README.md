@@ -8,26 +8,30 @@ A [Firebird](https://firebirdsql.org/) client library to [Rust programing langua
 
 ## How to use it
 
-1. Start choosing the lib variation you want
+1. Start by choosing the lib variation you want
 ```rust
-// For use the compile time linked version
-ConnectionBuilder::linked()
-// Or using the runtime loaded lib
-ConnectionBuilder::with_client("/my/firebird/here/lib/libfbclient.so")
+// To use the offcial ('native') Firebird client .dll/.so/.dylib
+// (needs to find dll at build time)
+rsfbclient::builder_native().with_dyn_link()
+// Or using dynamic loading
+rsfbclient::builder_native().with_dyn_load("/my/firebird/here/lib/libfbclient.so")
 // Or using the pure rust implementation
-ConnectionBuilder::pure_rust()
+rsfbclient::builder_pure_rust()
 ```
 
 2. Set your connection params
 ```rust
-// For a remote server
-let mut conn = ConnectionBuilder::linked()
+// For a remote server, using a dynamically linked native client
+let mut conn = rsfbclient::builder_native()
+    .with_dyn_link()
+    .as_remote()
     .host("my.host.com.br")
     .db_name("awesome.fdb")
     .connect()?
 // Or if you need a embedded/local only access
-let mut conn = ConnectionBuilder::linked()
-    .embedded()
+let mut conn = rsfbclient::builder_native()
+    .with_dyn_link()
+    .as_embedded()
     .db_name("/path/to/awesome.fdb")
     .connect()?
 ```

@@ -7,6 +7,7 @@
 use super::{ConnectionConfiguration, FirebirdClientDbOps, FirebirdClientFactory};
 use crate::{Connection, FbError, Transaction};
 
+/// A manager for connection pools. Requires the `pool` feature.
 pub struct FirebirdConnectionManager<F: FirebirdClientFactory> {
     client_factory: F,
     conn_conf: ConnectionConfiguration<<F::C as FirebirdClientDbOps>::AttachmentConfig>,

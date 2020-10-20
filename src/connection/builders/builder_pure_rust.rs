@@ -9,6 +9,10 @@ impl FirebirdClientFactory for PureRustConnectionBuilder {
     }
 }
 
+/// A builder for a firebird client implemented in pure rust.
+/// Does not currently support embedded connections.
+///
+/// Use `builder_pure_rust()` to obtain a new instance.
 pub struct PureRustConnectionBuilder(
     ConnectionConfiguration<RustFbClientAttachmentConfig>,
     Charset,
@@ -20,6 +24,7 @@ impl From<&PureRustConnectionBuilder> for ConnectionConfiguration<RustFbClientAt
     }
 }
 
+/// Get a new instance of PureRustConnectionBuilder
 pub fn builder_pure_rust() -> PureRustConnectionBuilder {
     Default::default()
 }

@@ -21,10 +21,6 @@ pub mod builders {
         FirebirdClientFactory,
     };
 
-    pub trait HasAttachmentConfig<C: FirebirdClient> {
-        fn get_connection_configuration(&self) -> ConnectionConfiguration<C::AttachmentConfig>;
-    }
-
     #[cfg(feature = "native_client")]
     mod builder_native;
     #[cfg(feature = "native_client")]
@@ -36,16 +32,17 @@ pub mod builders {
     pub use builder_pure_rust::*;
 }
 
-pub mod stmt_cache;
+pub(crate) mod stmt_cache;
 
-// A generic factory for creating multiple instances of a particular client implementation
-// Intended mainly for use by connection pool
+/// A generic factory for creating multiple preconfigured instances of a particular client implementation
+/// Intended mainly for use by connection pool
 pub trait FirebirdClientFactory {
     type C: FirebirdClient;
     fn new_instance(&self) -> Result<Self::C, FbError>;
 }
 
-#[doc(hidden)]
+/// Generic aggregate of configuration data for firebird db Connections
+/// The data required for forming connections is partly client-implementation-dependent
 #[derive(Clone)]
 pub struct ConnectionConfiguration<A> {
     attachment_conf: A,
@@ -53,7 +50,6 @@ pub struct ConnectionConfiguration<A> {
     stmt_cache_size: usize,
 }
 
-#[doc(hidden)]
 impl<A: Default> Default for ConnectionConfiguration<A> {
     fn default() -> Self {
         Self {
