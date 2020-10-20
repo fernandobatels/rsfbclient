@@ -11,7 +11,7 @@ use std::mem::ManuallyDrop;
 use super::{connection::Connection, statement::Statement};
 use crate::{connection::stmt_cache::StmtCacheData, statement::StatementData, Execute, Queryable};
 
-pub struct Transaction<'c, C: FirebirdClient>
+pub struct Transaction<'c, C>
 where
     C: FirebirdClient,
 {
