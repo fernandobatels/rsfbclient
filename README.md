@@ -24,14 +24,14 @@ rsfbclient::builder_pure_rust()
 // For a remote server, using a dynamically linked native client
 let mut conn = rsfbclient::builder_native()
     .with_dyn_link()
-    .as_remote()
+    .with_remote()
     .host("my.host.com.br")
     .db_name("awesome.fdb")
     .connect()?
 // Or if you need a embedded/local only access
 let mut conn = rsfbclient::builder_native()
     .with_dyn_link()
-    .as_embedded()
+    .with_embedded()
     .db_name("/path/to/awesome.fdb")
     .connect()?
 ```

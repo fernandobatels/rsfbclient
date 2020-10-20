@@ -14,7 +14,7 @@ fn main() -> Result<(), FbError> {
         #[cfg(feature = "linking")]
         let mut conn = rsfbclient::builder_native()
             .with_dyn_link()
-            .as_embedded()
+            .with_embedded()
             .db_name("/tmp/examples.fdb")
             .user("SYSDBA")
             .connect()?;
@@ -22,7 +22,7 @@ fn main() -> Result<(), FbError> {
         #[cfg(feature = "dynamic_loading")]
         let mut conn = rsfbclient::builder_native()
             .with_dyn_load("./fbclient.lib")
-            .as_remote()
+            .with_remote()
             .db_name("/tmp/examples.fdb")
             .user("sysdba")
             .pass("masterkey")

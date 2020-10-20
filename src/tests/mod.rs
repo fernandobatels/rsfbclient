@@ -59,14 +59,14 @@ macro_rules! mk_tests_default {
             for linking -> NativeConnectionBuilder<DynLink,Remote> {
                 crate::builder_native()
                   .with_dyn_link()
-                  .as_remote()
+                  .with_remote()
             }
 
             #[cfg(all(feature = "linking", feature = "embedded_tests"))]
             for linking_embedded -> NativeConnectionBuilder<DynLink,Embedded> {
                 crate::builder_native()
                     .with_dyn_link()
-                    .as_embedded()
+                    .with_embedded()
                     .db_name("/tmp/embedded_tests.fdb")
                     .clone()
             }
@@ -83,7 +83,7 @@ macro_rules! mk_tests_default {
 
                 crate::builder_native()
                   .with_dyn_load(libfbclient)
-                  .as_remote()
+                  .with_remote()
             }
 
             #[cfg(all(feature = "dynamic_loading", feature = "embedded_tests"))]
@@ -98,7 +98,7 @@ macro_rules! mk_tests_default {
 
                 crate::builder_native()
                     .with_dyn_load(libfbclient)
-                    .as_embedded()
+                    .with_embedded()
                     .db_name("/tmp/embedded_tests.fdb")
                     .clone()
             }

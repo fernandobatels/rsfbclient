@@ -45,7 +45,7 @@ impl ConfiguredLinkage for DynLoad {}
 /// Use the `builder_native()` method to get a new builder instance, and the
 /// provided configuration methods to change the default configuration params.
 ///
-/// Note that one of `as_remote()`/`as_embedded()` and one of
+/// Note that one of `with_remote()`/`with_embedded()` and one of
 /// `with_dyn_link()`/`with_dyn_load(...)` **must** be called in order to
 /// enable creating a connection or calling other configuration methods.
 #[derive(Clone)]
@@ -228,7 +228,7 @@ impl<A> NativeConnectionBuilder<A, Remote> {
 impl<A> NativeConnectionBuilder<A, ConnTypeNotConfigured> {
     /// Configure the native client for remote connections.
     /// This will allow configuration via the 'host', 'port' and 'pass' methods.
-    pub fn as_remote(mut self) -> NativeConnectionBuilder<A, Remote> {
+    pub fn with_remote(mut self) -> NativeConnectionBuilder<A, Remote> {
         let mut remote: RemoteConfig = Default::default();
         remote.host = "localhost".to_string();
         remote.port = 3050;
@@ -250,7 +250,7 @@ impl<A> NativeConnectionBuilder<A, ConnTypeNotConfigured> {
     /// On firebird 3.0 and above this may be restricted via the `Providers`
     /// config parameter of `firebird.conf` see official firebird documentation
     /// for more information.
-    pub fn as_embedded(self) -> NativeConnectionBuilder<A, Embedded> {
+    pub fn with_embedded(self) -> NativeConnectionBuilder<A, Embedded> {
         self.safe_transmute()
     }
 }
@@ -276,19 +276,19 @@ impl<A> NativeConnectionBuilder<LinkageNotConfigured, A> {
     /// // On windows
     /// rsfbclient::builder_native()
     ///   .with_dyn_load("fbclient.dll")
-    ///   .as_embedded();
+    ///   .with_embedded();
     ///
     ///
     /// // On linux
     /// rsfbclient::builder_native()
     ///   .with_dyn_load("libfbclient.so")
-    ///   .as_remote();
+    ///   .with_remote();
     ///
     /// // Any platform, file located relative to the
     /// // folder where the executable was run
     /// rsfbclient::builder_native()
     ///   .with_dyn_load("./fbclient.lib")
-    ///   .as_embedded();
+    ///   .with_embedded();
     /// ```
     /// Requires feature 'dynamic_loading'.
     pub fn with_dyn_load<S: Into<String>>(
