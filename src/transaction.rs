@@ -105,7 +105,7 @@ impl<R, C: FirebirdClient> Drop for StmtIter<'_, R, C> {
     }
 }
 
-impl<R, C: FirebirdClient> Iterator for StmtIter<'_, R, C>
+impl<R, C> Iterator for StmtIter<'_, R, C>
 where
     R: FromRow,
     C: FirebirdClient,
