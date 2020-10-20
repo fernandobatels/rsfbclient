@@ -7,6 +7,10 @@ impl FirebirdClientFactory for PureRustConnectionBuilder {
     fn new_instance(&self) -> Result<Self::C, FbError> {
         Ok(RustFbClient::new(self.1.clone()))
     }
+
+    fn get_conn_conf(&self) -> &ConnectionConfiguration<RustFbClientAttachmentConfig> {
+        &self.0
+    }
 }
 
 /// A builder for a firebird client implemented in pure rust.

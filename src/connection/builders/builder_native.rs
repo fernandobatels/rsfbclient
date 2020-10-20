@@ -97,6 +97,10 @@ where
         }
         .try_to_client()
     }
+
+    fn get_conn_conf(&self) -> &ConnectionConfiguration<NativeFbAttachmentConfig> {
+        &self.conn_conf
+    }
 }
 
 #[cfg(feature = "linking")]
@@ -109,6 +113,10 @@ where
 
     fn new_instance(&self) -> Result<Self::C, FbError> {
         Ok(rsfbclient_native::DynLink(self.charset.clone()).to_client())
+    }
+
+    fn get_conn_conf(&self) -> &ConnectionConfiguration<NativeFbAttachmentConfig> {
+        &self.conn_conf
     }
 }
 

@@ -4,28 +4,20 @@
 //! R2D2 Connection Pool
 //!
 
-use super::{ConnectionConfiguration, FirebirdClientDbOps, FirebirdClientFactory};
+use super::{FirebirdClientDbOps, FirebirdClientFactory};
 use crate::{Connection, FbError, Transaction};
 
 /// A manager for connection pools. Requires the `pool` feature.
 pub struct FirebirdConnectionManager<F: FirebirdClientFactory> {
     client_factory: F,
-    conn_conf: ConnectionConfiguration<<F::C as FirebirdClientDbOps>::AttachmentConfig>,
 }
-
-type FactoryAssociatedConnectionConfig<F> = ConnectionConfiguration<
-    <<F as FirebirdClientFactory>::C as FirebirdClientDbOps>::AttachmentConfig,
->;
 
 impl<F> FirebirdConnectionManager<F>
 where
     F: FirebirdClientFactory,
 {
-    pub fn new(client_factory: F, conn_conf: FactoryAssociatedConnectionConfig<F>) -> Self {
-        Self {
-            client_factory,
-            conn_conf,
-        }
+    pub fn new(client_factory: F) -> Self {
+        Self { client_factory }
     }
 }
 
@@ -39,7 +31,7 @@ where
 
     fn connect(&self) -> Result<Self::Connection, Self::Error> {
         let cli = self.client_factory.new_instance()?;
-        Connection::open(cli, &self.conn_conf)
+        Connection::open(cli, self.client_factory.get_conn_conf())
     }
 
     fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {

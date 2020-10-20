@@ -34,14 +34,10 @@ fn main() {
         builder
     };
 
-    //FirebirdConnectionManager is designed to be used without needing a builder
-    //however the default builders have all the necessary ingredients to use it.
-    //We simply clone the ConnectionConfiguration<...> out from the builder.
-    //A From<BuilderType> implementation is provided for both default builders.
-    //the output type of into() is inferred automatically from subsequent use of connection_conf
-    let connection_conf = (&builder).into();
+    //FirebirdConnectionManager makes use of FirebirdClientFactory, which is implemented
+    //by builders
 
-    let manager = FirebirdConnectionManager::new(builder, connection_conf);
+    let manager = FirebirdConnectionManager::new(builder);
     let pool = Arc::new(r2d2::Pool::builder().max_size(4).build(manager).unwrap());
 
     let mut tasks = vec![];

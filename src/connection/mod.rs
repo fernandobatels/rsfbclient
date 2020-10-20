@@ -38,7 +38,14 @@ pub(crate) mod stmt_cache;
 /// Intended mainly for use by connection pool
 pub trait FirebirdClientFactory {
     type C: FirebirdClient;
+
+    /// Construct a new instance of a client
     fn new_instance(&self) -> Result<Self::C, FbError>;
+
+    /// Pull the connection configuration details out as a borrow
+    fn get_conn_conf(
+        &self,
+    ) -> &ConnectionConfiguration<<Self::C as FirebirdClientDbOps>::AttachmentConfig>;
 }
 
 /// Generic aggregate of configuration data for firebird db Connections
