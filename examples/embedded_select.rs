@@ -15,15 +15,15 @@ fn main() -> Result<(), FbError> {
         let mut conn = rsfbclient::builder_native()
             .with_dyn_link()
             .as_embedded()
-            .db_name("/opt/firebird-kit/fbclient/employee.fdb")
+            .db_name("/tmp/examples.fdb")
             .user("SYSDBA")
             .connect()?;
 
         #[cfg(feature = "dynamic_loading")]
         let mut conn = rsfbclient::builder_native()
-            .with_dyn_load("/opt/firebird259/libfbembed.so")
+            .with_dyn_load("./fbclient.lib")
             .as_remote()
-            .db_name("/opt/firebird259/examples/empbuild/employee.fdb")
+            .db_name("/tmp/examples.fdb")
             .user("sysdba")
             .pass("masterkey")
             .connect()?;
