@@ -8,19 +8,22 @@
 
 #![allow(unused_variables, unused_mut)]
 
-use rsfbclient::{prelude::*, ConnectionBuilder, FirebirdConnectionManager};
+use rsfbclient::prelude::*;
+use rsfbclient::FirebirdConnectionManager;
 use std::{sync::Arc, thread, time::Duration};
 
 fn main() {
     let builder = {
         #[cfg(feature = "linking")]
-        let mut builder = ConnectionBuilder::linked();
+        let mut builder = rsfbclient::builder_native().with_dyn_link().with_remote();
 
         #[cfg(feature = "dynamic_loading")]
-        let mut builder = ConnectionBuilder::with_client("./fbclient.lib");
+        let mut builder = rsfbclient::builder_native()
+            .with_dyn_load("./fbclient.lib")
+            .with_remote();
 
         #[cfg(feature = "pure_rust")]
-        let mut builder = ConnectionBuilder::pure_rust();
+        let mut builder = rsfbclient::builder_pure_rust();
 
         builder
             .host("localhost")
@@ -30,6 +33,9 @@ fn main() {
 
         builder
     };
+
+    //FirebirdConnectionManager makes use of FirebirdClientFactory, which is implemented
+    //by builders
 
     let manager = FirebirdConnectionManager::new(builder);
     let pool = Arc::new(r2d2::Pool::builder().max_size(4).build(manager).unwrap());

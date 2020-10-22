@@ -158,11 +158,11 @@ impl ColumnBuffer {
     }
 
     /// Converts the buffer to a Column
-    pub fn to_column(
+    pub fn to_column<T: IBase>(
         &self,
         db: &mut ibase::isc_db_handle,
         tr: &mut ibase::isc_tr_handle,
-        ibase: &IBase,
+        ibase: &T,
         charset: &Charset,
     ) -> Result<Column, FbError> {
         if *self.nullind != 0 {
@@ -191,21 +191,21 @@ impl ColumnBuffer {
 }
 
 /// Converts a binary blob to a vec<u8>
-fn blobbinary_to_vec(
+fn blobbinary_to_vec<T: IBase>(
     blob_id: ibase::GDS_QUAD_t,
     db: &mut ibase::isc_db_handle,
     tr: &mut ibase::isc_tr_handle,
-    ibase: &IBase,
+    ibase: &T,
 ) -> Result<Vec<u8>, FbError> {
     read_blob(blob_id, db, tr, ibase)
 }
 
 /// Converts a text blob to a string
-fn blobtext_to_string(
+fn blobtext_to_string<T: IBase>(
     blob_id: ibase::GDS_QUAD_t,
     db: &mut ibase::isc_db_handle,
     tr: &mut ibase::isc_tr_handle,
-    ibase: &IBase,
+    ibase: &T,
     charset: &Charset,
 ) -> Result<String, FbError> {
     let blob_bytes = read_blob(blob_id, db, tr, ibase)?;
@@ -214,11 +214,11 @@ fn blobtext_to_string(
 }
 
 /// Read the blob type
-fn read_blob(
+fn read_blob<T: IBase>(
     mut blob_id: ibase::GDS_QUAD_t,
     db: &mut ibase::isc_db_handle,
     tr: &mut ibase::isc_tr_handle,
-    ibase: &IBase,
+    ibase: &T,
 ) -> Result<Vec<u8>, FbError> {
     let mut status = Status::default();
     let mut handle = 0;
@@ -227,7 +227,7 @@ fn read_blob(
 
     unsafe {
         if ibase.isc_open_blob()(&mut status[0], db, tr, &mut handle, &mut blob_id) != 0 {
-            return Err(status.as_error(&ibase));
+            return Err(status.as_error(ibase));
         }
     }
 
@@ -255,7 +255,7 @@ fn read_blob(
 
     unsafe {
         if ibase.isc_close_blob()(&mut status[0], &mut handle) != 0 {
-            return Err(status.as_error(&ibase));
+            return Err(status.as_error(ibase));
         }
     }
 

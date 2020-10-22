@@ -18,14 +18,11 @@ pub struct Transaction<'c, C>
 where
     C: FirebirdClient,
 {
-    pub(crate) data: TransactionData<C::TrHandle>,
+    pub(crate) data: TransactionData<C>,
     pub(crate) conn: &'c mut Connection<C>,
 }
 
-impl<'c, C> Transaction<'c, C>
-where
-    C: FirebirdClient,
-{
+impl<'c, C: FirebirdClient> Transaction<'c, C> {
     /// Start a new transaction
     pub fn new(conn: &'c mut Connection<C>) -> Result<Self, FbError> {
         let data = TransactionData::new(conn)?;
@@ -78,10 +75,7 @@ where
     }
 }
 
-impl<'c, C> Drop for Transaction<'c, C>
-where
-    C: FirebirdClient,
-{
+impl<'c, C: FirebirdClient> Drop for Transaction<'c, C> {
     fn drop(&mut self) {
         self.data.rollback(self.conn).ok();
     }
@@ -93,7 +87,7 @@ where
     C: FirebirdClient,
 {
     /// Statement cache data. Wrapped in option to allow taking the value to send back to the cache
-    stmt_cache_data: Option<StmtCacheData<StatementData<C::StmtHandle>>>,
+    stmt_cache_data: Option<StmtCacheData<StatementData<C>>>,
 
     /// Transaction needs to be alive for the fetch to work
     tr: &'a mut Transaction<'c, C>,
@@ -137,10 +131,7 @@ where
     }
 }
 
-impl<'c, C> Queryable for Transaction<'c, C>
-where
-    C: FirebirdClient,
-{
+impl<'c, C: FirebirdClient> Queryable for Transaction<'c, C> {
     fn query_iter<'a, P, R>(
         &'a mut self,
         sql: &str,
@@ -178,10 +169,7 @@ where
     }
 }
 
-impl<C> Execute for Transaction<'_, C>
-where
-    C: FirebirdClient,
-{
+impl<C: FirebirdClient> Execute for Transaction<'_, C> {
     fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
     where
         P: IntoParams,
@@ -230,19 +218,16 @@ where
 /// Low level transaction handler.
 ///
 /// Needs to be closed calling `rollback` before dropping.
-pub struct TransactionData<H> {
-    pub(crate) handle: H,
+pub struct TransactionData<C: FirebirdClient> {
+    pub(crate) handle: C::TrHandle,
 }
 
-impl<H> TransactionData<H>
+impl<C: FirebirdClient> TransactionData<C>
 where
-    H: Send,
+    C::TrHandle: Send,
 {
     /// Start a new transaction
-    fn new<C>(conn: &mut Connection<C>) -> Result<Self, FbError>
-    where
-        C: FirebirdClient<TrHandle = H>,
-    {
+    fn new(conn: &mut Connection<C>) -> Result<Self, FbError> {
         let handle = conn
             .cli
             .begin_transaction(&mut conn.handle, TrIsolationLevel::ReadCommited)?;
@@ -251,46 +236,31 @@ where
     }
 
     /// Execute the statement without returning any row
-    fn execute_immediate<C>(&mut self, conn: &mut Connection<C>, sql: &str) -> Result<(), FbError>
-    where
-        C: FirebirdClient<TrHandle = H>,
-    {
+    fn execute_immediate(&mut self, conn: &mut Connection<C>, sql: &str) -> Result<(), FbError> {
         conn.cli
             .exec_immediate(&mut conn.handle, &mut self.handle, conn.dialect, sql)
     }
 
     /// Commit the current transaction changes, not allowing to reuse the transaction
-    pub fn commit<C>(&mut self, conn: &mut Connection<C>) -> Result<(), FbError>
-    where
-        C: FirebirdClient<TrHandle = H>,
-    {
+    pub fn commit(&mut self, conn: &mut Connection<C>) -> Result<(), FbError> {
         conn.cli
             .transaction_operation(&mut self.handle, TrOp::Commit)
     }
 
     /// Commit the current transaction changes, but allowing to reuse the transaction
-    pub fn commit_retaining<C>(&mut self, conn: &mut Connection<C>) -> Result<(), FbError>
-    where
-        C: FirebirdClient<TrHandle = H>,
-    {
+    pub fn commit_retaining(&mut self, conn: &mut Connection<C>) -> Result<(), FbError> {
         conn.cli
             .transaction_operation(&mut self.handle, TrOp::CommitRetaining)
     }
 
     /// Rollback the current transaction changes, but allowing to reuse the transaction
-    pub fn rollback_retaining<C>(&mut self, conn: &mut Connection<C>) -> Result<(), FbError>
-    where
-        C: FirebirdClient<TrHandle = H>,
-    {
+    pub fn rollback_retaining(&mut self, conn: &mut Connection<C>) -> Result<(), FbError> {
         conn.cli
             .transaction_operation(&mut self.handle, TrOp::RollbackRetaining)
     }
 
     /// Rollback the transaction, invalidating it
-    pub fn rollback<C>(&mut self, conn: &mut Connection<C>) -> Result<(), FbError>
-    where
-        C: FirebirdClient<TrHandle = H>,
-    {
+    pub fn rollback(&mut self, conn: &mut Connection<C>) -> Result<(), FbError> {
         conn.cli
             .transaction_operation(&mut self.handle, TrOp::Rollback)
     }

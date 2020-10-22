@@ -1,46 +1,57 @@
-//! Connection trait to abstract over the client implementations
+//! Traits to abstract over firebird client implementations
 
 use num_enum::TryFromPrimitive;
 
 use crate::*;
 
-pub trait FirebirdClientEmbeddedAttach: FirebirdClient {
-    /// Connect to a database, returning a database handle
-    fn attach_database(&mut self, db_name: &str, user: &str) -> Result<Self::DbHandle, FbError>;
+///A wrapper trait compatible with the niceties provided by the main rsfbclient crate
+pub trait FirebirdClient
+where
+    Self: FirebirdClientDbOps,
+    Self: FirebirdClientSqlOps<DbHandle = <Self as FirebirdClientDbOps>::DbHandle>,
+{
 }
 
-pub trait FirebirdClientRemoteAttach: FirebirdClient {
-    /// Connect to a database, returning a database handle
-    fn attach_database(
-        &mut self,
-        host: &str,
-        port: u16,
-        db_name: &str,
-        user: &str,
-        pass: &str,
-    ) -> Result<Self::DbHandle, FbError>;
+impl<Hdl, A: FirebirdClientDbOps<DbHandle = Hdl> + FirebirdClientSqlOps<DbHandle = Hdl>>
+    FirebirdClient for A
+where
+    Hdl: Send,
+{
 }
 
-pub trait FirebirdClient: Send {
+///Responsible for database administration and attachment/detachment
+pub trait FirebirdClientDbOps: Send {
     /// A database handle
     type DbHandle: Send;
-    /// A transaction handle
-    type TrHandle: Send;
-    /// A statement handle
-    type StmtHandle: Send;
 
-    /// Arguments to instantiate the client
-    type Args: Send + Sync + Clone;
+    /// Configuration details for attaching to the database.
+    /// A user of an implementation of this trait can configure attachment details
+    /// (database name, user name, etcetera) and then pass this configuration to the implementation
+    /// via this type when a new attachment is requested
+    type AttachmentConfig: Send + Clone;
 
-    fn new(charset: Charset, args: Self::Args) -> Result<Self, FbError>
-    where
-        Self: Sized;
+    /// Create a new attachment to a database with the provided configuration
+    /// Returns a database handle on success
+    fn attach_database(
+        &mut self,
+        config: &Self::AttachmentConfig,
+    ) -> Result<Self::DbHandle, FbError>;
 
     /// Disconnect from the database
     fn detach_database(&mut self, db_handle: &mut Self::DbHandle) -> Result<(), FbError>;
 
     /// Drop the database
     fn drop_database(&mut self, db_handle: &mut Self::DbHandle) -> Result<(), FbError>;
+}
+
+///Responsible for actual transaction and statement execution
+pub trait FirebirdClientSqlOps {
+    /// A database handle
+    type DbHandle: Send;
+    /// A transaction handle
+    type TrHandle: Send;
+    /// A statement handle
+    type StmtHandle: Send;
 
     /// Start a new transaction, with the specified transaction parameter buffer
     fn begin_transaction(
@@ -65,8 +76,7 @@ pub trait FirebirdClient: Send {
         sql: &str,
     ) -> Result<(), FbError>;
 
-    /// Alloc and prepare a statement
-    ///
+    /// Allocate and prepare a statement
     /// Returns the statement type and handle
     fn prepare_statement(
         &mut self,

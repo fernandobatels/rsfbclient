@@ -3,344 +3,101 @@
 //!
 //! Connection functions
 //!
-
-#[cfg(feature = "pool")]
-pub mod pool;
-pub mod stmt_cache;
-
-use rsfbclient_core::{
-    charset::Charset, charset::UTF_8, Dialect, FbError, FirebirdClient,
-    FirebirdClientEmbeddedAttach, FirebirdClientRemoteAttach, FromRow, IntoParams,
-};
-use std::marker;
+use rsfbclient_core::{Dialect, FbError, FirebirdClient, FirebirdClientDbOps, FromRow, IntoParams};
+use std::{marker, mem::ManuallyDrop};
 
 use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
 
-/// The default builder for creating database connections
-pub struct ConnectionBuilder<C: FirebirdClient> {
-    host: String,
-    port: u16,
-    pass: String,
-    db_name: String,
-    user: String,
+#[cfg(feature = "pool")]
+pub mod pool;
+
+pub mod builders {
+
+    #![allow(unused_imports)]
+    use super::{
+        super::{charset, Charset},
+        Connection, ConnectionConfiguration, Dialect, FbError, FirebirdClient,
+        FirebirdClientFactory,
+    };
+
+    #[cfg(feature = "native_client")]
+    mod builder_native;
+    #[cfg(feature = "native_client")]
+    pub use builder_native::*;
+
+    #[cfg(feature = "pure_rust")]
+    mod builder_pure_rust;
+    #[cfg(feature = "pure_rust")]
+    pub use builder_pure_rust::*;
+}
+
+pub(crate) mod stmt_cache;
+
+/// A generic factory for creating multiple preconfigured instances of a particular client implementation
+/// Intended mainly for use by connection pool
+pub trait FirebirdClientFactory {
+    type C: FirebirdClient;
+
+    /// Construct a new instance of a client
+    fn new_instance(&self) -> Result<Self::C, FbError>;
+
+    /// Pull the connection configuration details out as a borrow
+    fn get_conn_conf(
+        &self,
+    ) -> &ConnectionConfiguration<<Self::C as FirebirdClientDbOps>::AttachmentConfig>;
+}
+
+/// Generic aggregate of configuration data for firebird db Connections
+/// The data required for forming connections is partly client-implementation-dependent
+#[derive(Clone)]
+pub struct ConnectionConfiguration<A> {
+    attachment_conf: A,
     dialect: Dialect,
     stmt_cache_size: usize,
-    cli_args: C::Args,
-    _cli_type: marker::PhantomData<C>,
-    charset: Charset,
 }
 
-/// The builder for creating database connections using the embedded firebird
-pub struct ConnectionBuilderEmbedded<C: FirebirdClient> {
-    db_name: String,
-    user: String,
-    dialect: Dialect,
-    stmt_cache_size: usize,
-    cli_args: C::Args,
-    _cli_type: marker::PhantomData<C>,
-    charset: Charset,
-}
-
-/// The `PhantomMarker` makes it not Sync, but it is not true,
-/// as the `ConnectionBuilder` does not store `C`
-unsafe impl<C> Sync for ConnectionBuilder<C> where C: FirebirdClient {}
-unsafe impl<C> Sync for ConnectionBuilderEmbedded<C> where C: FirebirdClient {}
-
-impl<C> Clone for ConnectionBuilder<C>
-where
-    C: FirebirdClient,
-{
-    fn clone(&self) -> Self {
+impl<A: Default> Default for ConnectionConfiguration<A> {
+    fn default() -> Self {
         Self {
-            db_name: self.db_name.clone(),
-            pass: self.pass.clone(),
-            port: self.port,
-            host: self.host.clone(),
-            user: self.user.clone(),
-            dialect: self.dialect,
-            stmt_cache_size: self.stmt_cache_size,
-            cli_args: self.cli_args.clone(),
-            _cli_type: Default::default(),
-            charset: self.charset.clone(),
-        }
-    }
-}
-
-impl<C> Clone for ConnectionBuilderEmbedded<C>
-where
-    C: FirebirdClient,
-{
-    fn clone(&self) -> Self {
-        Self {
-            db_name: self.db_name.clone(),
-            user: self.user.clone(),
-            dialect: self.dialect,
-            stmt_cache_size: self.stmt_cache_size,
-            cli_args: self.cli_args.clone(),
-            _cli_type: Default::default(),
-            charset: self.charset.clone(),
-        }
-    }
-}
-
-#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
-impl ConnectionBuilder<rsfbclient_native::NativeFbClient> {
-    #[cfg(feature = "linking")]
-    /// Uses the firebird client linked with the application at compile time
-    pub fn linked() -> Self {
-        Self {
-            host: "localhost".to_string(),
-            port: 3050,
-            db_name: "test.fdb".to_string(),
-            user: "SYSDBA".to_string(),
-            pass: "masterkey".to_string(),
+            attachment_conf: Default::default(),
             dialect: Dialect::D3,
             stmt_cache_size: 20,
-            cli_args: rsfbclient_native::Args::Linking,
-            _cli_type: Default::default(),
-            charset: UTF_8,
         }
-    }
-
-    #[cfg(feature = "dynamic_loading")]
-    /// Searches for the firebird client at runtime, in the specified path.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use rsfbclient::ConnectionBuilder;
-    ///
-    /// // On windows
-    /// ConnectionBuilder::with_client("fbclient.dll");
-    ///
-    /// // On linux
-    /// ConnectionBuilder::with_client("libfbclient.so");
-    ///
-    /// // Any platform, file located relative to the
-    /// // folder where the executable was run
-    /// ConnectionBuilder::with_client("./fbclient.lib");
-    /// ```
-    pub fn with_client<S: Into<String>>(fbclient: S) -> Self {
-        Self {
-            host: "localhost".to_string(),
-            port: 3050,
-            db_name: "test.fdb".to_string(),
-            user: "SYSDBA".to_string(),
-            pass: "masterkey".to_string(),
-            dialect: Dialect::D3,
-            stmt_cache_size: 20,
-            cli_args: rsfbclient_native::Args::DynamicLoading {
-                lib_path: fbclient.into(),
-            },
-            _cli_type: Default::default(),
-            charset: UTF_8,
-        }
-    }
-
-    /// Force the embedded server utilization. Host, port and pass
-    /// will be ignored.
-    pub fn embedded(self) -> ConnectionBuilderEmbedded<rsfbclient_native::NativeFbClient> {
-        ConnectionBuilderEmbedded {
-            db_name: self.db_name,
-            user: self.user,
-            dialect: self.dialect,
-            stmt_cache_size: self.stmt_cache_size,
-            cli_args: self.cli_args,
-            _cli_type: Default::default(),
-            charset: UTF_8,
-        }
-    }
-}
-
-#[cfg(feature = "pure_rust")]
-impl ConnectionBuilder<rsfbclient_rust::RustFbClient> {
-    /// Uses the pure rust implementation of the firebird client
-    pub fn pure_rust() -> Self {
-        Self {
-            host: "localhost".to_string(),
-            port: 3050,
-            db_name: "test.fdb".to_string(),
-            user: "SYSDBA".to_string(),
-            pass: "masterkey".to_string(),
-            dialect: Dialect::D3,
-            stmt_cache_size: 20,
-            cli_args: (),
-            _cli_type: Default::default(),
-            charset: UTF_8,
-        }
-    }
-}
-
-impl<C> ConnectionBuilder<C>
-where
-    C: FirebirdClient + FirebirdClientRemoteAttach,
-{
-    /// Hostname or IP address of the server. Default: localhost
-    pub fn host<S: Into<String>>(&mut self, host: S) -> &mut Self {
-        self.host = host.into();
-        self
-    }
-
-    /// TCP Port of the server. Default: 3050
-    pub fn port(&mut self, port: u16) -> &mut Self {
-        self.port = port;
-        self
-    }
-
-    /// Database name or path. Default: test.fdb
-    pub fn db_name<S: Into<String>>(&mut self, db_name: S) -> &mut Self {
-        self.db_name = db_name.into();
-        self
-    }
-
-    /// Username. Default: SYSDBA
-    pub fn user<S: Into<String>>(&mut self, user: S) -> &mut Self {
-        self.user = user.into();
-        self
-    }
-
-    /// Password. Default: masterkey
-    pub fn pass<S: Into<String>>(&mut self, pass: S) -> &mut Self {
-        self.pass = pass.into();
-        self
-    }
-
-    /// SQL Dialect. Default: 3
-    pub fn dialect(&mut self, dialect: Dialect) -> &mut Self {
-        self.dialect = dialect;
-        self
-    }
-
-    /// Statement cache size. Default: 20
-    pub fn stmt_cache_size(&mut self, stmt_cache_size: usize) -> &mut Self {
-        self.stmt_cache_size = stmt_cache_size;
-        self
-    }
-
-    /// Charset. Default: UTF_8
-    pub fn charset(&mut self, charset: Charset) -> &mut Self {
-        self.charset = charset;
-        self
-    }
-
-    /// Open a new connection to the database
-    pub fn connect(&self) -> Result<Connection<C>, FbError> {
-        Connection::open_remote(self, C::new(self.charset.clone(), self.cli_args.clone())?)
-    }
-}
-
-impl<C> ConnectionBuilderEmbedded<C>
-where
-    C: FirebirdClient + FirebirdClientEmbeddedAttach,
-{
-    /// Database name or path. Default: test.fdb
-    pub fn db_name<S: Into<String>>(&mut self, db_name: S) -> &mut Self {
-        self.db_name = db_name.into();
-        self
-    }
-
-    /// Username. Default: SYSDBA
-    pub fn user<S: Into<String>>(&mut self, user: S) -> &mut Self {
-        self.user = user.into();
-        self
-    }
-
-    /// SQL Dialect. Default: 3
-    pub fn dialect(&mut self, dialect: Dialect) -> &mut Self {
-        self.dialect = dialect;
-        self
-    }
-
-    /// Statement cache size. Default: 20
-    pub fn stmt_cache_size(&mut self, stmt_cache_size: usize) -> &mut Self {
-        self.stmt_cache_size = stmt_cache_size;
-        self
-    }
-
-    /// Connection charset. It is only necessary to specify a charset other than the default `UTF-8` if you
-    /// have text stored in the database using columns with charset `NONE` or `OCTETS`. Otherwise
-    /// the database will handle the charset conversion automatically
-    pub fn charset(&mut self, charset: Charset) -> &mut Self {
-        self.charset = charset;
-        self
-    }
-
-    /// Open a new connection to the database
-    pub fn connect(&self) -> Result<Connection<C>, FbError> {
-        Connection::open_embedded(self, C::new(self.charset.clone(), self.cli_args.clone())?)
     }
 }
 
 /// A connection to a firebird database
-pub struct Connection<C>
-where
-    C: FirebirdClient,
-{
+pub struct Connection<C: FirebirdClient> {
     /// Database handler
-    pub(crate) handle: C::DbHandle,
+    pub(crate) handle: <C as FirebirdClientDbOps>::DbHandle,
 
     /// Firebird dialect for the statements
     pub(crate) dialect: Dialect,
 
     /// Cache for the prepared statements
-    pub(crate) stmt_cache: StmtCache<StatementData<C::StmtHandle>>,
+    pub(crate) stmt_cache: StmtCache<StatementData<C>>,
 
     /// Firebird client
     pub(crate) cli: C,
 }
 
-impl<C> Connection<C>
-where
-    C: FirebirdClient + FirebirdClientRemoteAttach,
-{
-    /// Open a new connection to the database
-    fn open_remote(builder: &ConnectionBuilder<C>, mut cli: C) -> Result<Connection<C>, FbError> {
-        let handle = cli.attach_database(
-            &builder.host,
-            builder.port,
-            &builder.db_name,
-            &builder.user,
-            &builder.pass,
-        )?;
-
-        let stmt_cache = StmtCache::new(builder.stmt_cache_size);
-
-        Ok(Connection {
-            handle,
-            dialect: builder.dialect,
-            stmt_cache,
-            cli,
-        })
-    }
-}
-
-impl<C> Connection<C>
-where
-    C: FirebirdClient + FirebirdClientEmbeddedAttach,
-{
-    /// Open a new connection to the database
-    fn open_embedded(
-        builder: &ConnectionBuilderEmbedded<C>,
+impl<C: FirebirdClient> Connection<C> {
+    fn open(
         mut cli: C,
+        conf: &ConnectionConfiguration<C::AttachmentConfig>,
     ) -> Result<Connection<C>, FbError> {
-        let handle = cli.attach_database(&builder.db_name, &builder.user)?;
-
-        let stmt_cache = StmtCache::new(builder.stmt_cache_size);
+        let handle = cli.attach_database(&conf.attachment_conf)?;
+        let stmt_cache = StmtCache::new(conf.stmt_cache_size);
 
         Ok(Connection {
             handle,
-            dialect: builder.dialect,
+            dialect: conf.dialect,
             stmt_cache,
             cli,
         })
     }
-}
 
-impl<C> Connection<C>
-where
-    C: FirebirdClient,
-{
     /// Drop the current database
     pub fn drop_database(mut self) -> Result<(), FbError> {
         self.cli.drop_database(&mut self.handle)?;
@@ -348,12 +105,28 @@ where
         Ok(())
     }
 
+    /// Close the current connection.
+    pub fn close(mut self) -> Result<(), FbError> {
+        let res = self.cleanup_and_detach();
+        ManuallyDrop::new(self);
+        res
+    }
+
+    //cleans up statement cache and releases the database handle
+    fn cleanup_and_detach(&mut self) -> Result<(), FbError> {
+        StmtCache::close_all(self);
+
+        self.cli.detach_database(&mut self.handle)?;
+
+        Ok(())
+    }
+
     /// Run a closure with a transaction, if the closure returns an error
     /// the transaction will rollback, else it will be committed
-    pub fn with_transaction<T>(
-        &mut self,
-        closure: impl FnOnce(&mut Transaction<C>) -> Result<T, FbError>,
-    ) -> Result<T, FbError> {
+    pub fn with_transaction<T, F>(&mut self, closure: F) -> Result<T, FbError>
+    where
+        F: FnOnce(&mut Transaction<C>) -> Result<T, FbError>,
+    {
         let mut tr = Transaction::new(self)?;
 
         let res = closure(&mut tr);
@@ -366,35 +139,19 @@ where
 
         res
     }
-
-    /// Close the current connection
-    pub fn close(mut self) -> Result<(), FbError> {
-        self.__close()
-    }
-
-    /// Close the current connection. With an `&mut self` to be used in the drop code too
-    fn __close(&mut self) -> Result<(), FbError> {
-        StmtCache::close_all(self);
-
-        self.cli.detach_database(&mut self.handle)?;
-
-        Ok(())
-    }
 }
 
-impl<C> Drop for Connection<C>
-where
-    C: FirebirdClient,
-{
+impl<C: FirebirdClient> Drop for Connection<C> {
     fn drop(&mut self) {
-        self.__close().ok();
+        //ignore the possible error value
+        let _ = self.cleanup_and_detach();
     }
 }
 
 /// Variant of the `StatementIter` that owns the `Transaction` and uses the statement cache
 pub struct StmtIter<'a, R, C: FirebirdClient> {
     /// Statement cache data. Wrapped in option to allow taking the value to send back to the cache
-    stmt_cache_data: Option<StmtCacheData<StatementData<C::StmtHandle>>>,
+    stmt_cache_data: Option<StmtCacheData<StatementData<C>>>,
 
     /// Transaction needs to be alive for the fetch to work
     tr: Transaction<'a, C>,

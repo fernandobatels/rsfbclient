@@ -8,19 +8,21 @@
 
 #![allow(unused_variables, unused_mut)]
 
-use rsfbclient::{prelude::*, ConnectionBuilder};
+use rsfbclient::prelude::*;
 use std::time::Duration;
 
 fn main() {
     let builder = {
         #[cfg(feature = "linking")]
-        let mut builder = ConnectionBuilder::linked();
+        let mut builder = rsfbclient::builder_native().with_dyn_link().with_remote();
 
         #[cfg(feature = "dynamic_loading")]
-        let mut builder = ConnectionBuilder::with_client("./fbclient.lib");
+        let mut builder = rsfbclient::builder_native()
+            .with_dyn_load("./fbclient.lib")
+            .with_remote();
 
         #[cfg(feature = "pure_rust")]
-        let mut builder = ConnectionBuilder::pure_rust();
+        let mut builder = rsfbclient::builder_pure_rust();
 
         builder
             .host("localhost")

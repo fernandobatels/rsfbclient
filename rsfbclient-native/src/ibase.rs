@@ -1,54 +1,100 @@
 //! Constants, structs and functions from the native fbclient
+#![allow(unused_macros)]
 
 pub use rsfbclient_core::ibase::*;
 
-pub enum IBase {
-    #[cfg(feature = "linking")]
-    /// Use the fbclient linked with the application at compile time
-    Linking,
-    #[cfg(feature = "dynamic_loading")]
-    /// Use the fbclient loaded at runtime
-    DynamicLoading(std::sync::Arc<libloading::Library>),
+//Generates the IBase trait and one or both of its implementations
+//(dynamic linking version, libloading version)
+macro_rules! parse_functions {
+    ($(
+        extern "C" {
+            pub fn $name:ident $items:tt $( -> $ret:ty )? ;
+        }
+    )*) =>
+    {
+      pub trait IBase : Send{
+        $( gen_dynlink_signature_only!( $name ~ $items ~ $($ret)? ); )*
+      }
+
+      #[cfg(feature = "linking")]
+      pub struct IBaseLinking;
+      #[cfg(feature = "linking")]
+      impl IBase for IBaseLinking {
+        $( gen_dynlink_definition!( $name ~ $items ~ $($ret)? ); )*
+      }
+
+      #[cfg(feature = "dynamic_loading")]
+      pub struct IBaseDynLoading(std::sync::Arc<libloading::Library>);
+      #[cfg(feature = "dynamic_loading")]
+      impl IBase for IBaseDynLoading {
+        $( gen_libloading_definition!( $name ~ $items ~ $($ret)? ); )*
+      }
+    }
 }
 
-impl IBase {
-    #[cfg(feature = "dynamic_loading")]
-    pub fn with_client(fbclient: String) -> Result<Self, libloading::Error> {
-        Ok(Self::DynamicLoading(std::sync::Arc::new(
+#[cfg(feature = "dynamic_loading")]
+use std::ffi::OsStr;
+#[cfg(feature = "dynamic_loading")]
+impl IBaseDynLoading {
+    pub fn with_client(fbclient: &OsStr) -> Result<Self, libloading::Error> {
+        Ok(IBaseDynLoading(std::sync::Arc::new(
             libloading::Library::new(fbclient)?,
         )))
     }
 }
 
-/// Registers the fbclient functions loaded from the library
-macro_rules! parse_functions {
-    ( $(
-        extern "C" {
-            pub fn $name:ident( $( $param:tt )* ) $( -> $ret:ty )?;
-        }
-    )* ) => {
-        impl IBase {
-            $(
-                pub unsafe fn $name(&self) -> unsafe extern "C" fn($( $param )*) $( -> $ret )? {
-                    match self {
-                        #[cfg(feature = "linking")]
-                        Self::Linking => {
-                            extern "C" {
-                                pub fn $name( $( $param )* ) $( -> $ret )?;
-                            }
-                            $name
-                        }
-                        #[cfg(feature = "dynamic_loading")]
-                        Self::DynamicLoading(lib) => {
-                            *lib.get( stringify!($name).as_bytes() ).unwrap()
-                        }
-                        #[allow(unreachable_patterns)]
-                        _ => panic!("No feature enabled, enable `native` or `dynamic_loading`"),
-                    }
-                }
-            )*
-        }
+//Generates a signature like
+//unsafe fn isc_xyz(&self)
+//-> unsafe extern "C"
+//   fn(arg1: isc_handle_type, arg2: other_isc_handle_type...) -> SOME_ISC_RETURN_TYPE;
+//
+//from the C decls
+//That is, an unsafe function returning an unsafe extern C function pointer
+macro_rules! gen_dynlink_signature_only {
+  ( $name:ident ~ ( $( $params:tt )* ) ~ $($ret:ty)? )
+  => ( unsafe fn$name(&self) -> unsafe extern "C" fn(  $($params)* ) -> $($ret)? ;)
+}
+
+//Generates a definition like
+//unsafe fn isc_xyz(&self)
+//-> unsafe extern "C" fn(arg1: isc_handle_type, arg2: other_isc_handle_type...) -> SOME_ISC_RETURN_TYPE {
+//  extern "C" {
+//    pub fn isc_xyz(arg1: isc_handle_type, arg2: other_isc_handle_type...) -> SOME_ISC_RETURN_TYPE
+//  }
+//  function_name
+//}
+//
+//from the C decls
+//That is, an unsafe function returning an unsafe extern C function pointer
+macro_rules! gen_dynlink_definition {
+  ( $name:ident ~ ( $( $params:tt )* ) ~ $($ret:ty)? )
+  => {
+   unsafe fn $name(&self) -> unsafe extern "C" fn(  $($params)* ) -> $($ret)? {
+      extern "C" {
+         pub fn $name (  $($params)* ) -> $($ret)?;
+      }
+      $name
     }
+  }
+}
+
+//Generates a definition like
+//unsafe fn isc_xyz(&self)
+//-> unsafe extern "C" fn(arg1: isc_handle_type, arg2: other_isc_handle_type...) -> SOME_ISC_RETURN_TYPE {
+//    *self.0.get( stringify!($name).as_bytes() ).unwrap()
+//}
+//
+//from the C decls
+//where Self is struct IBaseDynLoading(std::sync::Arc<libloading::Library>);
+//That is, an unsafe function returning an unsafe extern C function pointer using
+//the libloading crate
+macro_rules! gen_libloading_definition {
+  ( $name:ident ~ ( $( $params:tt )* ) ~ $($ret:ty)? )
+  => {
+    unsafe fn $name(&self) -> unsafe extern "C" fn(  $($params)* ) -> $($ret)? {
+      *self.0.get( stringify!($name).as_bytes() ).unwrap()
+    }
+  }
 }
 
 parse_functions! {

@@ -76,19 +76,16 @@ impl<T> StmtCache<T> {
 }
 
 /// Functions specific for when the data is a `StatementData`
-impl<H> StmtCache<StatementData<H>>
+impl<C> StmtCache<StatementData<C>>
 where
-    H: Send,
+    C: FirebirdClient,
 {
     /// Get a prepared statement from the cache, or prepare one
-    pub fn get_or_prepare<C>(
+    pub fn get_or_prepare(
         tr: &mut Transaction<C>,
         sql: &str,
         named_params: bool,
-    ) -> Result<StmtCacheData<StatementData<H>>, FbError>
-    where
-        C: FirebirdClient<StmtHandle = H>,
-    {
+    ) -> Result<StmtCacheData<StatementData<C>>, FbError> {
         if let Some(data) = tr.conn.stmt_cache.get(sql) {
             Ok(data)
         } else {
@@ -101,13 +98,10 @@ where
 
     /// Adds a prepared statement to the cache, closing the previous one for this sql
     /// or another if the cache is full
-    pub fn insert_and_close<C>(
+    pub fn insert_and_close(
         conn: &mut Connection<C>,
-        data: StmtCacheData<StatementData<H>>,
-    ) -> Result<(), FbError>
-    where
-        C: FirebirdClient<StmtHandle = H>,
-    {
+        data: StmtCacheData<StatementData<C>>,
+    ) -> Result<(), FbError> {
         conn.stmt_cache.sqls.insert(data.sql.clone());
 
         // Insert the new one and close the old if exists
@@ -120,10 +114,7 @@ where
 
     /// Closes all statements in the cache.
     /// Needs to be called before dropping the cache.
-    pub fn close_all<C>(conn: &mut Connection<C>)
-    where
-        C: FirebirdClient<StmtHandle = H>,
-    {
+    pub fn close_all(conn: &mut Connection<C>) {
         let mut stmt_cache = mem::replace(&mut conn.stmt_cache, StmtCache::new(0));
 
         for (_, stmt) in stmt_cache.cache.iter_mut() {
