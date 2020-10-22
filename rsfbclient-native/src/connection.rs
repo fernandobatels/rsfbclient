@@ -1,134 +1,32 @@
 //! `FirebirdConnection` implementation for the native fbclient
 
-use crate::{
-    ibase::{self, IBase},
-    params::Params,
-    row::ColumnBuffer,
-    status::Status,
-    xsqlda::XSqlDa,
-};
 use rsfbclient_core::*;
 
-use std::{convert::TryFrom, ptr};
-
-type NativeDbHandle = ibase::isc_db_handle;
-type NativeTrHandle = ibase::isc_tr_handle;
-type NativeStmtHandle = ibase::isc_stmt_handle;
+use crate::{ibase::IBase, params::Params, row::ColumnBuffer, status::Status, xsqlda::XSqlDa};
+use std::{collections::HashMap, convert::TryFrom, ptr};
 
 /// Client that wraps the native fbclient library
-pub struct NativeFbClient<T: LinkageMarker> {
-    ibase: T::L,
+pub struct NativeFbClient {
+    ibase: IBase,
     status: Status,
+    /// Output xsqldas and column buffers for the prepared statements
+    stmt_data_map: HashMap<ibase::isc_tr_handle, (XSqlDa, Vec<ColumnBuffer>)>,
     charset: Charset,
 }
 
-/// The remote part of native client configuration
-#[derive(Clone, Default)]
-pub struct RemoteConfig {
-    pub host: String,
-    pub port: u16,
-    pub pass: String,
-}
-
-/// Data associated with a prepared statement
-pub struct StmtHandleData {
-    /// Statement handle
-    handle: NativeStmtHandle,
-    /// Output xsqlda
-    xsqlda: XSqlDa,
-    /// Buffers for the output xsqlda
-    col_buffers: Vec<ColumnBuffer>,
-}
-
-///The common part of native client configuration (for both embedded/remote)
-#[derive(Clone, Default)]
-pub struct NativeFbAttachmentConfig {
-    pub db_name: String,
-    pub user: String,
-    pub remote: Option<RemoteConfig>,
-}
-
-/// A marker trait which can be used to
-/// obtain the associated client instance
-pub trait LinkageMarker: Send + Sync {
-    type L: IBase + Send;
-}
-
-/// Configuration details for dynamic linking
 #[derive(Clone)]
-pub struct DynLink(pub Charset);
+/// Arguments to instantiate the client
+pub enum Args {
+    #[cfg(feature = "linking")]
+    Linking,
 
-#[cfg(feature = "linking")]
-impl LinkageMarker for DynLink {
-    type L = ibase::IBaseLinking;
+    #[cfg(feature = "dynamic_loading")]
+    /// Dynamic Loading needs the path to the client
+    DynamicLoading { lib_path: String },
 }
 
-#[cfg(feature = "linking")]
-impl DynLink {
-    pub fn to_client(&self) -> NativeFbClient<DynLink> {
-        let result: NativeFbClient<DynLink> = NativeFbClient {
-            ibase: ibase::IBaseLinking,
-            status: Default::default(),
-            charset: self.0.clone(),
-        };
-        result
-    }
-}
-
-/// Configuration details for dynamic loading
-#[derive(Clone)]
-pub struct DynLoad {
-    pub charset: Charset,
-    pub lib_path: String,
-}
-
-#[cfg(feature = "dynamic_loading")]
-impl LinkageMarker for DynLoad {
-    type L = ibase::IBaseDynLoading;
-}
-
-#[cfg(feature = "dynamic_loading")]
-impl DynLoad {
-    pub fn try_to_client(&self) -> Result<NativeFbClient<Self>, FbError> {
-        let load_result = ibase::IBaseDynLoading::with_client(self.lib_path.as_ref())
-            .map_err(|e| FbError::from(e.to_string()))?;
-
-        let result: NativeFbClient<DynLoad> = NativeFbClient {
-            ibase: load_result,
-            status: Default::default(),
-            charset: self.charset.clone(),
-        };
-
-        Ok(result)
-    }
-}
-
-impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
-    type DbHandle = NativeDbHandle;
-    type AttachmentConfig = NativeFbAttachmentConfig;
-
-    fn attach_database(
-        &mut self,
-        config: &Self::AttachmentConfig,
-    ) -> Result<NativeDbHandle, FbError> {
-        let user = &config.user;
-        let mut password = None;
-        let db_name = &config.db_name;
-        let maybe_remote = &config.remote;
-
-        let conn_string = match maybe_remote {
-            None => db_name.clone(),
-            Some(remote_conf) => {
-                password = Some(remote_conf.pass.as_str());
-                format!(
-                    "{}/{}:{}",
-                    remote_conf.host.as_str(),
-                    remote_conf.port,
-                    db_name.as_str()
-                )
-            }
-        };
-
+impl FirebirdClientEmbeddedAttach for NativeFbClient {
+    fn attach_database(&mut self, db_name: &str, user: &str) -> Result<Self::DbHandle, FbError> {
         let mut handle = 0;
 
         let dpb = {
@@ -139,10 +37,56 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
             dpb.extend(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
             dpb.extend(user.bytes());
 
-            if let Some(pass_str) = password {
-                dpb.extend(&[ibase::isc_dpb_password as u8, pass_str.len() as u8]);
-                dpb.extend(pass_str.bytes());
-            };
+            let charset = self.charset.on_firebird.bytes();
+
+            dpb.extend(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
+            dpb.extend(charset);
+
+            dpb
+        };
+
+        unsafe {
+            if self.ibase.isc_attach_database()(
+                &mut self.status[0],
+                db_name.len() as i16,
+                db_name.as_ptr() as *const _,
+                &mut handle,
+                dpb.len() as i16,
+                dpb.as_ptr() as *const _,
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+
+        // Assert that the handle is valid
+        debug_assert_ne!(handle, 0);
+
+        Ok(handle)
+    }
+}
+
+impl FirebirdClientRemoteAttach for NativeFbClient {
+    fn attach_database(
+        &mut self,
+        host: &str,
+        port: u16,
+        db_name: &str,
+        user: &str,
+        pass: &str,
+    ) -> Result<Self::DbHandle, FbError> {
+        let mut handle = 0;
+
+        let dpb = {
+            let mut dpb: Vec<u8> = Vec::with_capacity(64);
+
+            dpb.extend(&[ibase::isc_dpb_version1 as u8]);
+
+            dpb.extend(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
+            dpb.extend(user.bytes());
+
+            dpb.extend(&[ibase::isc_dpb_password as u8, pass.len() as u8]);
+            dpb.extend(pass.bytes());
 
             let charset = self.charset.on_firebird.bytes();
 
@@ -151,6 +95,8 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
 
             dpb
         };
+
+        let conn_string = format!("{}/{}:{}", host, port, db_name);
 
         unsafe {
             if self.ibase.isc_attach_database()(
@@ -171,12 +117,41 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
 
         Ok(handle)
     }
+}
 
-    fn detach_database(&mut self, db_handle: &mut NativeDbHandle) -> Result<(), FbError> {
+impl FirebirdClient for NativeFbClient {
+    type DbHandle = ibase::isc_db_handle;
+    type TrHandle = ibase::isc_tr_handle;
+    type StmtHandle = ibase::isc_stmt_handle;
+
+    type Args = Args;
+
+    fn new(charset: Charset, args: Self::Args) -> Result<Self, FbError> {
+        match args {
+            #[cfg(feature = "linking")]
+            Args::Linking => Ok(Self {
+                ibase: IBase::Linking,
+                status: Default::default(),
+                stmt_data_map: Default::default(),
+                charset,
+            }),
+
+            #[cfg(feature = "dynamic_loading")]
+            Args::DynamicLoading { lib_path } => Ok(Self {
+                ibase: IBase::with_client(lib_path).map_err(|e| FbError::from(e.to_string()))?,
+                status: Default::default(),
+                stmt_data_map: Default::default(),
+                charset,
+            }),
+        }
+    }
+
+    fn detach_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError> {
+        let mut handle = db_handle;
         unsafe {
             // Close the connection, if the handle is valid
-            if *db_handle != 0
-                && self.ibase.isc_detach_database()(&mut self.status[0], db_handle) != 0
+            if handle != 0
+                && self.ibase.isc_detach_database()(&mut self.status[0], &mut handle) != 0
             {
                 return Err(self.status.as_error(&self.ibase));
             }
@@ -184,24 +159,19 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
         Ok(())
     }
 
-    fn drop_database(&mut self, db_handle: &mut NativeDbHandle) -> Result<(), FbError> {
+    fn drop_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError> {
+        let mut handle = db_handle;
         unsafe {
-            if self.ibase.isc_drop_database()(&mut self.status[0], db_handle) != 0 {
+            if self.ibase.isc_drop_database()(&mut self.status[0], &mut handle) != 0 {
                 return Err(self.status.as_error(&self.ibase));
             }
         }
         Ok(())
     }
-}
-
-impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
-    type DbHandle = NativeDbHandle;
-    type TrHandle = NativeTrHandle;
-    type StmtHandle = StmtHandleData;
 
     fn begin_transaction(
         &mut self,
-        db_handle: &mut Self::DbHandle,
+        mut db_handle: Self::DbHandle,
         isolation_level: TrIsolationLevel,
     ) -> Result<Self::TrHandle, FbError> {
         let mut handle = 0;
@@ -222,7 +192,7 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
                 &mut handle,
                 1,
                 &mut IscTeb {
-                    db_handle,
+                    db_handle: &mut db_handle,
                     tpb_len: tpb.len(),
                     tpb_ptr: &tpb[0],
                 } as *mut _ as _,
@@ -240,21 +210,23 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
 
     fn transaction_operation(
         &mut self,
-        tr_handle: &mut Self::TrHandle,
+        tr_handle: Self::TrHandle,
         op: TrOp,
     ) -> Result<(), FbError> {
-        let handle = tr_handle;
+        let mut handle = tr_handle;
         unsafe {
             if match op {
-                TrOp::Commit => self.ibase.isc_commit_transaction()(&mut self.status[0], handle),
+                TrOp::Commit => {
+                    self.ibase.isc_commit_transaction()(&mut self.status[0], &mut handle)
+                }
                 TrOp::CommitRetaining => {
-                    self.ibase.isc_commit_retaining()(&mut self.status[0], handle)
+                    self.ibase.isc_commit_retaining()(&mut self.status[0], &mut handle)
                 }
                 TrOp::Rollback => {
-                    self.ibase.isc_rollback_transaction()(&mut self.status[0], handle)
+                    self.ibase.isc_rollback_transaction()(&mut self.status[0], &mut handle)
                 }
                 TrOp::RollbackRetaining => {
-                    self.ibase.isc_rollback_retaining()(&mut self.status[0], handle)
+                    self.ibase.isc_rollback_retaining()(&mut self.status[0], &mut handle)
                 }
             } != 0
             {
@@ -266,8 +238,8 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
 
     fn exec_immediate(
         &mut self,
-        db_handle: &mut Self::DbHandle,
-        tr_handle: &mut Self::TrHandle,
+        mut db_handle: Self::DbHandle,
+        mut tr_handle: Self::TrHandle,
         dialect: Dialect,
         sql: &str,
     ) -> Result<(), FbError> {
@@ -276,8 +248,8 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         unsafe {
             if self.ibase.isc_dsql_execute_immediate()(
                 &mut self.status[0],
-                db_handle,
-                tr_handle,
+                &mut db_handle,
+                &mut tr_handle,
                 sql.len() as u16,
                 sql.as_ptr() as *const _,
                 dialect as u16,
@@ -292,8 +264,8 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
 
     fn prepare_statement(
         &mut self,
-        db_handle: &mut Self::DbHandle,
-        tr_handle: &mut Self::TrHandle,
+        mut db_handle: Self::DbHandle,
+        mut tr_handle: Self::TrHandle,
         dialect: Dialect,
         sql: &str,
     ) -> Result<(StmtType, Self::StmtHandle), FbError> {
@@ -306,15 +278,18 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         let mut stmt_type = 0;
 
         unsafe {
-            if self.ibase.isc_dsql_allocate_statement()(&mut self.status[0], db_handle, &mut handle)
-                != 0
+            if self.ibase.isc_dsql_allocate_statement()(
+                &mut self.status[0],
+                &mut db_handle,
+                &mut handle,
+            ) != 0
             {
                 return Err(self.status.as_error(&self.ibase));
             }
 
             if self.ibase.isc_dsql_prepare()(
                 &mut self.status[0],
-                tr_handle,
+                &mut tr_handle,
                 &mut handle,
                 sql.len() as u16,
                 sql.as_ptr() as *const _,
@@ -369,33 +344,26 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         // Create the column buffers and set the xsqlda conercions
         let col_buffers = (0..xsqlda.sqld)
             .map(|col| {
-                let xcol = xsqlda
-                    .get_xsqlvar_mut(col as usize)
-                    .ok_or_else(|| FbError::from("Error getting the xsqlvar"))?;
+                let xcol = xsqlda.get_xsqlvar_mut(col as usize).unwrap();
 
                 ColumnBuffer::from_xsqlvar(xcol)
             })
             .collect::<Result<_, _>>()?;
 
-        Ok((
-            stmt_type,
-            StmtHandleData {
-                handle,
-                xsqlda,
-                col_buffers,
-            },
-        ))
+        self.stmt_data_map.insert(handle, (xsqlda, col_buffers));
+
+        Ok((stmt_type, handle))
     }
 
     fn free_statement(
         &mut self,
-        stmt_handle: &mut Self::StmtHandle,
+        mut stmt_handle: Self::StmtHandle,
         op: FreeStmtOp,
     ) -> Result<(), FbError> {
         unsafe {
             if self.ibase.isc_dsql_free_statement()(
                 &mut self.status[0],
-                &mut stmt_handle.handle,
+                &mut stmt_handle,
                 op as u16,
             ) != 0
             {
@@ -403,22 +371,31 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
             }
         }
 
+        if op == FreeStmtOp::Drop {
+            self.stmt_data_map.remove(&stmt_handle);
+        }
+
         Ok(())
     }
 
     fn execute(
         &mut self,
-        db_handle: &mut Self::DbHandle,
-        tr_handle: &mut Self::TrHandle,
-        stmt_handle: &mut Self::StmtHandle,
+        mut db_handle: Self::DbHandle,
+        mut tr_handle: Self::TrHandle,
+        mut stmt_handle: Self::StmtHandle,
         params: Vec<SqlType>,
-    ) -> Result<(), FbError> {
+    ) -> Result<usize, FbError> {
+        let _ = self
+            .stmt_data_map
+            .get(&stmt_handle)
+            .ok_or_else(|| FbError::from("Tried to fetch a dropped statement"))?;
+
         let params = Params::new(
-            db_handle,
-            tr_handle,
+            &mut db_handle,
+            &mut tr_handle,
             &self.ibase,
             &mut self.status,
-            &mut stmt_handle.handle,
+            &mut stmt_handle,
             params,
             &self.charset,
         )?;
@@ -426,8 +403,8 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         unsafe {
             if self.ibase.isc_dsql_execute()(
                 &mut self.status[0],
-                tr_handle,
-                &mut stmt_handle.handle,
+                &mut tr_handle,
+                &mut stmt_handle,
                 1,
                 if let Some(xsqlda) = &params.xsqlda {
                     &**xsqlda
@@ -443,22 +420,61 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         // Just to make sure the params are not dropped too soon
         drop(params);
 
-        Ok(())
+        // Get the affected rows count
+        let info_req = [ibase::isc_info_sql_records as std::os::raw::c_char];
+        let mut info_buf = [0; 64];
+
+        unsafe {
+            if self.ibase.isc_dsql_sql_info()(
+                &mut self.status[0],
+                &mut stmt_handle,
+                info_req.len() as i16,
+                &info_req[0],
+                info_buf.len() as i16,
+                &mut info_buf[0],
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+
+        let mut affected = 0;
+
+        if info_buf[0] == info_req[0] {
+            let info_buf_size = unsafe { self.ibase.isc_vax_integer()(&info_buf[1], 2) } as u32;
+            let mut i = 3 as u32;
+
+            while info_buf[i as usize] as u32 != ibase::isc_info_end && i < info_buf_size {
+                let len =
+                    unsafe { self.ibase.isc_vax_integer()(&info_buf[(i + 1) as usize], 2) } as u32;
+
+                if info_buf[i as usize] as u32 != ibase::isc_info_req_select_count {
+                    affected += unsafe {
+                        self.ibase.isc_vax_integer()(&info_buf[(i + 3) as usize], len as i16)
+                    } as u32;
+                }
+
+                i += len + 3;
+            }
+        }
+
+        Ok(affected as usize)
     }
 
     fn fetch(
         &mut self,
-        db_handle: &mut Self::DbHandle,
-        tr_handle: &mut Self::TrHandle,
-        stmt_handle: &mut Self::StmtHandle,
+        mut db_handle: Self::DbHandle,
+        mut tr_handle: Self::TrHandle,
+        mut stmt_handle: Self::StmtHandle,
     ) -> Result<Option<Vec<Column>>, FbError> {
+        let (xsqlda, col_buf) = self
+            .stmt_data_map
+            .get(&stmt_handle)
+            .ok_or_else(|| FbError::from("Tried to fetch a dropped statement"))?;
+
         unsafe {
-            let fetch_status = self.ibase.isc_dsql_fetch()(
-                &mut self.status[0],
-                &mut stmt_handle.handle,
-                1,
-                &*stmt_handle.xsqlda,
-            );
+            let fetch_status =
+                self.ibase.isc_dsql_fetch()(&mut self.status[0], &mut stmt_handle, 1, &**xsqlda);
 
             // 100 indicates that no more rows: http://docwiki.embarcadero.com/InterBase/2020/en/Isc_dsql_fetch()
             if fetch_status == 100 {
@@ -470,10 +486,9 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
             };
         }
 
-        let cols = stmt_handle
-            .col_buffers
+        let cols = col_buf
             .iter()
-            .map(|cb| cb.to_column(db_handle, tr_handle, &self.ibase, &self.charset))
+            .map(|cb| cb.to_column(&mut db_handle, &mut tr_handle, &self.ibase, &self.charset))
             .collect::<Result<_, _>>()?;
 
         Ok(Some(cols))
@@ -481,17 +496,22 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
 
     fn execute2(
         &mut self,
-        db_handle: &mut Self::DbHandle,
-        tr_handle: &mut Self::TrHandle,
-        stmt_handle: &mut Self::StmtHandle,
+        mut db_handle: Self::DbHandle,
+        mut tr_handle: Self::TrHandle,
+        mut stmt_handle: Self::StmtHandle,
         params: Vec<SqlType>,
     ) -> Result<Vec<Column>, FbError> {
+        let (out_xsqlda, _) = self
+            .stmt_data_map
+            .get(&stmt_handle)
+            .ok_or_else(|| FbError::from("Tried to fetch a dropped statement"))?;
+
         let params = Params::new(
-            db_handle,
-            tr_handle,
+            &mut db_handle,
+            &mut tr_handle,
             &self.ibase,
             &mut self.status,
-            &mut stmt_handle.handle,
+            &mut stmt_handle,
             params,
             &self.charset,
         )?;
@@ -499,15 +519,15 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         unsafe {
             if self.ibase.isc_dsql_execute2()(
                 &mut self.status[0],
-                tr_handle,
-                &mut stmt_handle.handle,
+                &mut tr_handle,
+                &mut stmt_handle,
                 1,
                 if let Some(xsqlda) = &params.xsqlda {
                     &**xsqlda
                 } else {
                     ptr::null()
                 },
-                &*stmt_handle.xsqlda,
+                &**out_xsqlda,
             ) != 0
             {
                 return Err(self.status.as_error(&self.ibase));
@@ -517,10 +537,14 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         // Just to make sure the params are not dropped too soon
         drop(params);
 
-        let rcol = stmt_handle
-            .col_buffers
+        let (_, col_buf) = self
+            .stmt_data_map
+            .get(&stmt_handle)
+            .ok_or_else(|| FbError::from("Tried to fetch a dropped statement"))?;
+
+        let rcol = col_buf
             .iter()
-            .map(|cb| cb.to_column(db_handle, tr_handle, &self.ibase, &self.charset))
+            .map(|cb| cb.to_column(&mut db_handle, &mut tr_handle, &self.ibase, &self.charset))
             .collect::<Result<_, _>>()?;
 
         Ok(rcol)

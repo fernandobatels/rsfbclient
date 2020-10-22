@@ -73,6 +73,7 @@ pub trait Queryable {
 /// Implemented for types that can be used to execute sql statements
 pub trait Execute {
     /// Execute a query, may or may not commit the changes
+    /// and returns the affected rows count
     ///
     /// possible values for argument `params`:
     ///
@@ -81,7 +82,7 @@ pub trait Execute {
     /// `(param0, param1, param2...)`: a tuple of `IntoParam` values corresponding to positional `?` sql parameters
     ///
     /// A struct for which `IntoParams` has been derived ([see there for details](prelude/derive.IntoParams.html))
-    fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
+    fn execute<P>(&mut self, sql: &str, params: P) -> Result<usize, FbError>
     where
         P: IntoParams;
 
@@ -91,7 +92,13 @@ pub trait Execute {
     /// a cursor to fetch. [This link](https://www.ibexpert.net/ibe/pmwiki.php?n=Doc.DataManipulationLanguage#EXECUTEBLOCKStatement)
     /// explain the Firebird behavior for this cases.
     ///
-    /// Use `()` for no parameters or a tuple of parameters
+    /// possible values for argument `params`:
+    ///
+    /// `()`: no parameters,
+    ///
+    /// `(param0, param1, param2...)`: a tuple of `IntoParam` values corresponding to positional `?` sql parameters
+    ///
+    /// A struct for which `IntoParams` has been derived ([see there for details](prelude/derive.IntoParams.html))
     fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
     where
         P: IntoParams,

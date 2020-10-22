@@ -650,9 +650,9 @@ parse_functions! {
     //         arg9: *mut ISC_SCHAR,
     //     ) -> ISC_STATUS;
     // }
-    // extern "C" {
-    //     pub fn isc_vax_integer(arg1: *const ISC_SCHAR, arg2: ::std::os::raw::c_short) -> ISC_LONG;
-    // }
+    extern "C" {
+        pub fn isc_vax_integer(arg1: *const ISC_SCHAR, arg2: ::std::os::raw::c_short) -> ISC_LONG;
+    }
     // extern "C" {
     //     pub fn isc_portable_integer(arg1: *const ISC_UCHAR, arg2: ::std::os::raw::c_short)
     //         -> ISC_INT64;

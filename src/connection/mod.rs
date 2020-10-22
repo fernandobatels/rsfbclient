@@ -87,7 +87,7 @@ pub struct Connection<C: FirebirdClient> {
 }
 
 impl<C: FirebirdClient> Connection<C> {
-    fn open(
+    pub fn open(
         mut cli: C,
         conf: &ConnectionConfiguration<C::AttachmentConfig>,
     ) -> Result<Connection<C>, FbError> {
@@ -245,7 +245,7 @@ impl<C> Execute for Connection<C>
 where
     C: FirebirdClient,
 {
-    fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
+    fn execute<P>(&mut self, sql: &str, params: P) -> Result<usize, FbError>
     where
         P: IntoParams,
     {
@@ -261,11 +261,9 @@ where
         // Return the statement to the cache
         StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
 
-        res?;
-
         tr.commit()?;
 
-        Ok(())
+        res
     }
 
     fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
