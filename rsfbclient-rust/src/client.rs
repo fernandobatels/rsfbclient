@@ -18,15 +18,28 @@ use crate::{
     xsqlda::{parse_xsqlda, xsqlda_to_blr, PrepareInfo, XSqlVar},
 };
 use rsfbclient_core::{
-    ibase, Charset, Column, Dialect, FbError, FirebirdClient, FirebirdClientRemoteAttach,
+    ibase, Charset, Column, Dialect, FbError, FirebirdClientDbOps, FirebirdClientSqlOps,
     FreeStmtOp, SqlType, StmtType, TrIsolationLevel, TrOp,
 };
 
-/// Firebird client implemented in rust
+type RustDbHandle = DbHandle;
+type RustTrHandle = TrHandle;
+type RustStmtHandle = StmtHandle;
+
+/// Firebird client implemented in pure rust
 pub struct RustFbClient {
     conn: Option<FirebirdWireConnection>,
-
     charset: Charset,
+}
+
+/// Required configuration for an attachment with the pure rust client
+#[derive(Default, Clone)]
+pub struct RustFbClientAttachmentConfig {
+    pub host: String,
+    pub port: u16,
+    pub db_name: String,
+    pub user: String,
+    pub pass: String,
 }
 
 /// A Connection to a firebird server
@@ -56,19 +69,30 @@ struct StmtData {
     param_count: usize,
 }
 
-impl FirebirdClientRemoteAttach for RustFbClient {
-    /// Attach to a database, creating the connections if necessary.
-    ///
-    /// It will only connect only once, so calling a second time with different
-    /// host or port will still use the old connection.
+impl RustFbClient {
+    ///Construct a new instance of the pure rust client
+    pub fn new(charset: Charset) -> Self {
+        Self {
+            conn: None,
+            charset,
+        }
+    }
+}
+
+impl FirebirdClientDbOps for RustFbClient {
+    type DbHandle = RustDbHandle;
+    type AttachmentConfig = RustFbClientAttachmentConfig;
+
     fn attach_database(
         &mut self,
-        host: &str,
-        port: u16,
-        db_name: &str,
-        user: &str,
-        pass: &str,
-    ) -> Result<Self::DbHandle, FbError> {
+        config: &Self::AttachmentConfig,
+    ) -> Result<RustDbHandle, FbError> {
+        let host = config.host.as_str();
+        let port = config.port;
+        let db_name = config.db_name.as_str();
+        let user = config.user.as_str();
+        let pass = config.pass.as_str();
+
         // Take the existing connection, or connects
         let mut conn = match self.conn.take() {
             Some(conn) => conn,
@@ -89,38 +113,26 @@ impl FirebirdClientRemoteAttach for RustFbClient {
 
         attach_result
     }
-}
 
-impl FirebirdClient for RustFbClient {
-    type DbHandle = DbHandle;
-    type TrHandle = TrHandle;
-    type StmtHandle = StmtHandle;
-
-    type Args = ();
-
-    fn new(charset: Charset, _args: Self::Args) -> Result<Self, FbError>
-    where
-        Self: Sized,
-    {
-        Ok(Self {
-            conn: None,
-            charset,
-        })
-    }
-
-    fn detach_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError> {
+    fn detach_database(&mut self, db_handle: RustDbHandle) -> Result<(), FbError> {
         self.conn
             .as_mut()
             .map(|conn| conn.detach_database(db_handle))
             .unwrap_or_else(err_client_not_connected)
     }
 
-    fn drop_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError> {
+    fn drop_database(&mut self, db_handle: RustDbHandle) -> Result<(), FbError> {
         self.conn
             .as_mut()
             .map(|conn| conn.drop_database(db_handle))
             .unwrap_or_else(err_client_not_connected)
     }
+}
+
+impl FirebirdClientSqlOps for RustFbClient {
+    type DbHandle = RustDbHandle;
+    type TrHandle = RustTrHandle;
+    type StmtHandle = RustStmtHandle;
 
     fn begin_transaction(
         &mut self,

@@ -17,20 +17,21 @@ mod statement;
 mod transaction;
 
 pub use crate::{
-    connection::{Connection, ConnectionBuilder},
+    connection::{Connection, ConnectionConfiguration, FirebirdClientFactory},
     query::{Execute, Queryable},
     statement::Statement,
     transaction::Transaction,
 };
 pub use rsfbclient_core::{
-    charset, Column, Dialect, FbError, FromRow, IntoParam, IntoParams, ParamsType, Row, SqlType,
+    Column, Dialect, FbError, FromRow, IntoParam, IntoParams, ParamsType, Row, SqlType,
 };
+
+#[doc(hidden)]
+pub use rsfbclient_core::{charset, Charset};
 
 #[cfg(feature = "pool")]
 pub use crate::connection::pool::FirebirdConnectionManager;
 
-#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
-pub use rsfbclient_native;
-
-#[cfg(feature = "pure_rust")]
-pub use rsfbclient_rust;
+//builders are behind feature gates inside this module
+pub use crate::connection::builders;
+pub use builders::*;

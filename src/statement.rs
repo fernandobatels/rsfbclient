@@ -13,7 +13,7 @@ use rsfbclient_core::{
 };
 
 pub struct Statement<'c, C: FirebirdClient> {
-    pub(crate) data: StatementData<C::StmtHandle>,
+    pub(crate) data: StatementData<C>,
     pub(crate) conn: &'c Connection<C>,
 }
 
@@ -79,7 +79,7 @@ where
 }
 /// Cursor to fetch the results of a statement
 pub struct StatementFetch<'s, R, C: FirebirdClient> {
-    pub(crate) stmt: &'s mut StatementData<C::StmtHandle>,
+    pub(crate) stmt: &'s mut StatementData<C>,
     /// Transaction needs to be alive for the fetch to work
     pub(crate) _tr: &'s Transaction<'s, C>,
     pub(crate) conn: &'s Connection<C>,
@@ -124,26 +124,23 @@ where
 /// Low level statement handler.
 ///
 /// Needs to be closed calling `close` before dropping.
-pub struct StatementData<H> {
-    pub(crate) handle: H,
+pub struct StatementData<C: FirebirdClient> {
+    pub(crate) handle: C::StmtHandle,
     pub(crate) stmt_type: StmtType,
     named_params: NamedParams,
 }
 
-impl<H> StatementData<H>
+impl<C: FirebirdClient> StatementData<C>
 where
-    H: Send + Clone + Copy,
+    C::StmtHandle: Send + Clone + Copy,
 {
     /// Prepare the statement that will be executed
-    pub fn prepare<C>(
+    pub fn prepare(
         conn: &Connection<C>,
-        tr: &mut TransactionData<C::TrHandle>,
+        tr: &mut TransactionData<C>,
         raw_sql: &str,
         named_params: bool,
-    ) -> Result<Self, FbError>
-    where
-        C: FirebirdClient<StmtHandle = H>,
-    {
+    ) -> Result<Self, FbError> {
         let named_params = if named_params {
             NamedParams::parse(raw_sql)?
         } else {
@@ -166,15 +163,14 @@ where
     /// Execute the current statement without returnig any row
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    pub fn execute<T, C>(
+    pub fn execute<T>(
         &mut self,
         conn: &Connection<C>,
-        tr: &mut TransactionData<C::TrHandle>,
+        tr: &mut TransactionData<C>,
         params: T,
     ) -> Result<(), FbError>
     where
         T: IntoParams,
-        C: FirebirdClient<StmtHandle = H>,
     {
         conn.cli.borrow_mut().execute(
             conn.handle,
@@ -194,15 +190,14 @@ where
     /// Execute the current statement with input and returns a single row
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    pub fn execute2<T, C>(
+    pub fn execute2<T>(
         &mut self,
         conn: &Connection<C>,
-        tr: &mut TransactionData<C::TrHandle>,
+        tr: &mut TransactionData<C>,
         params: T,
     ) -> Result<Vec<Column>, FbError>
     where
         T: IntoParams,
-        C: FirebirdClient<StmtHandle = H>,
     {
         conn.cli.borrow_mut().execute2(
             conn.handle,
@@ -216,15 +211,14 @@ where
     /// and returns the column buffer
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    pub fn query<'s, T, C>(
+    pub fn query<'s, T>(
         &'s mut self,
         conn: &'s Connection<C>,
-        tr: &mut TransactionData<C::TrHandle>,
+        tr: &mut TransactionData<C>,
         params: T,
     ) -> Result<(), FbError>
     where
         T: IntoParams,
-        C: FirebirdClient<StmtHandle = H>,
     {
         conn.cli.borrow_mut().execute(
             conn.handle,
@@ -235,34 +229,25 @@ where
     }
 
     /// Fetch for the next row, needs to be called after `query`
-    pub fn fetch<C>(
+    pub fn fetch(
         &mut self,
         conn: &Connection<C>,
-        tr: &TransactionData<C::TrHandle>,
-    ) -> Result<Option<Vec<Column>>, FbError>
-    where
-        C: FirebirdClient<StmtHandle = H>,
-    {
+        tr: &TransactionData<C>,
+    ) -> Result<Option<Vec<Column>>, FbError> {
         conn.cli
             .borrow_mut()
             .fetch(conn.handle, tr.handle, self.handle)
     }
 
     /// Closes the statement cursor, if it was open
-    pub fn close_cursor<C>(&mut self, conn: &Connection<C>) -> Result<(), FbError>
-    where
-        C: FirebirdClient<StmtHandle = H>,
-    {
+    pub fn close_cursor(&mut self, conn: &Connection<C>) -> Result<(), FbError> {
         conn.cli
             .borrow_mut()
             .free_statement(self.handle, FreeStmtOp::Close)
     }
 
     /// Closes the statement
-    pub fn close<C>(&mut self, conn: &Connection<C>) -> Result<(), FbError>
-    where
-        C: FirebirdClient<StmtHandle = H>,
-    {
+    pub fn close(&mut self, conn: &Connection<C>) -> Result<(), FbError> {
         conn.cli
             .borrow_mut()
             .free_statement(self.handle, FreeStmtOp::Drop)

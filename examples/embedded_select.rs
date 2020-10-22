@@ -6,23 +6,26 @@
 
 #![allow(unused_variables, unused_mut, unreachable_code, unused_imports)]
 
-use rsfbclient::{prelude::*, ConnectionBuilder, FbError};
+use rsfbclient::{prelude::*, FbError};
 
 fn main() -> Result<(), FbError> {
     #[cfg(not(feature = "pure_rust"))] // No support for embedded with pure rust driver
     {
         #[cfg(feature = "linking")]
-        let mut conn = ConnectionBuilder::linked()
-            .embedded()
+        let mut conn = rsfbclient::builder_native()
+            .with_dyn_link()
+            .with_embedded()
             .db_name("/tmp/examples.fdb")
             .user("SYSDBA")
             .connect()?;
 
         #[cfg(feature = "dynamic_loading")]
-        let mut conn = ConnectionBuilder::with_client("./fbclient.lib")
-            .embedded()
+        let mut conn = rsfbclient::builder_native()
+            .with_dyn_load("./fbclient.lib")
+            .with_remote()
             .db_name("/tmp/examples.fdb")
-            .user("SYSDBA")
+            .user("sysdba")
+            .pass("masterkey")
             .connect()?;
 
         let rows: Vec<(String, String)> = conn.query(
