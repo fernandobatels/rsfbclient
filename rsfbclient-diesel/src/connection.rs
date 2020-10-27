@@ -1,18 +1,19 @@
 //! The Firebird connection
 
 use super::backend::Fb;
+use super::query_builder::FbQueryBuilder;
 use diesel::connection::*;
 use diesel::deserialize::*;
+use diesel::query_builder::bind_collector::RawBytesBindCollector;
 use diesel::query_builder::*;
 use diesel::result::Error::DatabaseError;
 use diesel::result::*;
 use diesel::types::HasSqlType;
-use rsfb::FirebirdClientFactory;
-use rsfbclient as rsfb;
-use rsfbclient_native as rsfbn;
+use rsfbclient::{Execute, FirebirdClientFactory, SqlType};
+use rsfbclient_native::*;
 use std::cell::RefCell;
 
-type FbRawConnection = rsfb::Connection<rsfbn::NativeFbClient<rsfbn::DynLink>>;
+type FbRawConnection = rsfbclient::Connection<NativeFbClient<DynLink>>;
 
 pub struct FbConnection {
     pub raw: RefCell<FbRawConnection>,
@@ -22,8 +23,6 @@ unsafe impl Send for FbConnection {}
 
 impl SimpleConnection for FbConnection {
     fn batch_execute(&self, query: &str) -> QueryResult<()> {
-        use rsfbclient::Execute;
-
         self.raw
             .borrow_mut()
             .execute(query, ())
@@ -38,7 +37,7 @@ impl Connection for FbConnection {
     type Backend = Fb;
 
     fn establish(database_url: &str) -> ConnectionResult<Self> {
-        let raw_builder = rsfb::builder_native().with_dyn_link().with_remote();
+        let raw_builder = rsfbclient::builder_native().with_dyn_link().with_remote();
 
         let raw = FbRawConnection::open(
             raw_builder.new_instance().unwrap(), //note this can fail for dyn load if the lib isn't found
@@ -53,8 +52,6 @@ impl Connection for FbConnection {
     }
 
     fn execute(&self, query: &str) -> QueryResult<usize> {
-        use rsfbclient::Execute;
-
         self.raw
             .borrow_mut()
             .execute(query, ())
@@ -83,7 +80,24 @@ impl Connection for FbConnection {
     where
         T: QueryFragment<Self::Backend> + QueryId,
     {
-        todo!()
+        let mut bc = RawBytesBindCollector::<Fb>::new();
+        source.collect_binds(&mut bc, &())?;
+
+        let mut qb = FbQueryBuilder::new();
+        source.to_sql(&mut qb)?;
+        let sql = qb.finish();
+
+        let params: Vec<SqlType> = bc
+            .metadata
+            .into_iter()
+            .zip(bc.binds)
+            .map(|(tp, val)| tp.to_param(val))
+            .collect();
+
+        self.raw
+            .borrow_mut()
+            .execute(&sql, params)
+            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))
     }
 
     fn transaction_manager(&self) -> &Self::TransactionManager {

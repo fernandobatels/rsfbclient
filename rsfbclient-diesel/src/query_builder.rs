@@ -4,23 +4,32 @@ use super::backend::Fb;
 use diesel::query_builder::QueryBuilder;
 use diesel::QueryResult;
 
-pub struct FbQueryBuilder;
+pub struct FbQueryBuilder {
+    query: String,
+}
 
-#[allow(unused_variables)]
+impl FbQueryBuilder {
+    pub fn new() -> Self {
+        FbQueryBuilder { query: String::new() }
+    }
+}
+
 impl QueryBuilder<Fb> for FbQueryBuilder {
     fn push_sql(&mut self, sql: &str) {
-        todo!()
+        self.query.push_str(sql);
     }
 
     fn push_identifier(&mut self, identifier: &str) -> QueryResult<()> {
-        todo!()
+        self.query.push_str(identifier);
+
+        Ok(())
     }
 
     fn push_bind_param(&mut self) {
-        todo!()
+        self.query.push_str("?");
     }
 
     fn finish(self) -> String {
-        todo!()
+        self.query
     }
 }
