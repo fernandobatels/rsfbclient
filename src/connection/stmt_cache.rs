@@ -5,9 +5,9 @@
 //!
 
 use lru_cache::LruCache;
-use std::collections::HashSet;
+use std::{collections::HashSet, mem};
 
-use crate::{statement::StatementData, transaction::TransactionData, Connection, FbError};
+use crate::{statement::StatementData, Connection, FbError, Transaction};
 use rsfbclient_core::FirebirdClient;
 
 /// Cache of prepared statements.
@@ -76,24 +76,22 @@ impl<T> StmtCache<T> {
 }
 
 /// Functions specific for when the data is a `StatementData`
-impl<C: FirebirdClient> StmtCache<StatementData<C>>
+impl<C> StmtCache<StatementData<C>>
 where
-    C::StmtHandle: Send + Clone + Copy,
+    C: FirebirdClient,
 {
     /// Get a prepared statement from the cache, or prepare one
     pub fn get_or_prepare(
-        &mut self,
-        conn: &Connection<C>,
-        tr: &mut TransactionData<C>,
+        tr: &mut Transaction<C>,
         sql: &str,
         named_params: bool,
     ) -> Result<StmtCacheData<StatementData<C>>, FbError> {
-        if let Some(data) = self.get(sql) {
+        if let Some(data) = tr.conn.stmt_cache.get(sql) {
             Ok(data)
         } else {
             Ok(StmtCacheData {
                 sql: sql.to_string(),
-                stmt: StatementData::prepare(conn, tr, sql, named_params)?,
+                stmt: StatementData::prepare(tr.conn, &mut tr.data, sql, named_params)?,
             })
         }
     }
@@ -101,14 +99,13 @@ where
     /// Adds a prepared statement to the cache, closing the previous one for this sql
     /// or another if the cache is full
     pub fn insert_and_close(
-        &mut self,
-        conn: &Connection<C>,
+        conn: &mut Connection<C>,
         data: StmtCacheData<StatementData<C>>,
     ) -> Result<(), FbError> {
-        self.sqls.insert(data.sql.clone());
+        conn.stmt_cache.sqls.insert(data.sql.clone());
 
         // Insert the new one and close the old if exists
-        if let Some(mut stmt) = self.insert(data) {
+        if let Some(mut stmt) = conn.stmt_cache.insert(data) {
             stmt.close(conn)?;
         }
 
@@ -117,8 +114,10 @@ where
 
     /// Closes all statements in the cache.
     /// Needs to be called before dropping the cache.
-    pub fn close_all(&mut self, conn: &Connection<C>) {
-        for (_, stmt) in self.cache.iter_mut() {
+    pub fn close_all(conn: &mut Connection<C>) {
+        let mut stmt_cache = mem::replace(&mut conn.stmt_cache, StmtCache::new(0));
+
+        for (_, stmt) in stmt_cache.cache.iter_mut() {
             stmt.close(conn).ok();
         }
     }

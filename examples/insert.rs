@@ -23,7 +23,7 @@ struct ParamTest {
 
 fn main() -> Result<(), FbError> {
     #[cfg(feature = "linking")]
-    let conn = rsfbclient::builder_native()
+    let mut conn = rsfbclient::builder_native()
         .with_dyn_link()
         .with_remote()
         .host("localhost")
@@ -33,7 +33,7 @@ fn main() -> Result<(), FbError> {
         .connect()?;
 
     #[cfg(feature = "dynamic_loading")]
-    let conn = rsfbclient::builder_native()
+    let mut conn = rsfbclient::builder_native()
         .with_dyn_load("./fbclient.lib")
         .with_remote()
         .host("localhost")
@@ -71,15 +71,15 @@ fn main() -> Result<(), FbError> {
         {
             let mut stmt = tr.prepare(SQL_INSERT, false)?;
 
-            stmt.execute(tr, (-39, "test"))?;
-            stmt.execute(tr, (12, "test 2"))?;
+            stmt.execute((-39, "test"))?;
+            stmt.execute((12, "test 2"))?;
         }
         // Fourth alternative, with named params
         {
             let mut stmt = tr.prepare(SQL_INSERT_NAMED, false)?;
 
-            stmt.execute(tr, p1.clone())?;
-            stmt.execute(tr, p2.clone())?;
+            stmt.execute(p1.clone())?;
+            stmt.execute(p2.clone())?;
         }
 
         Ok(())

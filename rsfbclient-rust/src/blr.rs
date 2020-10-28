@@ -17,7 +17,7 @@ pub struct ParamsBlr {
 /// Convert the parameters to a blr (binary representation)
 pub fn params_to_blr(
     conn: &mut FirebirdWireConnection,
-    tr_handle: crate::TrHandle,
+    tr_handle: &mut crate::TrHandle,
     params: &[SqlType],
 ) -> Result<ParamsBlr, FbError> {
     let mut blr = BytesMut::with_capacity(256);
@@ -38,10 +38,10 @@ pub fn params_to_blr(
     }
 
     // Handle blob creation and blr conversion
-    let handle_blob = |conn: &mut FirebirdWireConnection,
-                       blr: &mut BytesMut,
-                       values: &mut BytesMut,
-                       data: &[u8]| {
+    let mut handle_blob = |conn: &mut FirebirdWireConnection,
+                           blr: &mut BytesMut,
+                           values: &mut BytesMut,
+                           data: &[u8]| {
         let (blob_handle, id) = conn.create_blob(tr_handle)?;
 
         conn.put_segments(blob_handle, &data)?;

@@ -15,14 +15,14 @@ where
 impl<Hdl, A: FirebirdClientDbOps<DbHandle = Hdl> + FirebirdClientSqlOps<DbHandle = Hdl>>
     FirebirdClient for A
 where
-    Hdl: Send + Copy,
+    Hdl: Send,
 {
 }
 
 ///Responsible for database administration and attachment/detachment
 pub trait FirebirdClientDbOps: Send {
     /// A database handle
-    type DbHandle: Send + Clone + Copy;
+    type DbHandle: Send;
 
     /// Configuration details for attaching to the database.
     /// A user of an implementation of this trait can configure attachment details
@@ -38,37 +38,40 @@ pub trait FirebirdClientDbOps: Send {
     ) -> Result<Self::DbHandle, FbError>;
 
     /// Disconnect from the database
-    fn detach_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError>;
+    fn detach_database(&mut self, db_handle: &mut Self::DbHandle) -> Result<(), FbError>;
 
     /// Drop the database
-    fn drop_database(&mut self, db_handle: Self::DbHandle) -> Result<(), FbError>;
+    fn drop_database(&mut self, db_handle: &mut Self::DbHandle) -> Result<(), FbError>;
 }
 
 ///Responsible for actual transaction and statement execution
 pub trait FirebirdClientSqlOps {
     /// A database handle
-    type DbHandle: Send + Clone + Copy;
+    type DbHandle: Send;
     /// A transaction handle
-    type TrHandle: Send + Clone + Copy;
+    type TrHandle: Send;
     /// A statement handle
-    type StmtHandle: Send + Clone + Copy;
+    type StmtHandle: Send;
 
     /// Start a new transaction, with the specified transaction parameter buffer
     fn begin_transaction(
         &mut self,
-        db_handle: Self::DbHandle,
+        db_handle: &mut Self::DbHandle,
         isolation_level: TrIsolationLevel,
     ) -> Result<Self::TrHandle, FbError>;
 
     /// Commit / Rollback a transaction
-    fn transaction_operation(&mut self, tr_handle: Self::TrHandle, op: TrOp)
-        -> Result<(), FbError>;
+    fn transaction_operation(
+        &mut self,
+        tr_handle: &mut Self::TrHandle,
+        op: TrOp,
+    ) -> Result<(), FbError>;
 
     /// Execute a sql immediately, without returning rows
     fn exec_immediate(
         &mut self,
-        db_handle: Self::DbHandle,
-        tr_handle: Self::TrHandle,
+        db_handle: &mut Self::DbHandle,
+        tr_handle: &mut Self::TrHandle,
         dialect: Dialect,
         sql: &str,
     ) -> Result<(), FbError>;
@@ -77,8 +80,8 @@ pub trait FirebirdClientSqlOps {
     /// Returns the statement type and handle
     fn prepare_statement(
         &mut self,
-        db_handle: Self::DbHandle,
-        tr_handle: Self::TrHandle,
+        db_handle: &mut Self::DbHandle,
+        tr_handle: &mut Self::TrHandle,
         dialect: Dialect,
         sql: &str,
     ) -> Result<(StmtType, Self::StmtHandle), FbError>;
@@ -86,16 +89,16 @@ pub trait FirebirdClientSqlOps {
     /// Closes or drops a statement
     fn free_statement(
         &mut self,
-        stmt_handle: Self::StmtHandle,
+        stmt_handle: &mut Self::StmtHandle,
         op: FreeStmtOp,
     ) -> Result<(), FbError>;
 
     /// Execute the prepared statement with parameters
     fn execute(
         &mut self,
-        db_handle: Self::DbHandle,
-        tr_handle: Self::TrHandle,
-        stmt_handle: Self::StmtHandle,
+        db_handle: &mut Self::DbHandle,
+        tr_handle: &mut Self::TrHandle,
+        stmt_handle: &mut Self::StmtHandle,
         params: Vec<SqlType>,
     ) -> Result<(), FbError>;
 
@@ -106,9 +109,9 @@ pub trait FirebirdClientSqlOps {
     /// as in the Result
     fn execute2(
         &mut self,
-        db_handle: Self::DbHandle,
-        tr_handle: Self::TrHandle,
-        stmt_handle: Self::StmtHandle,
+        db_handle: &mut Self::DbHandle,
+        tr_handle: &mut Self::TrHandle,
+        stmt_handle: &mut Self::StmtHandle,
         params: Vec<SqlType>,
     ) -> Result<Vec<Column>, FbError>;
 
@@ -116,9 +119,9 @@ pub trait FirebirdClientSqlOps {
     /// according to the provided blr
     fn fetch(
         &mut self,
-        db_handle: Self::DbHandle,
-        tr_handle: Self::TrHandle,
-        stmt_handle: Self::StmtHandle,
+        db_handle: &mut Self::DbHandle,
+        tr_handle: &mut Self::TrHandle,
+        stmt_handle: &mut Self::StmtHandle,
     ) -> Result<Option<Vec<Column>>, FbError>;
 }
 
