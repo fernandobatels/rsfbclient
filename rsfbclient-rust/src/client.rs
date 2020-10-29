@@ -15,7 +15,7 @@ use crate::{
     srp::*,
     util::*,
     wire::*,
-    xsqlda::{parse_xsqlda, xsqlda_to_blr, PrepareInfo, XSqlVar},
+    xsqlda::{parse_xsqlda, xsqlda_to_blr, PrepareInfo, XSqlVar, XSQLDA_DESCRIBE_VARS},
 };
 use rsfbclient_core::{
     ibase, Charset, Column, Dialect, FbError, FirebirdClient, FirebirdClientRemoteAttach,
@@ -473,8 +473,21 @@ impl FirebirdWireConnection {
 
         while truncated {
             // Get more info on the types
-            self.socket
-                .write_all(&info_sql(stmt_handle.0, xsqlda.len()))?;
+            let next_index = (xsqlda.len() as u16).to_le_bytes();
+
+            self.socket.write_all(&info_sql(
+                stmt_handle.0,
+                &[
+                    &[
+                        ibase::isc_info_sql_sqlda_start as u8, // Describe a xsqlda
+                        2,
+                        next_index[0], // Index, first byte
+                        next_index[1], // Index, second byte
+                    ],
+                    &XSQLDA_DESCRIBE_VARS[..], // Data to be returned
+                ]
+                .concat(),
+            ))?;
             self.socket.flush()?;
 
             let mut data = self.read_response()?.data;
@@ -536,22 +549,29 @@ impl FirebirdWireConnection {
                 .into());
             }
 
+            // Execute
             let params = blr::params_to_blr(self, tr_handle, params)?;
 
-            self.socket
-                .write_all(&execute(
-                    tr_handle.0,
-                    stmt_handle.0,
-                    &params.blr,
-                    &params.values,
-                ))
-                .unwrap();
+            self.socket.write_all(&execute(
+                tr_handle.0,
+                stmt_handle.0,
+                &params.blr,
+                &params.values,
+            ))?;
             self.socket.flush()?;
 
             self.read_response()?;
 
-            // TODO: implement the affected rows
-            Ok(0)
+            // Get affected rows
+            self.socket.write_all(&info_sql(
+                stmt_handle.0,
+                &[ibase::isc_info_sql_records as u8], // Request affected rows,
+            ))?;
+            self.socket.flush()?;
+
+            let mut data = self.read_response()?.data;
+
+            Ok(parse_info_sql_affected_rows(&mut data)?)
         } else {
             Err("Tried to execute a dropped statement".into())
         }

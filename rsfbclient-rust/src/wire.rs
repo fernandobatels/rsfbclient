@@ -302,27 +302,14 @@ pub fn prepare_statement(
     Ok(req.freeze())
 }
 
-/// Statement information request, to continue a truncated prepare statement xsqlda response
-pub fn info_sql(stmt_handle: u32, next_index: usize) -> Bytes {
-    let mut req = BytesMut::with_capacity(24 + XSQLDA_DESCRIBE_VARS.len());
-
-    let next_index = (next_index as u16).to_le_bytes();
+/// Statement information request
+pub fn info_sql(stmt_handle: u32, requested_items: &[u8]) -> Bytes {
+    let mut req = BytesMut::with_capacity(24 + requested_items.len());
 
     req.put_u32(WireOp::InfoSql as u32);
     req.put_u32(stmt_handle);
     req.put_u32(0); // Incarnation of object
-    req.put_wire_bytes(
-        &[
-            &[
-                ibase::isc_info_sql_sqlda_start as u8, // Describe a xsqlda
-                2,
-                next_index[0], // Index, first byte
-                next_index[1], // Index, second byte
-            ],
-            &XSQLDA_DESCRIBE_VARS[..], // Data to be returned
-        ]
-        .concat(),
-    );
+    req.put_wire_bytes(requested_items);
     req.put_u32(BUFFER_LENGTH);
 
     req.freeze()
@@ -941,4 +928,43 @@ pub fn parse_srp_auth_data(resp: &mut Bytes) -> Result<Option<SrpAuthData>, FbEr
         salt: salt.into_boxed_slice(),
         pub_key: pub_key.into_boxed_slice(),
     }))
+}
+
+/// Parse the result of an `InfoSql` requesting affected rows data
+pub fn parse_info_sql_affected_rows(data: &mut Bytes) -> Result<usize, FbError> {
+    let mut affected_rows = 0;
+
+    let item = data.get_u8()?;
+
+    if item == ibase::isc_info_end as u8 {
+        return Ok(0); // No affected rows data
+    }
+    debug_assert_eq!(item, ibase::isc_info_sql_records as u8);
+
+    data.advance(2)?; // Skip data length
+
+    loop {
+        match data.get_u8()? as u32 {
+            ibase::isc_info_req_select_count => {
+                // Not interested in the selected count
+                data.advance(6)?; //  Skip data length (assume 0x04 0x00) and data (4 bytes)
+            }
+
+            ibase::isc_info_req_insert_count
+            | ibase::isc_info_req_update_count
+            | ibase::isc_info_req_delete_count => {
+                data.advance(2)?; //  Skip data length (assume 0x04 0x00)
+
+                affected_rows += data.get_u32_le()? as usize;
+            }
+
+            ibase::isc_info_end => {
+                break;
+            }
+
+            _ => return Err(FbError::from("Invalid affected rows response")),
+        }
+    }
+
+    Ok(affected_rows)
 }
