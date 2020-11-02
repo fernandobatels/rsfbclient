@@ -1,12 +1,11 @@
-
 use crate::prelude::*;
 use diesel::prelude::*;
 
-#[derive(Insertable)]
+#[derive(Insertable, Queryable)]
 #[table_name = "users"]
-pub struct User<'a> {
+pub struct User {
     pub id: i32,
-    pub name: &'a str,
+    pub name: String,
 }
 
 table! {
@@ -17,7 +16,6 @@ table! {
 }
 
 pub fn setup(conn: &FbConnection) -> Result<(), String> {
-
     conn.execute("drop table users").ok();
     conn.execute("create table users(id int, name varchar(50))")
         .ok();

@@ -1,10 +1,16 @@
 //! Types implementation of Firebird support
 
 use super::backend::Fb;
+use super::value::FbValue;
 use bytes::Buf;
 use bytes::Bytes;
+use diesel::deserialize::{self, FromSql};
+use diesel::result::Error::DatabaseError;
+use diesel::result::*;
 use diesel::sql_types::{self, HasSqlType};
+use rsfbclient::ColumnToVal;
 use rsfbclient::SqlType;
+use std::boxed::Box;
 
 /// Supported types by the diesel
 /// Firebird implementation
@@ -14,7 +20,7 @@ pub enum SupportedType {
     Int,
     BigInt,
     Float,
-    Double
+    Double,
 }
 
 impl SupportedType {
@@ -103,5 +109,27 @@ impl HasSqlType<sql_types::Time> for Fb {
 impl HasSqlType<sql_types::Timestamp> for Fb {
     fn metadata(_: &Self::MetadataLookup) -> Self::TypeMetadata {
         todo!()
+    }
+}
+
+impl FromSql<sql_types::Integer, Fb> for i32 {
+    fn from_sql(value: Option<&FbValue>) -> deserialize::Result<Self> {
+        let rs =
+            not_none!(value).0.clone().to_val().map_err(|e| {
+                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
+            })?;
+
+        Ok(rs)
+    }
+}
+
+impl FromSql<sql_types::VarChar, Fb> for String {
+    fn from_sql(value: Option<&FbValue>) -> deserialize::Result<Self> {
+        let rs =
+            not_none!(value).0.clone().to_val().map_err(|e| {
+                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
+            })?;
+
+        Ok(rs)
     }
 }

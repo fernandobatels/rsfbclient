@@ -95,7 +95,7 @@ pub use crate::{
     utils::{EngineVersion, SystemInfos},
 };
 pub use rsfbclient_core::{
-    Column, Dialect, FbError, FromRow, IntoParam, IntoParams, ParamsType, Row, SqlType,
+    Column, ColumnToVal, Dialect, FbError, FromRow, IntoParam, IntoParams, ParamsType, Row, SqlType,
 };
 
 #[doc(hidden)]

@@ -2,6 +2,7 @@
 
 use crate::query_builder::FbQueryBuilder;
 use crate::types::SupportedType;
+use crate::value::FbValue;
 use byteorder::NetworkEndian;
 use diesel::backend::*;
 use diesel::query_builder::bind_collector::RawBytesBindCollector;
@@ -14,7 +15,7 @@ impl Backend for Fb {
     type QueryBuilder = FbQueryBuilder;
     type ByteOrder = NetworkEndian;
     type BindCollector = RawBytesBindCollector<Fb>;
-    type RawValue = SupportedType;
+    type RawValue = FbValue;
 }
 
 impl TypeMetadata for Fb {

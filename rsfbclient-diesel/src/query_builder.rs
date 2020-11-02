@@ -10,7 +10,9 @@ pub struct FbQueryBuilder {
 
 impl FbQueryBuilder {
     pub fn new() -> Self {
-        FbQueryBuilder { query: String::new() }
+        FbQueryBuilder {
+            query: String::new(),
+        }
     }
 }
 

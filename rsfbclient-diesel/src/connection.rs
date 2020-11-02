@@ -2,6 +2,7 @@
 
 use super::backend::Fb;
 use super::query_builder::FbQueryBuilder;
+use super::value::{Cursor, FbRow};
 use diesel::connection::*;
 use diesel::deserialize::*;
 use diesel::query_builder::bind_collector::RawBytesBindCollector;
@@ -9,6 +10,7 @@ use diesel::query_builder::*;
 use diesel::result::Error::DatabaseError;
 use diesel::result::*;
 use diesel::types::HasSqlType;
+use rsfbclient::Queryable as RsQueryable;
 use rsfbclient::{Execute, FirebirdClientFactory, SqlType};
 use rsfbclient_native::*;
 use std::cell::RefCell;
@@ -65,7 +67,28 @@ impl Connection for FbConnection {
         Self::Backend: HasSqlType<T::SqlType>,
         U: Queryable<T::SqlType, Self::Backend>,
     {
-        todo!()
+        let source = &source.as_query();
+        let mut bc = RawBytesBindCollector::<Fb>::new();
+        source.collect_binds(&mut bc, &())?;
+
+        let mut qb = FbQueryBuilder::new();
+        source.to_sql(&mut qb)?;
+        let sql = qb.finish();
+
+        let params: Vec<SqlType> = bc
+            .metadata
+            .into_iter()
+            .zip(bc.binds)
+            .map(|(tp, val)| tp.to_param(val))
+            .collect();
+
+        let conn = &mut self.raw.borrow_mut();
+        let cursor: Cursor<T::SqlType, U> =
+            <FbRawConnection as RsQueryable>::query_iter::<Vec<SqlType>, FbRow>(conn, &sql, params)
+                .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?
+                .into();
+
+        cursor.collect()
     }
 
     fn query_by_name<T, U>(&self, source: &T) -> QueryResult<Vec<U>>
