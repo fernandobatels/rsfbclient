@@ -369,7 +369,9 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         // Create the column buffers and set the xsqlda conercions
         let col_buffers = (0..xsqlda.sqld)
             .map(|col| {
-                let xcol = xsqlda.get_xsqlvar_mut(col as usize).unwrap();
+                let xcol = xsqlda
+                    .get_xsqlvar_mut(col as usize)
+                    .ok_or_else(|| FbError::from("Error getting the xsqlvar"))?;
 
                 ColumnBuffer::from_xsqlvar(xcol)
             })

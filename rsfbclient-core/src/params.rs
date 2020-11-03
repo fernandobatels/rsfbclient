@@ -265,8 +265,7 @@ impl NamedParams {
         for params in rparams.captures_iter(raw_sql) {
             for param in params
                 .iter()
-                .filter(|p| p.is_some())
-                .map(|p| p.unwrap().as_str())
+                .filter_map(|p| p.map(|m| m.as_str()))
                 .filter(|p| p.starts_with(':'))
             {
                 params_names.push(param.replace(":", ""));

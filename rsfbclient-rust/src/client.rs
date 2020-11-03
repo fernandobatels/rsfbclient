@@ -390,9 +390,7 @@ impl FirebirdWireConnection {
     ) -> Result<TrHandle, FbError> {
         let tpb = [ibase::isc_tpb_version3 as u8, isolation_level as u8];
 
-        self.socket
-            .write_all(&transaction(db_handle.0, &tpb))
-            .unwrap();
+        self.socket.write_all(&transaction(db_handle.0, &tpb))?;
         self.socket.flush()?;
 
         let resp = self.read_response()?;
@@ -422,14 +420,12 @@ impl FirebirdWireConnection {
         dialect: Dialect,
         sql: &str,
     ) -> Result<(), FbError> {
-        self.socket
-            .write_all(&exec_immediate(
-                tr_handle.0,
-                dialect as u32,
-                sql,
-                &self.charset,
-            )?)
-            .unwrap();
+        self.socket.write_all(&exec_immediate(
+            tr_handle.0,
+            dialect as u32,
+            sql,
+            &self.charset,
+        )?)?;
         self.socket.flush()?;
 
         self.read_response()?;
@@ -545,14 +541,12 @@ impl FirebirdWireConnection {
 
         let params = blr::params_to_blr(self, tr_handle, params)?;
 
-        self.socket
-            .write_all(&execute(
-                tr_handle.0,
-                stmt_handle.handle.0,
-                &params.blr,
-                &params.values,
-            ))
-            .unwrap();
+        self.socket.write_all(&execute(
+            tr_handle.0,
+            stmt_handle.handle.0,
+            &params.blr,
+            &params.values,
+        ))?;
         self.socket.flush()?;
 
         self.read_response()?;
@@ -578,15 +572,13 @@ impl FirebirdWireConnection {
 
         let params = blr::params_to_blr(self, tr_handle, params)?;
 
-        self.socket
-            .write_all(&execute2(
-                tr_handle.0,
-                stmt_handle.handle.0,
-                &params.blr,
-                &params.values,
-                &stmt_handle.blr,
-            ))
-            .unwrap();
+        self.socket.write_all(&execute2(
+            tr_handle.0,
+            stmt_handle.handle.0,
+            &params.blr,
+            &params.values,
+            &stmt_handle.blr,
+        ))?;
         self.socket.flush()?;
 
         let (op_code, mut resp) = read_packet(&mut self.socket, &mut self.buff)?;

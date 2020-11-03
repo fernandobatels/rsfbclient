@@ -52,7 +52,9 @@ impl Params {
             for (col, info) in infos.into_iter().enumerate() {
                 buffers.push(ParamBuffer::from_parameter(
                     info,
-                    xsqlda.get_xsqlvar_mut(col).unwrap(),
+                    xsqlda
+                        .get_xsqlvar_mut(col)
+                        .ok_or_else(|| FbError::from("Error getting the xsqlvar"))?,
                     db_handle,
                     tr_handle,
                     ibase,
