@@ -530,7 +530,8 @@ pub fn parse_sql_response(
     let read_null = |resp: &mut Bytes, i: usize| {
         if version >= ProtocolVersion::V13 {
             // read from the null bitmap
-            Ok::<_, FbError>((null_map.as_ref().unwrap()[i / 8] >> (i % 8)) & 1 != 0)
+            let null_map = null_map.as_ref().expect("Null map was not initialized");
+            Ok::<_, FbError>((null_map[i / 8] >> (i % 8)) & 1 != 0)
         } else {
             // read from the response
             Ok(resp.get_u32()? != 0)
