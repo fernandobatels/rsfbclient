@@ -1,7 +1,5 @@
 //! The Firebird Diesel implementation
 
-#[macro_use]
-extern crate diesel;
 pub mod backend;
 pub mod connection;
 pub mod query_builder;

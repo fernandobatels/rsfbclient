@@ -1,87 +1,107 @@
 //! Firebird value representation
 
 use super::backend::Fb;
-use diesel::deserialize::{FromSqlRow, Queryable};
-use diesel::result::Error::DeserializationError;
-use diesel::row::Row as DsRow;
-use diesel::sql_types::HasSqlType;
-use diesel::QueryResult;
+use diesel::backend::RawValue;
+use diesel::row::{Field, PartialRow, Row as DsRow, RowIndex};
 use rsfbclient::Row as RsRow;
 use rsfbclient::{Column, FbError, FromRow};
-use std::boxed::Box;
+use std::ffi::CStr;
 use std::marker::PhantomData;
+use std::ops::Range;
 
-pub struct FbValue(pub Column);
-
-pub struct FbRow {
-    raw: RsRow,
-    col_index: usize,
+pub struct FbValue<'a> {
+    pub raw: Column,
+    _marker: PhantomData<&'a ()>,
 }
 
-impl FromRow for FbRow {
+pub struct FbField<'a> {
+    raw: Column,
+    _marker: PhantomData<&'a ()>,
+}
+
+impl<'a> Field<'a, Fb> for FbField<'a> {
+    fn field_name(&self) -> Option<&'a str> {
+        let name_ptr = self.raw.name.as_ptr();
+
+        unsafe {
+            Some(
+                CStr::from_ptr(name_ptr as *const _)
+                    .to_str()
+                    .expect("Error on get the field name"),
+            )
+        }
+    }
+
+    fn value(&self) -> Option<RawValue<'a, Fb>> {
+        Some(FbValue {
+            raw: self.raw.clone(),
+            _marker: PhantomData,
+        })
+    }
+}
+
+pub struct FbRow<'a> {
+    raw: RsRow,
+    _marker: PhantomData<&'a ()>,
+}
+
+impl<'a> FromRow for FbRow<'a> {
     fn try_from(row: Vec<Column>) -> Result<Self, FbError>
     where
         Self: Sized,
     {
         Ok(Self {
             raw: RsRow::try_from(row)?,
-            col_index: 0,
+            _marker: PhantomData,
         })
     }
 }
 
-impl DsRow<Fb> for FbRow {
-    fn take(&mut self) -> Option<&FbValue> {
-        if let Some(col) = self.raw.cols.get(self.col_index) {
-            self.col_index = self.col_index + 1;
+impl<'a> DsRow<'a, Fb> for FbRow<'a> {
+    type Field = FbField<'a>;
+    type InnerPartialRow = Self;
 
-            unsafe {
-                return (col as *const _ as *const FbValue)
-                    .as_ref()
-                    .and_then(|v| Some(v));
-            }
+    fn get<I>(&self, idx: I) -> Option<Self::Field>
+    where
+        Self: RowIndex<I>,
+    {
+        let idx = self.idx(idx)?;
+        if let Some(col) = self.raw.cols.get(idx) {
+            return Some(Self::Field {
+                raw: col.clone(),
+                _marker: PhantomData,
+            });
         }
 
         None
     }
 
-    fn next_is_null(&self, count: usize) -> bool {
-        self.raw.cols.len() > count
+    fn field_count(&self) -> usize {
+        self.raw.cols.len()
+    }
+
+    fn partial_row(&self, range: Range<usize>) -> PartialRow<Self::InnerPartialRow> {
+        PartialRow::new(self, range)
     }
 }
 
-pub struct Cursor<'a, ST, T> {
-    raw: Box<dyn Iterator<Item = Result<FbRow, FbError>> + 'a>,
-    _marker: PhantomData<(ST, T)>,
-}
-
-impl<'a, ST, T> From<Box<dyn Iterator<Item = Result<FbRow, FbError>> + 'a>> for Cursor<'a, ST, T> {
-    fn from(raw: Box<dyn Iterator<Item = Result<FbRow, FbError>> + 'a>) -> Self {
-        Self {
-            raw: raw,
-            _marker: PhantomData,
+impl<'a> RowIndex<usize> for FbRow<'a> {
+    fn idx(&self, idx: usize) -> Option<usize> {
+        if idx < self.raw.cols.len() {
+            Some(idx)
+        } else {
+            None
         }
     }
 }
 
-impl<'a, ST, T> Iterator for Cursor<'a, ST, T>
-where
-    Fb: HasSqlType<ST>,
-    T: Queryable<ST, Fb>,
-{
-    type Item = QueryResult<T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(rrow) = self.raw.next() {
-            if let Ok(mut row) = rrow {
-                let rs = T::Row::build_from_row(&mut row)
-                    .map(T::build)
-                    .map_err(DeserializationError);
-
-                return Some(rs);
-            }
-        }
-
-        None
+impl<'a, 'b> RowIndex<&'a str> for FbRow<'b> {
+    fn idx(&self, field_name: &'a str) -> Option<usize> {
+        self.raw
+            .cols
+            .iter()
+            .enumerate()
+            .find(|(_idx, col)| col.name == field_name)
+            .map(|(idx, _col)| idx)
     }
 }

@@ -15,7 +15,10 @@ impl Backend for Fb {
     type QueryBuilder = FbQueryBuilder;
     type ByteOrder = NetworkEndian;
     type BindCollector = RawBytesBindCollector<Fb>;
-    type RawValue = FbValue;
+}
+
+impl<'a> HasRawValue<'a> for Fb {
+    type RawValue = FbValue<'a>;
 }
 
 impl TypeMetadata for Fb {

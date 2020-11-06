@@ -113,22 +113,22 @@ impl HasSqlType<sql_types::Timestamp> for Fb {
 }
 
 impl FromSql<sql_types::Integer, Fb> for i32 {
-    fn from_sql(value: Option<&FbValue>) -> deserialize::Result<Self> {
-        let rs =
-            not_none!(value).0.clone().to_val().map_err(|e| {
-                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
-            })?;
+    fn from_sql(value: FbValue) -> deserialize::Result<Self> {
+        let rs = value
+            .raw
+            .to_val()
+            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?;
 
         Ok(rs)
     }
 }
 
 impl FromSql<sql_types::VarChar, Fb> for String {
-    fn from_sql(value: Option<&FbValue>) -> deserialize::Result<Self> {
-        let rs =
-            not_none!(value).0.clone().to_val().map_err(|e| {
-                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
-            })?;
+    fn from_sql(value: FbValue) -> deserialize::Result<Self> {
+        let rs = value
+            .raw
+            .to_val()
+            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?;
 
         Ok(rs)
     }

@@ -1,7 +1,7 @@
 //! The Firebird query builder
 
 use super::backend::Fb;
-use diesel::query_builder::QueryBuilder;
+use diesel::query_builder::*;
 use diesel::QueryResult;
 
 pub struct FbQueryBuilder {
@@ -33,5 +33,11 @@ impl QueryBuilder<Fb> for FbQueryBuilder {
 
     fn finish(self) -> String {
         self.query
+    }
+}
+
+impl QueryFragment<Fb> for LimitOffsetClause<NoLimitClause, NoOffsetClause> {
+    fn walk_ast(&self, _out: AstPass<Fb>) -> QueryResult<()> {
+        Ok(())
     }
 }

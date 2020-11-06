@@ -2,15 +2,16 @@
 
 use super::backend::Fb;
 use super::query_builder::FbQueryBuilder;
-use super::value::{Cursor, FbRow};
+use super::value::FbRow;
 use diesel::connection::*;
 use diesel::deserialize::*;
+use diesel::expression::QueryMetadata;
 use diesel::query_builder::bind_collector::RawBytesBindCollector;
 use diesel::query_builder::*;
 use diesel::result::Error::DatabaseError;
+use diesel::result::Error::DeserializationError;
 use diesel::result::*;
-use diesel::types::HasSqlType;
-use rsfbclient::Queryable as RsQueryable;
+use rsfbclient::Queryable;
 use rsfbclient::{Execute, FirebirdClientFactory, SqlType};
 use rsfbclient_native::*;
 use std::cell::RefCell;
@@ -60,12 +61,12 @@ impl Connection for FbConnection {
             .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))
     }
 
-    fn query_by_index<T, U>(&self, source: T) -> QueryResult<Vec<U>>
+    fn load<T, U>(&self, source: T) -> QueryResult<Vec<U>>
     where
         T: AsQuery,
         T::Query: QueryFragment<Self::Backend> + QueryId,
-        Self::Backend: HasSqlType<T::SqlType>,
-        U: Queryable<T::SqlType, Self::Backend>,
+        U: FromSqlRow<T::SqlType, Self::Backend>,
+        Self::Backend: QueryMetadata<T::SqlType>,
     {
         let source = &source.as_query();
         let mut bc = RawBytesBindCollector::<Fb>::new();
@@ -82,21 +83,13 @@ impl Connection for FbConnection {
             .map(|(tp, val)| tp.to_param(val))
             .collect();
 
-        let conn = &mut self.raw.borrow_mut();
-        let cursor: Cursor<T::SqlType, U> =
-            <FbRawConnection as RsQueryable>::query_iter::<Vec<SqlType>, FbRow>(conn, &sql, params)
-                .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?
-                .into();
-
-        cursor.collect()
-    }
-
-    fn query_by_name<T, U>(&self, source: &T) -> QueryResult<Vec<U>>
-    where
-        T: QueryFragment<Self::Backend> + QueryId,
-        U: QueryableByName<Self::Backend>,
-    {
-        todo!()
+        self.raw
+            .borrow_mut()
+            .query::<Vec<SqlType>, FbRow>(&sql, params)
+            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?
+            .iter()
+            .map(|row| U::build_from_row(row).map_err(DeserializationError))
+            .collect()
     }
 
     fn execute_returning_count<T>(&self, source: &T) -> QueryResult<usize>
