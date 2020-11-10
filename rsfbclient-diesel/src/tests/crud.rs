@@ -82,5 +82,13 @@ fn select() -> Result<(), String> {
     assert_eq!(user.id, 1);
     assert_eq!(user.name, "Luis A");
 
+    let user2 = schema::users::table
+        .filter(schema::users::columns::id.eq(2))
+        .first::<schema::User>(&conn)
+        .map_err(|e| e.to_string())?;
+
+    assert_eq!(user2.id, 2);
+    assert_eq!(user2.name, "Luis B");
+
     Ok(())
 }
