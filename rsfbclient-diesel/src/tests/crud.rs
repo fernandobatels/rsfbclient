@@ -6,7 +6,7 @@ use diesel::prelude::*;
 
 #[test]
 fn insert() -> Result<(), String> {
-    let conn = FbConnection::establish("teste").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 
@@ -25,7 +25,7 @@ fn insert() -> Result<(), String> {
 
 #[test]
 fn update() -> Result<(), String> {
-    let conn = FbConnection::establish("teste").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 
@@ -43,7 +43,7 @@ fn update() -> Result<(), String> {
 
 #[test]
 fn delete() -> Result<(), String> {
-    let conn = FbConnection::establish("teste").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 
@@ -62,7 +62,7 @@ fn delete() -> Result<(), String> {
 
 #[test]
 fn select() -> Result<(), String> {
-    let conn = FbConnection::establish("teste").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 

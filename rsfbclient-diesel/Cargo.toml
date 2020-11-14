@@ -14,7 +14,12 @@ license = "MIT"
 
 [dependencies]
 diesel = { version = "2.0.0", git = "https://github.com/fernandobatels/diesel", features = ["no-default-stmt-impl"] }
-rsfbclient = { version = "0.12.0", path = "../" }
-rsfbclient-native = { version = "0.12.0", path = "../rsfbclient-native" }
+rsfbclient = { version = "0.13.0", path = "../", features = ["dynamic_loading", "pure_rust"] }
 byteorder = "1.0"
 bytes = "0.6.0"
+
+[features]
+default = ["linking"]
+dynamic_loading = []
+linking = []
+pure_rust = []

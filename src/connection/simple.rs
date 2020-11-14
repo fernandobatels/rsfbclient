@@ -140,7 +140,7 @@ impl SimpleConnection {
 }
 
 impl Execute for SimpleConnection {
-    fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
+    fn execute<P>(&mut self, sql: &str, params: P) -> Result<usize, FbError>
     where
         P: IntoParams,
     {

@@ -2,6 +2,7 @@
 
 use super::backend::Fb;
 use super::query_builder::FbQueryBuilder;
+use super::transaction::FbTransactionManager;
 use super::value::FbRow;
 use diesel::connection::*;
 use diesel::deserialize::*;
@@ -11,20 +12,18 @@ use diesel::query_builder::*;
 use diesel::result::Error::DatabaseError;
 use diesel::result::Error::DeserializationError;
 use diesel::result::*;
-use rsfbclient::Queryable;
-use rsfbclient::{Execute, FirebirdClientFactory, SqlType};
-use rsfbclient_native::*;
+use rsfbclient::SimpleConnection as FbRawConnection;
+use rsfbclient::{Execute, SqlType, Queryable};
 use std::cell::RefCell;
 
-type FbRawConnection = rsfbclient::Connection<NativeFbClient<DynLink>>;
-
-pub struct FbConnection {
-    pub raw: RefCell<FbRawConnection>,
+pub struct FbConnection<'c> {
+    pub(crate) raw: RefCell<FbRawConnection>,
+    tr_manager: FbTransactionManager<'c>,
 }
 
-unsafe impl Send for FbConnection {}
+unsafe impl<'c> Send for FbConnection<'c> {}
 
-impl SimpleConnection for FbConnection {
+impl<'c> SimpleConnection for FbConnection<'c> {
     fn batch_execute(&self, query: &str) -> QueryResult<()> {
         self.raw
             .borrow_mut()
@@ -34,27 +33,37 @@ impl SimpleConnection for FbConnection {
     }
 }
 
-#[allow(unused_variables)]
-impl Connection for FbConnection {
-    type TransactionManager = AnsiTransactionManager;
+impl<'c> Connection for FbConnection<'c> {
+    type TransactionManager = FbTransactionManager<'c>;
     type Backend = Fb;
 
     fn establish(database_url: &str) -> ConnectionResult<Self> {
-        let raw_builder = rsfbclient::builder_native().with_dyn_link().with_remote();
 
-        let raw = FbRawConnection::open(
-            raw_builder.new_instance().unwrap(), //note this can fail for dyn load if the lib isn't found
-            raw_builder.get_conn_conf(),
-        )
-        .map_err(|e| ConnectionError::BadConnection(e.to_string()))
-        .unwrap();
+        #[cfg(feature = "pure_rust")]
+        let raw_builder = rsfbclient::builder_pure_rust().from_string(database_url);
+        #[cfg(not(feature = "pure_rust"))]
+        let raw_builder = rsfbclient::builder_native().from_string(database_url);
+
+        let raw = raw_builder.map_err(|e| ConnectionError::BadConnection(e.to_string()))
+            .unwrap()
+            .connect()
+            .map_err(|e| ConnectionError::BadConnection(e.to_string()))
+            .unwrap();
 
         Ok(FbConnection {
-            raw: RefCell::new(raw),
+            raw: RefCell::new(raw.into()),
+            tr_manager: FbTransactionManager::new(),
         })
     }
 
     fn execute(&self, query: &str) -> QueryResult<usize> {
+        let mut tr_ref = self.tr_manager.raw.borrow_mut();
+        if let Some(tr) = tr_ref.as_mut() {
+            return tr
+                .execute(query, ())
+                .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())));
+        }
+
         self.raw
             .borrow_mut()
             .execute(query, ())
@@ -83,9 +92,19 @@ impl Connection for FbConnection {
             .map(|(tp, val)| tp.to_param(val))
             .collect();
 
-        self.raw
-            .borrow_mut()
-            .query::<Vec<SqlType>, FbRow>(&sql, params)
+        let result;
+
+        let mut tr_ref = self.tr_manager.raw.borrow_mut();
+        if let Some(tr) = tr_ref.as_mut() {
+            result = tr.query::<Vec<SqlType>, FbRow>(&sql, params);
+        } else {
+            result = self
+                .raw
+                .borrow_mut()
+                .query::<Vec<SqlType>, FbRow>(&sql, params);
+        }
+
+        result
             .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?
             .iter()
             .map(|row| U::build_from_row(row).map_err(DeserializationError))
@@ -110,6 +129,13 @@ impl Connection for FbConnection {
             .map(|(tp, val)| tp.to_param(val))
             .collect();
 
+        let mut tr_ref = self.tr_manager.raw.borrow_mut();
+        if let Some(tr) = tr_ref.as_mut() {
+            return tr
+                .execute(&sql, params)
+                .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())));
+        }
+
         self.raw
             .borrow_mut()
             .execute(&sql, params)
@@ -117,7 +143,7 @@ impl Connection for FbConnection {
     }
 
     fn transaction_manager(&self) -> &Self::TransactionManager {
-        todo!()
+        &self.tr_manager
     }
 }
 
@@ -131,14 +157,14 @@ mod tests {
 
     #[test]
     fn establish() -> Result<(), ConnectionError> {
-        FbConnection::establish("teste")?;
+        FbConnection::establish("firebird://test.fdb")?;
 
         Ok(())
     }
 
     #[test]
     fn execute() -> Result<(), Error> {
-        let conn = FbConnection::establish("teste").unwrap();
+        let conn = FbConnection::establish("firebird://test.fdb").unwrap();
 
         conn.batch_execute("drop table conn_exec").ok();
 

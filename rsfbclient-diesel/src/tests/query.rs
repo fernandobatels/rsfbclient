@@ -6,7 +6,7 @@ use diesel::prelude::*;
 
 #[test]
 fn filter() -> Result<(), String> {
-    let conn = FbConnection::establish("teste").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 
@@ -39,7 +39,7 @@ fn filter() -> Result<(), String> {
 
 #[test]
 fn order() -> Result<(), String> {
-    let conn = FbConnection::establish("teste").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 
@@ -72,7 +72,7 @@ fn order() -> Result<(), String> {
 
 #[test]
 fn limit_offset() -> Result<(), String> {
-    let conn = FbConnection::establish("teste").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 
@@ -121,7 +121,7 @@ fn limit_offset() -> Result<(), String> {
 
 #[test]
 fn find() -> Result<(), String> {
-    let conn = FbConnection::establish("teste").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 
@@ -153,7 +153,7 @@ fn find() -> Result<(), String> {
 
 #[test]
 fn distinct() -> Result<(), String> {
-    let conn = FbConnection::establish("teste").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 
