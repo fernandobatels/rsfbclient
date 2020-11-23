@@ -4,7 +4,7 @@
 //! Connection functions
 //!
 use rsfbclient_core::{Dialect, FbError, FirebirdClient, FirebirdClientDbOps, FromRow, IntoParams};
-use std::{marker, mem::ManuallyDrop};
+use std::{marker, mem};
 
 use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
@@ -108,7 +108,7 @@ impl<C: FirebirdClient> Connection<C> {
     /// Close the current connection.
     pub fn close(mut self) -> Result<(), FbError> {
         let res = self.cleanup_and_detach();
-        ManuallyDrop::new(self);
+        mem::forget(self);
         res
     }
 
