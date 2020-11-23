@@ -6,7 +6,7 @@
 
 use rsfbclient_core::{FbError, FirebirdClient, FromRow, IntoParams, TrIsolationLevel, TrOp};
 use std::marker;
-use std::mem::ManuallyDrop;
+use std::mem;
 
 use super::{connection::Connection, statement::Statement};
 use crate::{
@@ -35,7 +35,7 @@ impl<'c, C: FirebirdClient> Transaction<'c, C> {
         let result = self.data.commit(self.conn);
 
         if result.is_ok() {
-            ManuallyDrop::new(self);
+            mem::forget(self);
         } else {
             let _ = self.rollback();
         }
@@ -56,7 +56,7 @@ impl<'c, C: FirebirdClient> Transaction<'c, C> {
     /// Rollback the current transaction changes
     pub fn rollback(mut self) -> Result<(), FbError> {
         let result = self.data.rollback(self.conn);
-        ManuallyDrop::new(self);
+        mem::forget(self);
         result
     }
 
