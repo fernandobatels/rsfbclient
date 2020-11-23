@@ -32,6 +32,7 @@ pub mod builders {
     pub use builder_pure_rust::*;
 }
 
+pub(crate) mod conn_string;
 pub(crate) mod stmt_cache;
 
 /// A generic factory for creating multiple preconfigured instances of a particular client implementation

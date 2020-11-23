@@ -1,4 +1,5 @@
 use super::*;
+use crate::connection::conn_string;
 use std::marker::PhantomData;
 
 #[doc(hidden)]
@@ -157,7 +158,7 @@ where
         self
     }
 
-    /// SQL Dialect. Default: 3
+    /// Connection charset. Default: UTF-8
     pub fn charset(&mut self, charset: Charset) -> &mut Self {
         self.charset = charset;
         self
@@ -305,5 +306,54 @@ impl<A> NativeConnectionBuilder<LinkageNotConfigured, A> {
     ) -> NativeConnectionBuilder<DynLoad, A> {
         self.lib_path = Some(lib_path.into());
         self.safe_transmute()
+    }
+
+    /// Setup the connection using the string
+    /// pattern.
+    ///
+    /// Basic string format: `firebird://{user}:{pass}@{host}:{port}/{db_name}?{options}`
+    pub fn with_string<L: LinkageMarker + ConfiguredLinkage, S: Into<String>>(
+        self,
+        s_conn: S,
+    ) -> Result<NativeConnectionBuilder<L, Remote>, FbError> {
+        let settings = conn_string::parse(s_conn)?;
+
+        let mut cb = {
+            // When we have a host, we will consider
+            // this a remote connection
+            if let Some(host) = settings.host {
+                let mut cb = self.safe_transmute().with_remote();
+
+                cb.host(host);
+
+                if let Some(port) = settings.port {
+                    cb.port(port);
+                }
+
+                if let Some(user) = settings.user {
+                    cb.user(user);
+                }
+
+                if let Some(pass) = settings.pass {
+                    cb.pass(pass);
+                }
+
+                cb
+            } else {
+                self.safe_transmute()
+            }
+        };
+
+        cb.db_name(settings.db_name);
+
+        if let Some(charset) = settings.charset {
+            cb.charset(charset);
+        }
+
+        if let Some(dialect) = settings.dialect {
+            cb.dialect(dialect);
+        }
+
+        Ok(cb)
     }
 }

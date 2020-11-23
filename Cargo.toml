@@ -18,6 +18,7 @@ rsfbclient-core = { version = "0.12.0", path = "rsfbclient-core" }
 rsfbclient-native = { version = "0.12.0", path = "rsfbclient-native", optional = true }
 rsfbclient-rust = { version = "0.12.0", path = "rsfbclient-rust", optional = true }
 rsfbclient-derive = { version = "0.12.0", path = "rsfbclient-derive" }
+regex = "1.4"
 
 [dev-dependencies]
 rand = "0.7.3"

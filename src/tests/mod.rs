@@ -30,6 +30,7 @@ macro_rules! mk_tests {
             #[allow(unused_imports)]
             use crate as rsfbclient;
 
+            #[allow(dead_code)]
             fn cbuilder() -> $type {
                 $( $cbuilder )*
             }
@@ -112,6 +113,7 @@ macro_rules! mk_tests_default {
 }
 
 mod charset;
+mod connection;
 mod params;
 mod row;
 mod transaction;

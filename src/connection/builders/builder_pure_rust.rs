@@ -61,7 +61,7 @@ impl PureRustConnectionBuilder {
         self.0.attachment_conf.port = port;
         self
     }
-    ///
+
     /// Password. Default: masterkey
     pub fn pass<S: Into<String>>(&mut self, pass: S) -> &mut Self {
         self.0.attachment_conf.pass = pass.into();
@@ -80,7 +80,7 @@ impl PureRustConnectionBuilder {
         self
     }
 
-    /// Statement cache size. Default: 20
+    /// Connection charset. Default: UTF-8
     pub fn charset(&mut self, charset: Charset) -> &mut Self {
         self.1 = charset;
         self
