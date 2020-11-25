@@ -28,7 +28,7 @@ pub fn parse<S: Into<String>>(conn_s: S) -> Result<ConnStringSettings, FbError> 
 
     let user = regex_find(r#"(?:(/))([[:alnum:]]+)(?:(:))"#, 2, &sconn)?;
     let pass = regex_find(r#"(?:(:))([[:alnum:]]+)(?:(@))"#, 2, &sconn)?;
-    let host = regex_find(r#"(?:(@))([[:alnum:]]+)(?:([:|/]))"#, 2, &sconn)?;
+    let host = regex_find(r#"(?:(@))([^/:]+)"#, 2, &sconn)?;
     let port = {
         let fport_op = regex_find(r#"(?:(:))([[:digit:]]+)(?:(/))"#, 2, &sconn)?;
         if let Some(fport) = fport_op {
@@ -76,6 +76,26 @@ mod test {
     use super::parse;
     use crate::*;
 
+    #[test]
+    fn ipv4() -> Result<(), FbError> {
+        let conn = parse("firebird://username:password@192.168.0.1//srv/db/database_name.fdb?dialect=3")?;
+
+        assert_eq!(Some("username".to_string()), conn.user);
+        assert_eq!(Some("password".to_string()), conn.pass);
+        assert_eq!(Some("192.168.0.1".to_string()), conn.host);
+        assert_eq!(None, conn.port);
+        assert_eq!("/srv/db/database_name.fdb".to_string(), conn.db_name);
+
+        let conn = parse("firebird://username:password@192.168.0.1:3050/c:/db/database_name.fdb?dialect=3")?;
+
+        assert_eq!(Some("username".to_string()), conn.user);
+        assert_eq!(Some("password".to_string()), conn.pass);
+        assert_eq!(Some("192.168.0.1".to_string()), conn.host);
+        assert_eq!(Some(3050), conn.port);
+        assert_eq!("c:/db/database_name.fdb".to_string(), conn.db_name);
+
+        Ok(())
+    }
 
     #[test]
     fn no_host_port() -> Result<(), FbError> {
