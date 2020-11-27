@@ -26,11 +26,11 @@ pub fn parse<S: Into<String>>(conn_s: S) -> Result<ConnStringSettings, FbError> 
         ));
     }
 
-    let user = regex_find(r#"(?:(/))([[:alnum:]]+)(?:(:))"#, 2, &sconn)?;
-    let pass = regex_find(r#"(?:(:))([[:alnum:]]+)(?:(@))"#, 2, &sconn)?;
-    let host = regex_find(r#"(?:(@))([^/:]+)"#, 2, &sconn)?;
+    let user = regex_find(r#"(?:(/))([[:alnum:]]+)((?:@)|(?::))"#, &sconn, 2, false)?;
+    let pass = regex_find(r#"(?:(:))([[:alnum:]]+)(?:(@))"#, &sconn, 2, false)?;
+    let host = regex_find(r#"((?:://)|(?:@))([^@/:]+)"#, &sconn, 2, true)?;
     let port = {
-        let fport_op = regex_find(r#"(?:(:))([[:digit:]]+)(?:(/))"#, 2, &sconn)?;
+        let fport_op = regex_find(r#"(?:(:))([[:digit:]]+)(?:(/))"#, &sconn, 2, true)?;
         if let Some(fport) = fport_op {
             if let Ok(v) = fport.parse::<u16>() {
                 Some(v)
@@ -41,7 +41,7 @@ pub fn parse<S: Into<String>>(conn_s: S) -> Result<ConnStringSettings, FbError> 
             None
         }
     };
-    let db_name = regex_find(r#"((?:@\w+/)|(?:[0-9]/))([^\?]+)"#, 2, &sconn)?
+    let db_name = regex_find(r#"((?:@\w+/)|(?:[0-9]/))([^\?]+)"#, &sconn, 2, true)?
         .ok_or(FbError::from("The database name/path is required"))?;
 
     Ok(ConnStringSettings {
@@ -56,19 +56,27 @@ pub fn parse<S: Into<String>>(conn_s: S) -> Result<ConnStringSettings, FbError> 
     })
 }
 
-fn regex_find(regex: &str, cap_pos: usize, sconn: &str) -> Result<Option<String>, FbError> {
-    let caps = Regex::new(regex)
-        .map_err(|e| FbError::from(format!("Error on start the regex: {}", e)))?
-        .captures(sconn);
+/// A regex util tool. Handles the matches
+/// and groups
+fn regex_find(
+    pattern: &str,
+    sconn: &str,
+    group_i: usize,
+    last_match: bool,
+) -> Result<Option<String>, FbError> {
+    let regex = Regex::new(pattern)
+        .map_err(|e| FbError::from(format!("Error on start the regex: {}", e)))?;
 
-    if caps.is_none() {
-        return Ok(None);
+    let mut caps = regex.captures_iter(sconn);
+    let cap_op = if last_match { caps.last() } else { caps.next() };
+
+    match cap_op {
+        Some(cap) => Ok(match cap.get(group_i) {
+            Some(m) => Some(m.as_str().to_string()),
+            None => None,
+        }),
+        None => Ok(None),
     }
-
-    Ok(match caps.unwrap().get(cap_pos) {
-        Some(m) => Some(m.as_str().to_string()),
-        None => None,
-    })
 }
 
 #[cfg(test)]
@@ -77,8 +85,41 @@ mod test {
     use crate::*;
 
     #[test]
+    fn user() -> Result<(), FbError> {
+        // no user or pass
+        let conn = parse("firebird://192.168.0.1//srv/db/database_name.fdb?dialect=3")?;
+
+        assert_eq!(None, conn.user);
+        assert_eq!(None, conn.pass);
+        assert_eq!(Some("192.168.0.1".to_string()), conn.host);
+        assert_eq!(None, conn.port);
+        assert_eq!("/srv/db/database_name.fdb".to_string(), conn.db_name);
+
+        // no user or pass
+        let conn = parse("firebird://192.168.0.1:3050//srv/db/database_name.fdb?dialect=3")?;
+
+        assert_eq!(None, conn.user);
+        assert_eq!(None, conn.pass);
+        assert_eq!(Some("192.168.0.1".to_string()), conn.host);
+        assert_eq!(Some(3050), conn.port);
+        assert_eq!("/srv/db/database_name.fdb".to_string(), conn.db_name);
+
+        // only user provided
+        let conn = parse("firebird://username@192.168.0.1:3050/c:/db/database_name.fdb?dialect=3")?;
+
+        assert_eq!(Some("username".to_string()), conn.user);
+        assert_eq!(None, conn.pass);
+        assert_eq!(Some("192.168.0.1".to_string()), conn.host);
+        assert_eq!(Some(3050), conn.port);
+        assert_eq!("c:/db/database_name.fdb".to_string(), conn.db_name);
+
+        Ok(())
+    }
+
+    #[test]
     fn ipv4() -> Result<(), FbError> {
-        let conn = parse("firebird://username:password@192.168.0.1//srv/db/database_name.fdb?dialect=3")?;
+        let conn =
+            parse("firebird://username:password@192.168.0.1//srv/db/database_name.fdb?dialect=3")?;
 
         assert_eq!(Some("username".to_string()), conn.user);
         assert_eq!(Some("password".to_string()), conn.pass);
@@ -86,7 +127,9 @@ mod test {
         assert_eq!(None, conn.port);
         assert_eq!("/srv/db/database_name.fdb".to_string(), conn.db_name);
 
-        let conn = parse("firebird://username:password@192.168.0.1:3050/c:/db/database_name.fdb?dialect=3")?;
+        let conn = parse(
+            "firebird://username:password@192.168.0.1:3050/c:/db/database_name.fdb?dialect=3",
+        )?;
 
         assert_eq!(Some("username".to_string()), conn.user);
         assert_eq!(Some("password".to_string()), conn.pass);
@@ -99,7 +142,8 @@ mod test {
 
     #[test]
     fn no_host_port() -> Result<(), FbError> {
-        let conn = parse("firebird://username:password@localhost//srv/db/database_name.fdb?dialect=3")?;
+        let conn =
+            parse("firebird://username:password@localhost//srv/db/database_name.fdb?dialect=3")?;
 
         assert_eq!(Some("username".to_string()), conn.user);
         assert_eq!(Some("password".to_string()), conn.pass);
@@ -107,7 +151,8 @@ mod test {
         assert_eq!(None, conn.port);
         assert_eq!("/srv/db/database_name.fdb".to_string(), conn.db_name);
 
-        let conn = parse("firebird://username:password@localhost/c:/db/database_name.fdb?dialect=3")?;
+        let conn =
+            parse("firebird://username:password@localhost/c:/db/database_name.fdb?dialect=3")?;
 
         assert_eq!(Some("username".to_string()), conn.user);
         assert_eq!(Some("password".to_string()), conn.pass);
@@ -136,7 +181,9 @@ mod test {
 
     #[test]
     fn database_fullpath() -> Result<(), FbError> {
-        let conn = parse("firebird://username:password@localhost:3050//srv/db/database_name.fdb?dialect=3")?;
+        let conn = parse(
+            "firebird://username:password@localhost:3050//srv/db/database_name.fdb?dialect=3",
+        )?;
 
         assert_eq!(Some("username".to_string()), conn.user);
         assert_eq!(Some("password".to_string()), conn.pass);
@@ -144,14 +191,14 @@ mod test {
         assert_eq!(Some(3050), conn.port);
         assert_eq!("/srv/db/database_name.fdb".to_string(), conn.db_name);
 
-        let conn = parse("firebird://username:password@localhost:3050/c:/db/database_name.fdb?dialect=3")?;
+        let conn =
+            parse("firebird://username:password@localhost:3050/c:/db/database_name.fdb?dialect=3")?;
 
         assert_eq!(Some("username".to_string()), conn.user);
         assert_eq!(Some("password".to_string()), conn.pass);
         assert_eq!(Some("localhost".to_string()), conn.host);
         assert_eq!(Some(3050), conn.port);
         assert_eq!("c:/db/database_name.fdb".to_string(), conn.db_name);
-
 
         let conn = parse("firebird://username:password@localhost:3050/c:/db/database_name.fdb")?;
 
@@ -174,7 +221,8 @@ mod test {
         assert_eq!(Some(3050), conn.port);
         assert_eq!("database_name".to_string(), conn.db_name);
 
-        let conn = parse("firebird://username:password@localhost:3050/database_name.fdb?dialect=3")?;
+        let conn =
+            parse("firebird://username:password@localhost:3050/database_name.fdb?dialect=3")?;
 
         assert_eq!(Some("username".to_string()), conn.user);
         assert_eq!(Some("password".to_string()), conn.pass);
