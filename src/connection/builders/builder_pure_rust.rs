@@ -1,4 +1,5 @@
 use super::*;
+use crate::connection::conn_string;
 use crate::{charset, Charset};
 use rsfbclient_rust::{RustFbClient, RustFbClientAttachmentConfig};
 
@@ -84,6 +85,45 @@ impl PureRustConnectionBuilder {
     pub fn charset(&mut self, charset: Charset) -> &mut Self {
         self.1 = charset;
         self
+    }
+
+    /// Setup the connection using the string
+    /// pattern.
+    ///
+    /// You can use the others methods(`host()`,`user()`...) to config
+    /// some default values.
+    ///
+    /// Basic string format: `firebird://{user}:{pass}@{host}:{port}/{db_name}?{options}`
+    pub fn with_string<S: Into<String>>(&mut self, s_conn: S) -> Result<&mut Self, FbError> {
+        let settings = conn_string::parse(s_conn)?;
+
+        if let Some(host) = settings.host {
+            self.host(host);
+        }
+
+        if let Some(port) = settings.port {
+            self.port(port);
+        }
+
+        if let Some(user) = settings.user {
+            self.user(user);
+        }
+
+        if let Some(pass) = settings.pass {
+            self.pass(pass);
+        }
+
+        self.db_name(settings.db_name);
+
+        if let Some(charset) = settings.charset {
+            self.charset(charset);
+        }
+
+        if let Some(dialect) = settings.dialect {
+            self.dialect(dialect);
+        }
+
+        Ok(self)
     }
 }
 

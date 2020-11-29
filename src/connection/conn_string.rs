@@ -28,7 +28,12 @@ pub fn parse<S: Into<String>>(conn_s: S) -> Result<ConnStringSettings, FbError> 
 
     let user = regex_find(r#"(?:(/))([[:alnum:]]+)(?:.*)(?:@)"#, &sconn, 2, false)?;
     let pass = regex_find(r#"(?:(:))([[:alnum:]]+)(?:(@))"#, &sconn, 2, false)?;
-    let host = regex_find(r#"((?:://)|(?:@))([^@/:]+)((?:\w:/)|(?::[[:digit:]])|(?:/))"#, &sconn, 2, true)?;
+    let host = regex_find(
+        r#"((?:://)|(?:@))([^@/:]+)((?:\w:/)|(?::[[:digit:]])|(?:/))"#,
+        &sconn,
+        2,
+        true,
+    )?;
     let port = {
         let fport_op = regex_find(r#"(?:(:))([[:digit:]]+)(?:(/))"#, &sconn, 2, true)?;
         if let Some(fport) = fport_op {
@@ -92,7 +97,6 @@ mod test {
 
     #[test]
     fn embedded() -> Result<(), FbError> {
-
         let conn = parse("firebird:///srv/db/database_name.fdb?dialect=3")?;
 
         assert_eq!(None, conn.user);
