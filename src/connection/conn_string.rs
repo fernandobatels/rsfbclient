@@ -53,7 +53,7 @@ pub fn parse<S: Into<String>>(conn_s: S) -> Result<ConnStringSettings, FbError> 
         db_name = regex_find(r#"(?://)([^\?]+)"#, &sconn, 1, true)?;
     }
 
-    let db_name = db_name.ok_or(FbError::from("The database name/path is required"))?;
+    let db_name = db_name.ok_or_else(|| FbError::from("The database name/path is required"))?;
 
     let lib_path = regex_find(r#"(?:\?)(?:.*)(lib=)([^&]+)"#, &sconn, 2, false)?;
 

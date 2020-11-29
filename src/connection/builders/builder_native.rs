@@ -98,9 +98,10 @@ where
     type C = NativeFbClient<rsfbclient_native::DynLoad>;
 
     fn new_instance(&self) -> Result<Self::C, FbError> {
-        let path = self.lib_path.as_ref().ok_or(FbError::from(
-            "The lib path is required to use the dynload loading",
-        ))?;
+        let path = self
+            .lib_path
+            .as_ref()
+            .ok_or_else(|| FbError::from("The lib path is required to use the dynload loading"))?;
 
         rsfbclient_native::DynLoad {
             charset: self.charset.clone(),
