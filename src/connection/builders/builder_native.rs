@@ -318,6 +318,7 @@ impl<A> NativeConnectionBuilder<LinkageNotConfigured, A> {
     ) -> Result<NativeConnectionBuilder<L, Remote>, FbError> {
         let settings = conn_string::parse(s_conn)?;
 
+
         let mut cb = {
             // When we have a host, we will consider
             // this a remote connection
