@@ -56,7 +56,7 @@ mk_tests_default! {
     fn string_conn() -> Result<(), FbError> {
         builder_native()
             .with_string(
-                "firebird://embedded_tests.fdb?dialect=3",
+                "firebird:///tmp/embedded_tests.fdb?dialect=3",
             )?
             .connect()?;
 
@@ -76,7 +76,7 @@ mk_tests_default! {
 
         builder_native()
             .with_string(
-                format!("firebird://embedded_tests.fdb?dialect=3&lib={}", libfbclient),
+                format!("firebird:///tmp/embedded_tests.fdb?dialect=3&lib={}", libfbclient),
             )?
             .connect()?;
 
