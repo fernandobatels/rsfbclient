@@ -11,7 +11,7 @@ pub struct ConnStringSettings {
     pub db_name: String,
     pub charset: Option<Charset>,
     pub dialect: Option<Dialect>,
-    pub others: Vec<(String, String)>,
+    pub lib_path: Option<String>,
 }
 
 /// Parse the connection string.
@@ -55,6 +55,8 @@ pub fn parse<S: Into<String>>(conn_s: S) -> Result<ConnStringSettings, FbError> 
 
     let db_name = db_name.ok_or(FbError::from("The database name/path is required"))?;
 
+    let lib_path = regex_find(r#"(?:\?)(?:.*)(lib=)([^&]+)"#, &sconn, 2, false)?;
+
     Ok(ConnStringSettings {
         user,
         pass,
@@ -63,7 +65,7 @@ pub fn parse<S: Into<String>>(conn_s: S) -> Result<ConnStringSettings, FbError> 
         db_name,
         charset: None,
         dialect: None,
-        others: vec![],
+        lib_path,
     })
 }
 
@@ -94,6 +96,23 @@ fn regex_find(
 mod test {
     use super::parse;
     use crate::*;
+
+    #[test]
+    fn dynload() -> Result<(), FbError> {
+        let conn = parse("firebird:///srv/db/database_name.fdb?lib=/tmp/fbclient.lib")?;
+
+        assert_eq!(Some("/tmp/fbclient.lib".to_string()), conn.lib_path);
+
+        let conn = parse("firebird://c:/db/database_name.fdb?lib=/tmp/fbclient.lib&other=234")?;
+
+        assert_eq!(Some("/tmp/fbclient.lib".to_string()), conn.lib_path);
+
+        let conn = parse("firebird://c:/db/database_name.fdb?lib=fbclient.lib")?;
+
+        assert_eq!(Some("fbclient.lib".to_string()), conn.lib_path);
+
+        Ok(())
+    }
 
     #[test]
     fn embedded() -> Result<(), FbError> {

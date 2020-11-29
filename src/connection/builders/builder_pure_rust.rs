@@ -93,7 +93,7 @@ impl PureRustConnectionBuilder {
     /// You can use the others methods(`host()`,`user()`...) to config
     /// some default values.
     ///
-    /// Basic string format: `firebird://{user}:{pass}@{host}:{port}/{db_name}?{options}`
+    /// Basic string format: `firebird://{user}:{pass}@{host}:{port}/{db_name}?charset={charset}&dialect={dialect}`
     pub fn with_string<S: Into<String>>(&mut self, s_conn: S) -> Result<&mut Self, FbError> {
         let settings = conn_string::parse(s_conn)?;
 

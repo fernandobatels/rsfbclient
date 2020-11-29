@@ -16,10 +16,18 @@ pub struct LinkageNotConfigured;
 pub struct ConnTypeNotConfigured;
 #[doc(hidden)]
 #[derive(Clone)]
-pub struct Embedded;
+pub struct ConnEmbedded;
 #[doc(hidden)]
 #[derive(Clone)]
-pub struct Remote;
+pub struct ConnRemote;
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct ConnByString;
+#[doc(hidden)]
+#[cfg(feature = "linking")]
+pub type DynByString = DynLink;
+#[cfg(not(feature = "linking"))]
+pub type DynByString = DynLoad;
 
 //These traits are used to avoid duplicating some impl blocks
 //while at the same time statically disallowing certain methods for
@@ -28,9 +36,11 @@ pub struct Remote;
 #[doc(hidden)]
 pub trait ConfiguredConnType: Send + Sync {}
 #[doc(hidden)]
-impl ConfiguredConnType for Embedded {}
+impl ConfiguredConnType for ConnEmbedded {}
 #[doc(hidden)]
-impl ConfiguredConnType for Remote {}
+impl ConfiguredConnType for ConnRemote {}
+#[doc(hidden)]
+impl ConfiguredConnType for ConnByString {}
 
 #[doc(hidden)]
 //note that there is also LinkageMarker implemented for DynLink and
@@ -88,9 +98,9 @@ where
     type C = NativeFbClient<rsfbclient_native::DynLoad>;
 
     fn new_instance(&self) -> Result<Self::C, FbError> {
-        //not ideal, but the types should
-        //guarantee this is ok
-        let path = self.lib_path.as_ref().unwrap();
+        let path = self.lib_path.as_ref().ok_or(FbError::from(
+            "The lib path is required to use the dynload loading",
+        ))?;
 
         rsfbclient_native::DynLoad {
             charset: self.charset.clone(),
@@ -205,7 +215,7 @@ impl Default for NativeConnectionBuilder<LinkageNotConfigured, ConnTypeNotConfig
 }
 
 //can only use these methods on a remote builder
-impl<A> NativeConnectionBuilder<A, Remote> {
+impl<A> NativeConnectionBuilder<A, ConnRemote> {
     //private helper accessor for the Option<RemoteConfig> buried inside
     //the configuration
     fn get_initialized_remote(&mut self) -> &mut RemoteConfig {
@@ -237,7 +247,7 @@ impl<A> NativeConnectionBuilder<A, Remote> {
 impl<A> NativeConnectionBuilder<A, ConnTypeNotConfigured> {
     /// Configure the native client for remote connections.
     /// This will allow configuration via the 'host', 'port' and 'pass' methods.
-    pub fn with_remote(mut self) -> NativeConnectionBuilder<A, Remote> {
+    pub fn with_remote(mut self) -> NativeConnectionBuilder<A, ConnRemote> {
         let mut remote: RemoteConfig = Default::default();
         remote.host = "localhost".to_string();
         remote.port = 3050;
@@ -259,7 +269,7 @@ impl<A> NativeConnectionBuilder<A, ConnTypeNotConfigured> {
     /// On firebird 3.0 and above this may be restricted via the `Providers`
     /// config parameter of `firebird.conf` see official firebird documentation
     /// for more information.
-    pub fn with_embedded(self) -> NativeConnectionBuilder<A, Embedded> {
+    pub fn with_embedded(self) -> NativeConnectionBuilder<A, ConnEmbedded> {
         self.safe_transmute()
     }
 }
@@ -311,14 +321,19 @@ impl<A> NativeConnectionBuilder<LinkageNotConfigured, A> {
     /// Setup the connection using the string
     /// pattern.
     ///
-    /// Basic string format: `firebird://{user}:{pass}@{host}:{port}/{db_name}?{options}`
-    pub fn with_string<L: LinkageMarker + ConfiguredLinkage, S: Into<String>>(
+    /// Basic string format: `firebird://{user}:{pass}@{host}:{port}/{db_name}?charset={charset}&lib={fbclient}&dialect={dialect}`
+    ///
+    /// Some considerations:
+    /// - If you not provide the host, we will consider this a embedded connection.
+    /// - The port, user and pass parameters only will be accepted if you provide the host.
+    /// - If you not provide the `lib={fbclient}`, we will consider this a dynamic linked connection. The default, by the way.
+    pub fn with_string<S: Into<String>>(
         self,
         s_conn: S,
-    ) -> Result<NativeConnectionBuilder<L, Remote>, FbError> {
+    ) -> Result<NativeConnectionBuilder<DynByString, ConnByString>, FbError> {
         let settings = conn_string::parse(s_conn)?;
 
-        let mut cb = {
+        let mut cb: NativeConnectionBuilder<DynByString, ConnRemote> = {
             // When we have a host, we will consider
             // this a remote connection
             if let Some(host) = settings.host {
@@ -354,6 +369,10 @@ impl<A> NativeConnectionBuilder<LinkageNotConfigured, A> {
             cb.dialect(dialect);
         }
 
-        Ok(cb)
+        if let Some(lib_path) = settings.lib_path {
+            cb.lib_path = Some(lib_path);
+        }
+
+        Ok(cb.safe_transmute())
     }
 }
