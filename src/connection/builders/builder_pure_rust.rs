@@ -123,6 +123,10 @@ impl PureRustConnectionBuilder {
             self.dialect(dialect);
         }
 
+        if let Some(stmt_cache_size) = settings.stmt_cache_size {
+            self.stmt_cache_size(stmt_cache_size);
+        }
+
         Ok(self)
     }
 }

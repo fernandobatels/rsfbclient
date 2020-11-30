@@ -374,6 +374,10 @@ impl<A> NativeConnectionBuilder<LinkageNotConfigured, A> {
             cb.lib_path = Some(lib_path);
         }
 
+        if let Some(stmt_cache_size) = settings.stmt_cache_size {
+            cb.stmt_cache_size(stmt_cache_size);
+        }
+
         Ok(cb.safe_transmute())
     }
 }
