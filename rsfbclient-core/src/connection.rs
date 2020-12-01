@@ -139,10 +139,10 @@ impl FromStr for Dialect {
     type Err = FbError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.parse::<u8>() {
-            Ok(1) => Ok(Dialect::D1),
-            Ok(2) => Ok(Dialect::D2),
-            Ok(3) => Ok(Dialect::D3),
+        match s {
+            "1" => Ok(Dialect::D1),
+            "2" => Ok(Dialect::D2),
+            "3" => Ok(Dialect::D3),
             _ => Err(FbError::from(format!(
                 "'{}' doesn't represent any dialect",
                 s
