@@ -11,13 +11,13 @@ mk_tests_default! {
     #[cfg(all(feature = "linking", not(feature = "embedded_tests"), not(feature = "pure_rust")))]
     fn string_conn() -> Result<(), FbError> {
         builder_native()
-            .with_string(
+            .from_string(
                 "firebird://SYSDBA:masterkey@localhost:3050/test.fdb?dialect=3",
             )?
             .connect()?;
 
         builder_native()
-            .with_string(
+            .from_string(
                 "firebird://localhost:3050/test.fdb",
             )?
             .connect()?;
@@ -37,14 +37,14 @@ mk_tests_default! {
         let libfbclient = "libfbclient.dylib";
 
         builder_native()
-            .with_string(
-                format!("firebird://SYSDBA:masterkey@localhost:3050/test.fdb?dialect=3&lib={}", libfbclient),
+            .from_string(
+                &format!("firebird://SYSDBA:masterkey@localhost:3050/test.fdb?dialect=3&lib={}", libfbclient),
             )?
             .connect()?;
 
         builder_native()
-            .with_string(
-                format!("firebird://localhost:3050/test.fdb?lib={}", libfbclient),
+            .from_string(
+                &format!("firebird://localhost:3050/test.fdb?lib={}", libfbclient),
             )?
             .connect()?;
 
@@ -55,7 +55,7 @@ mk_tests_default! {
     #[cfg(all(feature = "linking", feature = "embedded_tests", not(feature = "dynamic_loading"), not(feature = "pure_rust")))]
     fn string_conn() -> Result<(), FbError> {
         builder_native()
-            .with_string(
+            .from_string(
                 "firebird:///tmp/embedded_tests.fdb?dialect=3",
             )?
             .connect()?;
@@ -75,8 +75,8 @@ mk_tests_default! {
         let libfbclient = "libfbclient.dylib";
 
         builder_native()
-            .with_string(
-                format!("firebird:///tmp/embedded_tests.fdb?dialect=3&lib={}", libfbclient),
+            .from_string(
+                &format!("firebird:///tmp/embedded_tests.fdb?dialect=3&lib={}", libfbclient),
             )?
             .connect()?;
 
@@ -87,13 +87,13 @@ mk_tests_default! {
     #[cfg(all(feature = "pure_rust", not(feature = "native_client")))]
     fn string_conn() -> Result<(), FbError> {
         builder_pure_rust()
-            .with_string(
+            .from_string(
                 "firebird://SYSDBA:masterkey@localhost:3050/test.fdb?dialect=3",
             )?
             .connect()?;
 
         builder_pure_rust()
-            .with_string(
+            .from_string(
                 "firebird://localhost:3050/test.fdb",
             )?
             .connect()?;

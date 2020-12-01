@@ -40,10 +40,10 @@ You also can choose a string connection configuration
 ```rust
 // Using the native Firebird client
 rsfbclient::builder_native()
-    .with_string("firebird://SYSDBA:masterkey@my.host.com.br:3050/awesome.fdb?charset=ascii")
+    .from_string("firebird://SYSDBA:masterkey@my.host.com.br:3050/awesome.fdb?charset=ascii")
 // Or using the pure rust implementation
 rsfbclient::builder_pure_rust()
-    .with_string("firebird://SYSDBA:masterkey@my.host.com.br:3050/awesome.fdb?charset=ascii")
+    .from_string("firebird://SYSDBA:masterkey@my.host.com.br:3050/awesome.fdb?charset=ascii")
 ```
 
 3. Now you can use the lib
