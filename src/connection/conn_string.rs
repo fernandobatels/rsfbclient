@@ -1,7 +1,7 @@
 //! Connection string parser
 
 use crate::*;
-use regex::Regex;
+use url::Url;
 use std::str::FromStr;
 
 pub struct ConnStringSettings {
@@ -21,88 +21,105 @@ pub struct ConnStringSettings {
 /// Basic string sintax: `firebird://{user}:{pass}@{host}:{port}/{db_name}?{options}`
 pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
 
-    if !sconn.starts_with("firebird://") {
+    let url = Url::parse(sconn)
+        .map_err(|e| FbError::from(format!("Error on parse the string: {}", e)))?;
+
+    if url.scheme().to_lowercase() != "firebird" {
         return Err(FbError::from(
             "The string must start with the prefix 'firebird://'",
         ));
     }
 
-    let user = regex_find(r#"(?:(/))([[:alnum:]]+)(?:.*)(?:@)"#, &sconn, 2, false)?;
+    let user = match url.username() {
+        "" => None,
+        u => Some(u.to_string())
+    };
 
-    let pass = regex_find(r#"(?:(:))([[:alnum:]]+)(?:(@))"#, &sconn, 2, false)?;
+    let pass = url.password()
+        .map(|p| p.to_string());
 
-    let host = regex_find(
-        r#"((?:://)|(?:@))([^@/:]+)((?:\w:/)|(?::[[:digit:]])|(?:/))"#,
-        &sconn,
-        2,
-        true,
-    )?;
+    let mut host = url.host()
+        .map(|h| h.to_string());
 
-    let port = {
-        let fport_op = regex_find(r#"(?:(:))([[:digit:]]+)(?:(/))"#, &sconn, 2, true)?;
-        if let Some(fport) = fport_op {
-            match fport.parse::<u16>() {
-                Ok(v) => Some(v),
-                _ => None,
+    let port = url.port();
+
+    let mut db_name = match url.path() {
+        "" => None,
+        db => {
+            if db.starts_with("/") && url.has_host() {
+                Some(db.replacen("/", "", 1))
+            } else {
+                Some(db.to_string())
             }
-        } else {
-            None
-        }
+        },
     };
 
-    let db_name = {
-        // remote host
-        let mut db_name = regex_find(r#"((?:@\w+/)|(?:[0-9]/))([^\?]+)"#, &sconn, 2, true)?;
-        if db_name.is_none() {
-            // embedded
-            db_name = regex_find(r#"(?://)([^\?]+)"#, &sconn, 1, true)?;
-        }
-
-        db_name.ok_or_else(|| FbError::from("The database name/path is required"))?
-    };
-
-    let lib_path = regex_find(r#"(?:\?)(?:.*)(lib=)([^&]+)"#, &sconn, 2, false)?;
-
-    let dialect = {
-        let fdialect_op = regex_find(r#"(?:\?)(?:.*)(dialect=)([[:digit:]])"#, &sconn, 2, false)?;
-        if let Some(fdialect) = fdialect_op {
-            match Dialect::from_str(&fdialect) {
-                Ok(d) => Some(d),
-                _ => None,
+    match (&host, &db_name) {
+        // In the embedded case with a windows path,
+        // the lib will return the drive in the host,
+        // because of ':' char.
+        //
+        // Example: firebird://c:/a/b/c.fdb
+        // We get:
+        //  - host: c
+        //  - port: None
+        //  - db_name: a/b/c.fdb
+        (Some(h), Some(db)) => {
+            if h.len() == 1 && user.is_none() && pass.is_none() && port.is_none() {
+                db_name = Some(format!("{}:/{}", h, db));
+                host = None;
             }
-        } else {
-            None
-        }
-    };
-
-    let charset = {
-        let fcharset_op = regex_find(r#"(?:\?)(?:.*)(charset=)([^&]+)"#, &sconn, 2, false)?;
-        if let Some(fcharset) = fcharset_op {
-            match Charset::from_str(&fcharset) {
-                Ok(d) => Some(d),
-                _ => None,
+        },
+        // When we have an embedded path, but only
+        // with the filename. In this cases, the lib
+        // will return the db path in the host.
+        //
+        // Example: firebird://abc.fdb
+        // We get:
+        //  - host: abc.fdb
+        //  - db_name: None
+        (Some(h), None) => {
+            if user.is_none() && pass.is_none() && port.is_none() {
+                db_name = Some(h.to_string());
+                host = None;
             }
-        } else {
-            None
         }
-    };
+        _ => {}
+    }
 
-    let stmt_cache_size = {
-        let fstmt_op = regex_find(
-            r#"(?:\?)(?:.*)(stmt_cache_size=)([[:digit:]]+)"#,
-            &sconn,
-            2,
-            true,
-        )?;
-        if let Some(fstmt) = fstmt_op {
-            match fstmt.parse::<usize>() {
-                Ok(v) => Some(v),
-                _ => None,
-            }
-        } else {
-            None
+    let db_name = db_name.ok_or_else(|| FbError::from("The database name/path is required"))?;
+
+    let mut lib_path = None;
+    let mut dialect = None;
+    let mut charset = None;
+    let mut stmt_cache_size = None;
+
+    for (param, val) in url.query_pairs() {
+        match param.to_string().as_str() {
+            "lib" => {
+                lib_path = Some(val.to_string());
+            },
+            "dialect" => {
+                dialect = match Dialect::from_str(&val) {
+                    Ok(d) => Some(d),
+                    _ => None,
+                };
+            },
+            "charset" => {
+                charset = match Charset::from_str(&val) {
+                    Ok(d) => Some(d),
+                    _ => None,
+                };
+            },
+            "stmt_cache_size" => {
+                stmt_cache_size = match val.parse::<usize>() {
+                    Ok(v) => Some(v),
+                    _ => None,
+                };
+            },
+            _ => {}
         }
-    };
+    }
 
     Ok(ConnStringSettings {
         user,
@@ -115,29 +132,6 @@ pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
         lib_path,
         stmt_cache_size,
     })
-}
-
-/// A regex util tool. Handles the matches
-/// and groups
-fn regex_find(
-    pattern: &str,
-    sconn: &str,
-    group_i: usize,
-    last_match: bool,
-) -> Result<Option<String>, FbError> {
-    let regex = Regex::new(pattern)
-        .map_err(|e| FbError::from(format!("Error on start the regex: {}", e)))?;
-
-    let mut caps = regex.captures_iter(sconn);
-    let cap_op = if last_match { caps.last() } else { caps.next() };
-
-    match cap_op {
-        Some(cap) => Ok(match cap.get(group_i) {
-            Some(m) => Some(m.as_str().to_string()),
-            None => None,
-        }),
-        None => Ok(None),
-    }
 }
 
 #[cfg(test)]
@@ -259,6 +253,14 @@ mod test {
         assert_eq!(None, conn.host);
         assert_eq!(None, conn.port);
         assert_eq!("database_name.fdb".to_string(), conn.db_name);
+
+        let conn = parse("firebird://database_name")?;
+
+        assert_eq!(None, conn.user);
+        assert_eq!(None, conn.pass);
+        assert_eq!(None, conn.host);
+        assert_eq!(None, conn.port);
+        assert_eq!("database_name".to_string(), conn.db_name);
 
         let conn = parse("firebird://database_name.fdb?dialect=3")?;
 
