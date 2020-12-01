@@ -19,8 +19,7 @@ pub struct ConnStringSettings {
 /// Parse the connection string.
 ///
 /// Basic string sintax: `firebird://{user}:{pass}@{host}:{port}/{db_name}?{options}`
-pub fn parse<S: Into<String>>(conn_s: S) -> Result<ConnStringSettings, FbError> {
-    let sconn = conn_s.into();
+pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
 
     if !sconn.starts_with("firebird://") {
         return Err(FbError::from(
