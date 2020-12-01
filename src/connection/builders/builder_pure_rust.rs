@@ -94,6 +94,7 @@ impl PureRustConnectionBuilder {
     /// some default values.
     ///
     /// Basic string format: `firebird://{user}:{pass}@{host}:{port}/{db_name}?charset={charset}&dialect={dialect}`
+    #[allow(clippy::wrong_self_convention)]
     pub fn from_string(&mut self, s_conn: &str) -> Result<&mut Self, FbError> {
         let settings = conn_string::parse(s_conn)?;
 

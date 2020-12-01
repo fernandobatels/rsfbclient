@@ -1,8 +1,8 @@
 //! Connection string parser
 
 use crate::*;
-use url::Url;
 use std::str::FromStr;
+use url::Url;
 
 pub struct ConnStringSettings {
     pub user: Option<String>,
@@ -20,7 +20,6 @@ pub struct ConnStringSettings {
 ///
 /// Basic string sintax: `firebird://{user}:{pass}@{host}:{port}/{db_name}?{options}`
 pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
-
     let url = Url::parse(sconn)
         .map_err(|e| FbError::from(format!("Error on parse the string: {}", e)))?;
 
@@ -32,26 +31,24 @@ pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
 
     let user = match url.username() {
         "" => None,
-        u => Some(u.to_string())
+        u => Some(u.to_string()),
     };
 
-    let pass = url.password()
-        .map(|p| p.to_string());
+    let pass = url.password().map(|p| p.to_string());
 
-    let mut host = url.host()
-        .map(|h| h.to_string());
+    let mut host = url.host().map(|h| h.to_string());
 
     let port = url.port();
 
     let mut db_name = match url.path() {
         "" => None,
         db => {
-            if db.starts_with("/") && url.has_host() {
+            if db.starts_with('/') && url.has_host() {
                 Some(db.replacen("/", "", 1))
             } else {
                 Some(db.to_string())
             }
-        },
+        }
     };
 
     match (&host, &db_name) {
@@ -69,7 +66,7 @@ pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
                 db_name = Some(format!("{}:/{}", h, db));
                 host = None;
             }
-        },
+        }
         // When we have an embedded path, but only
         // with the filename. In this cases, the lib
         // will return the db path in the host.
@@ -98,25 +95,25 @@ pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
         match param.to_string().as_str() {
             "lib" => {
                 lib_path = Some(val.to_string());
-            },
+            }
             "dialect" => {
                 dialect = match Dialect::from_str(&val) {
                     Ok(d) => Some(d),
                     _ => None,
                 };
-            },
+            }
             "charset" => {
                 charset = match Charset::from_str(&val) {
                     Ok(d) => Some(d),
                     _ => None,
                 };
-            },
+            }
             "stmt_cache_size" => {
                 stmt_cache_size = match val.parse::<usize>() {
                     Ok(v) => Some(v),
                     _ => None,
                 };
-            },
+            }
             _ => {}
         }
     }
