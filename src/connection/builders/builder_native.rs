@@ -328,9 +328,9 @@ impl<A> NativeConnectionBuilder<LinkageNotConfigured, A> {
     /// - If you not provide the host, we will consider this a embedded connection.
     /// - The port, user and pass parameters only will be accepted if you provide the host.
     /// - If you not provide the `lib={fbclient}`, we will consider this a dynamic linked connection. The default, by the way.
-    pub fn with_string<S: Into<String>>(
+    pub fn with_string(
         self,
-        s_conn: S,
+        s_conn: &str,
     ) -> Result<NativeConnectionBuilder<DynByString, ConnByString>, FbError> {
         let settings = conn_string::parse(s_conn)?;
 
