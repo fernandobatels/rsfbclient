@@ -16,12 +16,12 @@ fn main() -> Result<(), FbError> {
 
     #[cfg(feature = "native_client")]
     let mut conn = rsfbclient::builder_native()
-        .with_string(string_conf.clone())?
+        .with_string(&string_conf)?
         .connect()?;
 
     #[cfg(feature = "pure_rust")]
     let mut conn = rsfbclient::builder_pure_rust()
-        .with_string(string_conf.clone())?
+        .with_string(&string_conf)?
         .connect()?;
 
     let rows = conn.query_iter("SELECT a.RDB$RELATION_NAME FROM RDB$RELATIONS a WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 AND RDB$RELATION_TYPE = 0", ())?;
