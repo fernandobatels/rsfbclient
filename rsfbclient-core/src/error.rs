@@ -1,5 +1,7 @@
 //! Error type for the connection
 
+use std::str::Utf8Error;
+use std::string::FromUtf8Error;
 use thiserror::Error;
 
 use crate::SqlType;
@@ -25,6 +27,18 @@ impl From<String> for FbError {
 impl From<&str> for FbError {
     fn from(msg: &str) -> Self {
         Self::Other(msg.to_string())
+    }
+}
+
+impl From<FromUtf8Error> for FbError {
+    fn from(e: FromUtf8Error) -> Self {
+        Self::Other(format!("Found column with an invalid UTF-8 string: {}", e))
+    }
+}
+
+impl From<Utf8Error> for FbError {
+    fn from(e: Utf8Error) -> Self {
+        Self::Other(format!("Found column with an invalid UTF-8 string: {}", e))
     }
 }
 

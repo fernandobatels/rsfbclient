@@ -1,6 +1,7 @@
 //! Connection string parser
 
 use crate::*;
+use percent_encoding::percent_decode_str;
 use std::str::FromStr;
 use url::Url;
 
@@ -31,22 +32,29 @@ pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
 
     let user = match url.username() {
         "" => None,
-        u => Some(u.to_string()),
+        u => Some(percent_decode_str(u).decode_utf8()?.into_owned()),
     };
 
-    let pass = url.password().map(|p| p.to_string());
+    let pass = match url.password() {
+        Some(p) => Some(percent_decode_str(p).decode_utf8()?.into_owned()),
+        _ => None,
+    };
 
-    let mut host = url.host().map(|h| h.to_string());
+    let mut host = match url.host_str() {
+        Some(h) => Some(percent_decode_str(h).decode_utf8()?.into_owned()),
+        _ => None,
+    };
 
     let port = url.port();
 
     let mut db_name = match url.path() {
         "" => None,
         db => {
+            let db = percent_decode_str(db).decode_utf8()?.into_owned();
             if db.starts_with('/') && url.has_host() {
                 Some(db.replacen("/", "", 1))
             } else {
-                Some(db.to_string())
+                Some(db)
             }
         }
     };
@@ -94,7 +102,7 @@ pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
     for (param, val) in url.query_pairs() {
         match param.to_string().as_str() {
             "lib" => {
-                lib_path = Some(val.to_string());
+                lib_path = Some(percent_decode_str(&val).decode_utf8()?.into_owned());
             }
             "dialect" => {
                 dialect = match Dialect::from_str(&val) {
@@ -135,6 +143,65 @@ pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
 mod test {
     use super::parse;
     use crate::*;
+
+    #[test]
+    fn special_chars() -> Result<(), FbError> {
+        // User with an ã
+        let conn = parse("firebird://joão:maria@localhost:3050//srv/db/database_name.fdb")?;
+
+        assert_eq!(Some("joão".to_string()), conn.user);
+        assert_eq!(Some("maria".to_string()), conn.pass);
+        assert_eq!(Some("localhost".to_string()), conn.host);
+        assert_eq!(Some(3050), conn.port);
+        assert_eq!("/srv/db/database_name.fdb".to_string(), conn.db_name);
+
+        // User with @
+        let conn = parse("firebird://joão%402000:maria@localhost:3050//srv/db/database_name.fdb")?;
+
+        assert_eq!(Some("joão@2000".to_string()), conn.user);
+        assert_eq!(Some("maria".to_string()), conn.pass);
+        assert_eq!(Some("localhost".to_string()), conn.host);
+        assert_eq!(Some(3050), conn.port);
+        assert_eq!("/srv/db/database_name.fdb".to_string(), conn.db_name);
+
+        // Pass with special chars
+        let conn = parse("firebird://sysdba:abc%40_!@localhost:3050//srv/db/database_name.fdb")?;
+
+        assert_eq!(Some("sysdba".to_string()), conn.user);
+        assert_eq!(Some("abc@_!".to_string()), conn.pass);
+        assert_eq!(Some("localhost".to_string()), conn.host);
+        assert_eq!(Some(3050), conn.port);
+        assert_eq!("/srv/db/database_name.fdb".to_string(), conn.db_name);
+
+        // host with special chars
+        let conn = parse("firebird://sysdba:abc@joãohost.com.br:3050//srv/db/database_name.fdb")?;
+
+        assert_eq!(Some("sysdba".to_string()), conn.user);
+        assert_eq!(Some("abc".to_string()), conn.pass);
+        assert_eq!(Some("joãohost.com.br".to_string()), conn.host);
+        assert_eq!(Some(3050), conn.port);
+        assert_eq!("/srv/db/database_name.fdb".to_string(), conn.db_name);
+
+        // db path with special chars
+        let conn = parse("firebird:///joão/automação/db.fdb")?;
+
+        assert_eq!(None, conn.user);
+        assert_eq!(None, conn.pass);
+        assert_eq!(None, conn.host);
+        assert_eq!(None, conn.port);
+        assert_eq!("/joão/automação/db.fdb".to_string(), conn.db_name);
+
+        // db lib path with special chars
+        let conn = parse("firebird:///tmp/database_name.fdb?lib=/tmp/localização/fbclient.lib")?;
+
+        assert_eq!("/tmp/database_name.fdb".to_string(), conn.db_name);
+        assert_eq!(
+            Some("/tmp/localização/fbclient.lib".to_string()),
+            conn.lib_path
+        );
+
+        Ok(())
+    }
 
     #[test]
     fn params_combination() -> Result<(), FbError> {
@@ -309,7 +376,8 @@ mod test {
         assert_eq!("database_name.fdb".to_string(), conn.db_name);
 
         // only user provided, but with a blank ':' char
-        let conn = parse("firebird://username:@192.168.0.1:3050/c:/db/database_name.fdb?dialect=3")?;
+        let conn =
+            parse("firebird://username:@192.168.0.1:3050/c:/db/database_name.fdb?dialect=3")?;
 
         assert_eq!(Some("username".to_string()), conn.user);
         assert_eq!(None, conn.pass);

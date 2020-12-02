@@ -19,6 +19,7 @@ rsfbclient-native = { version = "0.12.0", path = "rsfbclient-native", optional =
 rsfbclient-rust = { version = "0.12.0", path = "rsfbclient-rust", optional = true }
 rsfbclient-derive = { version = "0.12.0", path = "rsfbclient-derive" }
 url = "2.2.0"
+percent-encoding = "2.1.0"
 
 [dev-dependencies]
 rand = "0.7.3"

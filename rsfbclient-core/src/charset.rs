@@ -35,8 +35,7 @@ impl Charset {
                 .into()
             })
         } else {
-            String::from_utf8(bytes.into_owned())
-                .map_err(|e| format!("Found column with an invalid UTF-8 string: {}", e).into())
+            String::from_utf8(bytes.into_owned()).map_err(|e| e.into())
         }
     }
 
