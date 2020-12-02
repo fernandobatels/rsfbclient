@@ -322,7 +322,7 @@ impl<A> NativeConnectionBuilder<LinkageNotConfigured, A> {
     /// Setup the connection using the string
     /// pattern.
     ///
-    /// Basic string format: `firebird://{user}:{pass}@{host}:{port}/{db_name}?charset={charset}&lib={fbclient}&dialect={dialect}`
+    /// Basic string syntax: `firebird://{user}:{pass}@{host}:{port}/{db_name}?charset={charset}&lib={fbclient}&dialect={dialect}`
     ///
     /// Some considerations:
     /// - If you not provide the host, we will consider this a embedded connection.

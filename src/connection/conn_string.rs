@@ -18,7 +18,7 @@ pub struct ConnStringSettings {
 
 /// Parse the connection string.
 ///
-/// Basic string sintax: `firebird://{user}:{pass}@{host}:{port}/{db_name}?{options}`
+/// Basic string syntax: `firebird://{user}:{pass}@{host}:{port}/{db_name}?{options}`
 pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
     let url = Url::parse(sconn)
         .map_err(|e| FbError::from(format!("Error on parse the string: {}", e)))?;
@@ -308,6 +308,15 @@ mod test {
         assert_eq!(Some(3050), conn.port);
         assert_eq!("database_name.fdb".to_string(), conn.db_name);
 
+        // only user provided, but with a blank ':' char
+        let conn = parse("firebird://username:@192.168.0.1:3050/c:/db/database_name.fdb?dialect=3")?;
+
+        assert_eq!(Some("username".to_string()), conn.user);
+        assert_eq!(None, conn.pass);
+        assert_eq!(Some("192.168.0.1".to_string()), conn.host);
+        assert_eq!(Some(3050), conn.port);
+        assert_eq!("c:/db/database_name.fdb".to_string(), conn.db_name);
+
         Ok(())
     }
 
@@ -364,6 +373,15 @@ mod test {
         assert_eq!("database_name".to_string(), conn.db_name);
 
         let conn = parse("firebird://username:password@localhost/database_name.fdb?dialect=3")?;
+
+        assert_eq!(Some("username".to_string()), conn.user);
+        assert_eq!(Some("password".to_string()), conn.pass);
+        assert_eq!(Some("localhost".to_string()), conn.host);
+        assert_eq!(None, conn.port);
+        assert_eq!("database_name.fdb".to_string(), conn.db_name);
+
+        // host provided, but with a blank ':' char in the port section
+        let conn = parse("firebird://username:password@localhost:/database_name.fdb?dialect=3")?;
 
         assert_eq!(Some("username".to_string()), conn.user);
         assert_eq!(Some("password".to_string()), conn.pass);
