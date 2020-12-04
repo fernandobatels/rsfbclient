@@ -30,6 +30,7 @@ macro_rules! mk_tests {
             #[allow(unused_imports)]
             use crate as rsfbclient;
 
+            #[allow(dead_code)]
             fn cbuilder() -> $type {
                 $( $cbuilder )*
             }
@@ -56,14 +57,14 @@ macro_rules! mk_tests_default {
             }
 
             #[cfg(all(feature = "linking", not(feature = "embedded_tests")))]
-            for linking -> NativeConnectionBuilder<DynLink,Remote> {
+            for linking -> NativeConnectionBuilder<DynLink, ConnRemote> {
                 crate::builder_native()
                   .with_dyn_link()
                   .with_remote()
             }
 
             #[cfg(all(feature = "linking", feature = "embedded_tests"))]
-            for linking_embedded -> NativeConnectionBuilder<DynLink,Embedded> {
+            for linking_embedded -> NativeConnectionBuilder<DynLink, ConnEmbedded> {
                 crate::builder_native()
                     .with_dyn_link()
                     .with_embedded()
@@ -72,7 +73,7 @@ macro_rules! mk_tests_default {
             }
 
             #[cfg(all(feature = "dynamic_loading", not(feature = "embedded_tests")))]
-            for dynamic_loading -> NativeConnectionBuilder<DynLoad, Remote> {
+            for dynamic_loading -> NativeConnectionBuilder<DynLoad, ConnRemote> {
 
                 #[cfg(target_os = "linux")]
                 let libfbclient = "libfbclient.so";
@@ -87,7 +88,7 @@ macro_rules! mk_tests_default {
             }
 
             #[cfg(all(feature = "dynamic_loading", feature = "embedded_tests"))]
-            for dynamic_loading_embedded -> NativeConnectionBuilder<DynLoad, Embedded> {
+            for dynamic_loading_embedded -> NativeConnectionBuilder<DynLoad, ConnEmbedded> {
 
                 #[cfg(target_os = "linux")]
                 let libfbclient = "libfbclient.so";
@@ -112,6 +113,7 @@ macro_rules! mk_tests_default {
 }
 
 mod charset;
+mod connection;
 mod params;
 mod row;
 mod transaction;

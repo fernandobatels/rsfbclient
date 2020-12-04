@@ -147,7 +147,6 @@ impl ColumnBuffer {
                 .collect::<Vec<u8>>();
 
             String::from_utf8(bname)
-                .map_err(|_| FbError::from("Found a column name with an invalid utf-8 string"))
         }?;
 
         Ok(ColumnBuffer {

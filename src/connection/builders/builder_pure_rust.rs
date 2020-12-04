@@ -1,4 +1,5 @@
 use super::*;
+use crate::connection::conn_string;
 use crate::{charset, Charset};
 use rsfbclient_rust::{RustFbClient, RustFbClientAttachmentConfig};
 
@@ -61,7 +62,7 @@ impl PureRustConnectionBuilder {
         self.0.attachment_conf.port = port;
         self
     }
-    ///
+
     /// Password. Default: masterkey
     pub fn pass<S: Into<String>>(&mut self, pass: S) -> &mut Self {
         self.0.attachment_conf.pass = pass.into();
@@ -80,10 +81,54 @@ impl PureRustConnectionBuilder {
         self
     }
 
-    /// Statement cache size. Default: 20
+    /// Connection charset. Default: UTF-8
     pub fn charset(&mut self, charset: Charset) -> &mut Self {
         self.1 = charset;
         self
+    }
+
+    /// Setup the connection using the string
+    /// pattern.
+    ///
+    /// You can use the others methods(`host()`,`user()`...) to config
+    /// some default values.
+    ///
+    /// Basic string syntax: `firebird://{user}:{pass}@{host}:{port}/{db_name}?charset={charset}&dialect={dialect}`
+    #[allow(clippy::wrong_self_convention)]
+    pub fn from_string(&mut self, s_conn: &str) -> Result<&mut Self, FbError> {
+        let settings = conn_string::parse(s_conn)?;
+
+        if let Some(host) = settings.host {
+            self.host(host);
+        }
+
+        if let Some(port) = settings.port {
+            self.port(port);
+        }
+
+        if let Some(user) = settings.user {
+            self.user(user);
+        }
+
+        if let Some(pass) = settings.pass {
+            self.pass(pass);
+        }
+
+        self.db_name(settings.db_name);
+
+        if let Some(charset) = settings.charset {
+            self.charset(charset);
+        }
+
+        if let Some(dialect) = settings.dialect {
+            self.dialect(dialect);
+        }
+
+        if let Some(stmt_cache_size) = settings.stmt_cache_size {
+            self.stmt_cache_size(stmt_cache_size);
+        }
+
+        Ok(self)
     }
 }
 

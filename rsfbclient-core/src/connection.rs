@@ -1,6 +1,7 @@
 //! Traits to abstract over firebird client implementations
 
 use num_enum::TryFromPrimitive;
+use std::str::FromStr;
 
 use crate::*;
 
@@ -132,6 +133,22 @@ pub enum Dialect {
     D1 = 1,
     D2 = 2,
     D3 = 3,
+}
+
+impl FromStr for Dialect {
+    type Err = FbError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "1" => Ok(Dialect::D1),
+            "2" => Ok(Dialect::D2),
+            "3" => Ok(Dialect::D3),
+            _ => Err(FbError::from(format!(
+                "'{}' doesn't represent any dialect",
+                s
+            ))),
+        }
+    }
 }
 
 #[repr(u8)]

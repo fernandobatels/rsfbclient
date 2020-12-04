@@ -3,7 +3,7 @@
 //! [Reference](http://www.destructor.de/firebird/charsets.htm)
 
 use encoding::{all, types::EncodingRef, DecoderTrap, EncoderTrap};
-use std::{borrow::Cow, str};
+use std::{borrow::Cow, fmt, str, str::FromStr};
 
 use crate::FbError;
 
@@ -35,8 +35,7 @@ impl Charset {
                 .into()
             })
         } else {
-            String::from_utf8(bytes.into_owned())
-                .map_err(|e| format!("Found column with an invalid UTF-8 string: {}", e).into())
+            String::from_utf8(bytes.into_owned()).map_err(|e| e.into())
         }
     }
 
@@ -72,6 +71,61 @@ impl Clone for Charset {
             on_firebird: self.on_firebird,
             on_rust: self.on_rust,
         }
+    }
+}
+
+impl FromStr for Charset {
+    type Err = FbError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s
+            .to_lowercase()
+            .trim()
+            .replace("_", "")
+            .replace("-", "")
+            .as_str()
+        {
+            "utf8" => Ok(UTF_8),
+            "iso88591" => Ok(ISO_8859_1),
+            "iso88592" => Ok(ISO_8859_2),
+            "iso88593" => Ok(ISO_8859_3),
+            "iso88594" => Ok(ISO_8859_4),
+            "iso88595" => Ok(ISO_8859_5),
+            "iso88596" => Ok(ISO_8859_6),
+            "iso88597" => Ok(ISO_8859_7),
+            "iso885913" => Ok(ISO_8859_13),
+            "win1250" => Ok(WIN_1250),
+            "win1251" => Ok(WIN_1251),
+            "win1252" => Ok(WIN_1252),
+            "win1253" => Ok(WIN_1253),
+            "win1254" => Ok(WIN_1254),
+            "win1256" => Ok(WIN_1256),
+            "win1257" => Ok(WIN_1257),
+            "win1258" => Ok(WIN_1258),
+            "ascii" => Ok(ASCII),
+            "koi8r" => Ok(KOI8_R),
+            "koi8u" => Ok(KOI8_U),
+            "eucjp" => Ok(EUC_JP),
+            "big52003" => Ok(BIG5_2003),
+            _ => Err(FbError::from(format!(
+                "'{}' doesn't represent any charset",
+                s
+            ))),
+        }
+    }
+}
+
+impl fmt::Debug for Charset {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Charset")
+            .field("on_firebird", &self.on_firebird)
+            .finish()
+    }
+}
+
+impl PartialEq for Charset {
+    fn eq(&self, other: &Self) -> bool {
+        self.on_firebird == other.on_firebird
     }
 }
 
