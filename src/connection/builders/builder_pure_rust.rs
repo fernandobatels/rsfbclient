@@ -35,7 +35,7 @@ pub fn builder_pure_rust() -> PureRustConnectionBuilder {
 }
 
 impl PureRustConnectionBuilder {
-    pub fn connect(&self) -> Result<Connection<impl FirebirdClient>, FbError> {
+    pub fn connect(&self) -> Result<Connection<RustFbClient>, FbError> {
         Connection::open(self.new_instance()?, &self.0)
     }
 

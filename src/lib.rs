@@ -17,7 +17,7 @@ mod statement;
 mod transaction;
 
 pub use crate::{
-    connection::{Connection, ConnectionConfiguration, FirebirdClientFactory},
+    connection::{Connection, ConnectionConfiguration, FirebirdClientFactory, SimpleConnection},
     query::{Execute, Queryable},
     statement::Statement,
     transaction::Transaction,
