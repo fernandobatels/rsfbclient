@@ -3,17 +3,23 @@
 //! multiple connection types/variations.
 //!
 
-use crate::{Connection, Execute, FbError, FromRow, IntoParams, Queryable};
-use rsfbclient_native::{DynLink, DynLoad, NativeFbClient};
+use crate::{Connection, Execute, FbError, FromRow, IntoParams, Queryable, SimpleTransaction};
+#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
+use rsfbclient_native::NativeFbClient;
+#[cfg(feature = "linking")]
+use rsfbclient_native::DynLink;
+#[cfg(feature = "dynamic_loading")]
+use rsfbclient_native::DynLoad;
+#[cfg(feature = "pure_rust")]
 use rsfbclient_rust::RustFbClient;
 use std::convert::From;
 
 /// A connection API without client types
 pub struct SimpleConnection {
-    inner: TypeConnectionContainer,
+    pub(crate) inner: TypeConnectionContainer,
 }
 
-enum TypeConnectionContainer {
+pub(crate) enum TypeConnectionContainer {
     #[cfg(feature = "linking")]
     NativeDynLink(Connection<NativeFbClient<DynLink>>),
     #[cfg(feature = "dynamic_loading")]
@@ -69,6 +75,25 @@ impl SimpleConnection {
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.close(),
         }
+    }
+
+    /// Run a closure with a transaction, if the closure returns an error
+    /// the transaction will rollback, else it will be committed
+    pub fn with_transaction<T, F>(&mut self, closure: F) -> Result<T, FbError>
+    where
+        F: FnOnce(&mut SimpleTransaction) -> Result<T, FbError>,
+    {
+        let mut tr = SimpleTransaction::new(self)?;
+
+        let res = closure(&mut tr);
+
+        if res.is_ok() {
+            tr.commit_retaining()?;
+        } else {
+            tr.rollback_retaining()?;
+        };
+
+        res
     }
 }
 
@@ -165,6 +190,26 @@ mk_tests_default! {
                 (),
             )?.unwrap();
         assert_eq!(100, a);
+
+        Ok(())
+    }
+
+    #[test]
+    fn with_transaction() -> Result<(), FbError> {
+        let mut conn: SimpleConnection = cbuilder()
+            .connect()?
+            .into();
+
+        conn.with_transaction(|tr| {
+
+            let (a,): (i32,) = tr.query_first(
+                "select cast(100 as int) from rdb$database",
+                (),
+            )?.unwrap();
+            assert_eq!(100, a);
+
+            Ok(())
+        })?;
 
         Ok(())
     }

@@ -20,7 +20,7 @@ pub use crate::{
     connection::{Connection, ConnectionConfiguration, FirebirdClientFactory, SimpleConnection},
     query::{Execute, Queryable},
     statement::Statement,
-    transaction::Transaction,
+    transaction::{Transaction, SimpleTransaction},
 };
 pub use rsfbclient_core::{
     Column, Dialect, FbError, FromRow, IntoParam, IntoParams, ParamsType, Row, SqlType,
