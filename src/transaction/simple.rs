@@ -31,25 +31,61 @@ enum TypeTransactionContainer<'c> {
 
 #[cfg(feature = "linking")]
 impl<'c> From<Transaction<'c, NativeFbClient<DynLink>>> for SimpleTransaction<'c> {
-    fn from(conn: Transaction<'c, NativeFbClient<DynLink>>) -> Self {
-        let inner = TypeTransactionContainer::NativeDynLink(conn);
+    fn from(tr: Transaction<'c, NativeFbClient<DynLink>>) -> Self {
+        let inner = TypeTransactionContainer::NativeDynLink(tr);
         SimpleTransaction { inner }
+    }
+}
+
+#[cfg(feature = "linking")]
+impl<'c> From<SimpleTransaction<'c>> for Result<Transaction<'c, NativeFbClient<DynLink>>, FbError> {
+    fn from(tr: SimpleTransaction<'c>) -> Self {
+        #[allow(irrefutable_let_patterns)]
+        if let TypeTransactionContainer::NativeDynLink(t) = tr.inner {
+            Ok(t)
+        } else {
+            Err(FbError::from("This isn't a NativeDynLink transaction"))
+        }
     }
 }
 
 #[cfg(feature = "dynamic_loading")]
 impl<'c> From<Transaction<'c, NativeFbClient<DynLoad>>> for SimpleTransaction<'c> {
-    fn from(conn: Transaction<'c, NativeFbClient<DynLoad>>) -> Self {
-        let inner = TypeTransactionContainer::NativeDynLoad(conn);
+    fn from(tr: Transaction<'c, NativeFbClient<DynLoad>>) -> Self {
+        let inner = TypeTransactionContainer::NativeDynLoad(tr);
         SimpleTransaction { inner }
+    }
+}
+
+#[cfg(feature = "dynamic_loading")]
+impl<'c> From<SimpleTransaction<'c>> for Result<Transaction<'c, NativeFbClient<DynLoad>>, FbError> {
+    fn from(tr: SimpleTransaction<'c>) -> Self {
+        #[allow(irrefutable_let_patterns)]
+        if let TypeTransactionContainer::NativeDynLoad(t) = tr.inner {
+            Ok(t)
+        } else {
+            Err(FbError::from("This isn't a NativeDynLoad transaction"))
+        }
     }
 }
 
 #[cfg(feature = "pure_rust")]
 impl<'c> From<Transaction<'c, RustFbClient>> for SimpleTransaction<'c> {
-    fn from(conn: Transaction<'c, RustFbClient>) -> Self {
-        let inner = TypeTransactionContainer::PureRust(conn);
+    fn from(tr: Transaction<'c, RustFbClient>) -> Self {
+        let inner = TypeTransactionContainer::PureRust(tr);
         SimpleTransaction { inner }
+    }
+}
+
+#[cfg(feature = "pure_rust")]
+impl<'c> From<SimpleTransaction<'c>> for Result<Transaction<'c, RustFbClient>, FbError> {
+    fn from(tr: SimpleTransaction<'c>) -> Self {
+        #[allow(irrefutable_let_patterns)]
+        if let TypeTransactionContainer::PureRust(t) = tr.inner {
+            Ok(t)
+        } else {
+            Err(FbError::from("This isn't a PureRust transaction"))
+        }
     }
 }
 

@@ -36,6 +36,18 @@ impl From<Connection<NativeFbClient<DynLink>>> for SimpleConnection {
     }
 }
 
+#[cfg(feature = "linking")]
+impl From<SimpleConnection> for Result<Connection<NativeFbClient<DynLink>>, FbError> {
+    fn from(conn: SimpleConnection) -> Self {
+        #[allow(irrefutable_let_patterns)]
+        if let TypeConnectionContainer::NativeDynLink(c) = conn.inner {
+            Ok(c)
+        } else {
+            Err(FbError::from("This isn't a NativeDynLink connection"))
+        }
+    }
+}
+
 #[cfg(feature = "dynamic_loading")]
 impl From<Connection<NativeFbClient<DynLoad>>> for SimpleConnection {
     fn from(conn: Connection<NativeFbClient<DynLoad>>) -> Self {
@@ -44,11 +56,35 @@ impl From<Connection<NativeFbClient<DynLoad>>> for SimpleConnection {
     }
 }
 
+#[cfg(feature = "dynamic_loading")]
+impl From<SimpleConnection> for Result<Connection<NativeFbClient<DynLoad>>, FbError> {
+    fn from(conn: SimpleConnection) -> Self {
+        #[allow(irrefutable_let_patterns)]
+        if let TypeConnectionContainer::NativeDynLoad(c) = conn.inner {
+            Ok(c)
+        } else {
+            Err(FbError::from("This isn't a NativeDynLoad connection"))
+        }
+    }
+}
+
 #[cfg(feature = "pure_rust")]
 impl From<Connection<RustFbClient>> for SimpleConnection {
     fn from(conn: Connection<RustFbClient>) -> Self {
         let inner = TypeConnectionContainer::PureRust(conn);
         SimpleConnection { inner }
+    }
+}
+
+#[cfg(feature = "pure_rust")]
+impl From<SimpleConnection> for Result<Connection<RustFbClient>, FbError> {
+    fn from(conn: SimpleConnection) -> Self {
+        #[allow(irrefutable_let_patterns)]
+        if let TypeConnectionContainer::PureRust(c) = conn.inner {
+            Ok(c)
+        } else {
+            Err(FbError::from("This isn't a PureRust connection"))
+        }
     }
 }
 
