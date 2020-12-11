@@ -4,12 +4,12 @@
 //!
 
 use crate::{Connection, Execute, FbError, FromRow, IntoParams, Queryable, SimpleTransaction};
-#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
-use rsfbclient_native::NativeFbClient;
 #[cfg(feature = "linking")]
 use rsfbclient_native::DynLink;
 #[cfg(feature = "dynamic_loading")]
 use rsfbclient_native::DynLoad;
+#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
+use rsfbclient_native::NativeFbClient;
 #[cfg(feature = "pure_rust")]
 use rsfbclient_rust::RustFbClient;
 use std::convert::From;

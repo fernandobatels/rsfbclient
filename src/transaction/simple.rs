@@ -3,14 +3,14 @@
 //! multiple connection types/variations.
 //!
 
-use crate::{Transaction, Execute, FbError, FromRow, IntoParams, Queryable, SimpleConnection};
 use crate::connection::simple::TypeConnectionContainer;
-#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
-use rsfbclient_native::NativeFbClient;
+use crate::{Execute, FbError, FromRow, IntoParams, Queryable, SimpleConnection, Transaction};
 #[cfg(feature = "linking")]
 use rsfbclient_native::DynLink;
 #[cfg(feature = "dynamic_loading")]
 use rsfbclient_native::DynLoad;
+#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
+use rsfbclient_native::NativeFbClient;
 #[cfg(feature = "pure_rust")]
 use rsfbclient_rust::RustFbClient;
 use std::convert::From;
@@ -90,7 +90,6 @@ impl<'c> From<SimpleTransaction<'c>> for Result<Transaction<'c, RustFbClient>, F
 }
 
 impl<'c> SimpleTransaction<'c> {
-
     /// Start a new transaction
     pub fn new(conn: &'c mut SimpleConnection) -> Result<Self, FbError> {
         match &mut conn.inner {
