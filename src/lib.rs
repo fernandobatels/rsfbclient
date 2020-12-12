@@ -4,7 +4,7 @@
 //! # How to use it
 //!
 //! ### 1. Start by choosing the lib variation you want
-//! ```rust
+//! ```rust,ignore
 //! // To use the offcial ('native') Firebird client .dll/.so/.dylib
 //! // (needs to find dll at build time)
 //! rsfbclient::builder_native().with_dyn_link()
@@ -15,7 +15,7 @@
 //! ```
 //!
 //! ### 2. Set your connection params
-//! ```rust
+//! ```rust,ignore
 //! // For a remote server, using a dynamically linked native client
 //! let mut conn = rsfbclient::builder_native()
 //!     .with_dyn_link()
@@ -32,7 +32,7 @@
 //! ```
 //!
 //! You also can choose a string connection configuration
-//! ```rust
+//! ```rust,ignore
 //! // Using the native Firebird client
 //! rsfbclient::builder_native()
 //!     .from_string("firebird://SYSDBA:masterkey@my.host.com.br:3050/awesome.fdb?charset=ascii")
@@ -42,7 +42,7 @@
 //! ```
 //!
 //! ### 3. Now you can use the lib
-//! ```rust
+//! ```rust,ignore
 //! let rows = conn.query_iter("select col_a, col_b, col_c from test", ())?;
 //! ...
 //! ```
@@ -52,7 +52,7 @@
 //! Sometimes you will need store the [Connection](./struct.Connection.html) and [Transaction](struct.Transaction.html) types into a struct field without care about Firebird Client variation. To do this, you can use the [SimpleConnection](struct.SimpleConnection.html) and [SimpleTransaction](struct.SimpleTransaction.html) types.
 //!
 //! To use, you only need use the [From](std::convert::From) trait, calling the `into()` method. Example:
-//! ```
+//! ```rust,ignore
 //! let mut conn: SimpleConnection = rsfbclient::builder_native()
 //!     .with_dyn_link()
 //!     .with_remote()
