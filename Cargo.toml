@@ -37,3 +37,5 @@ native_client = []
 [workspace]
 members = ["rsfbclient-core", "rsfbclient-native", "rsfbclient-rust", "rsfbclient-derive"]
 
+[package.metadata.docs.rs]
+all-features = true

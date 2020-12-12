@@ -1,9 +1,9 @@
 //!
 //! Rust Firebird Client
 //!
-//! ## How to use it
+//! # How to use it
 //!
-//! 1. Start by choosing the lib variation you want
+//! ### 1. Start by choosing the lib variation you want
 //! ```rust
 //! // To use the offcial ('native') Firebird client .dll/.so/.dylib
 //! // (needs to find dll at build time)
@@ -14,7 +14,7 @@
 //! rsfbclient::builder_pure_rust()
 //! ```
 //!
-//! 2. Set your connection params
+//! ### 2. Set your connection params
 //! ```rust
 //! // For a remote server, using a dynamically linked native client
 //! let mut conn = rsfbclient::builder_native()
@@ -41,13 +41,28 @@
 //!     .from_string("firebird://SYSDBA:masterkey@my.host.com.br:3050/awesome.fdb?charset=ascii")
 //! ```
 //!
-//! 3. Now you can use the lib
+//! ### 3. Now you can use the lib
 //! ```rust
 //! let rows = conn.query_iter("select col_a, col_b, col_c from test", ())?;
 //! ...
 //! ```
 //!
-//! ## Cargo features
+//! # Simple Connection/Transaction
+//!
+//! Sometimes you will need store the [Connection](./struct.Connection.html) and [Transaction](struct.Transaction.html) types into a struct field without care about Firebird Client variation. To do this, you can use the [SimpleConnection](struct.SimpleConnection.html) and [SimpleTransaction](struct.SimpleTransaction.html) types.
+//!
+//! To use, you only need use the [From](std::convert::From) trait, calling the `into()` method. Example:
+//! ```
+//! let mut conn: SimpleConnection = rsfbclient::builder_native()
+//!     .with_dyn_link()
+//!     .with_remote()
+//!     .host("my.host.com.br")
+//!     .db_name("awesome.fdb")
+//!     .connect()?
+//!     .into();
+//! ```
+//!
+//! # Cargo features
 //! All features can be used at the same time if needed.
 //!
 //! ### `linking`
