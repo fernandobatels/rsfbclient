@@ -13,7 +13,7 @@ use rsfbclient_native::DynLoad;
 use rsfbclient_native::NativeFbClient;
 #[cfg(feature = "pure_rust")]
 use rsfbclient_rust::RustFbClient;
-use std::convert::From;
+use std::convert::{From, TryFrom};
 
 /// A transaction API without client types
 pub struct SimpleTransaction<'c> {
@@ -38,8 +38,10 @@ impl<'c> From<Transaction<'c, NativeFbClient<DynLink>>> for SimpleTransaction<'c
 }
 
 #[cfg(feature = "linking")]
-impl<'c> From<SimpleTransaction<'c>> for Result<Transaction<'c, NativeFbClient<DynLink>>, FbError> {
-    fn from(tr: SimpleTransaction<'c>) -> Self {
+impl<'c> TryFrom<SimpleTransaction<'c>> for Transaction<'c, NativeFbClient<DynLink>> {
+    type Error = FbError;
+
+    fn try_from(tr: SimpleTransaction<'c>) -> Result<Self, FbError> {
         #[allow(irrefutable_let_patterns)]
         if let TypeTransactionContainer::NativeDynLink(t) = tr.inner {
             Ok(t)
@@ -58,8 +60,10 @@ impl<'c> From<Transaction<'c, NativeFbClient<DynLoad>>> for SimpleTransaction<'c
 }
 
 #[cfg(feature = "dynamic_loading")]
-impl<'c> From<SimpleTransaction<'c>> for Result<Transaction<'c, NativeFbClient<DynLoad>>, FbError> {
-    fn from(tr: SimpleTransaction<'c>) -> Self {
+impl<'c> TryFrom<SimpleTransaction<'c>> for Transaction<'c, NativeFbClient<DynLoad>> {
+    type Error = FbError;
+
+    fn try_from(tr: SimpleTransaction<'c>) -> Result<Self, FbError> {
         #[allow(irrefutable_let_patterns)]
         if let TypeTransactionContainer::NativeDynLoad(t) = tr.inner {
             Ok(t)
@@ -78,8 +82,10 @@ impl<'c> From<Transaction<'c, RustFbClient>> for SimpleTransaction<'c> {
 }
 
 #[cfg(feature = "pure_rust")]
-impl<'c> From<SimpleTransaction<'c>> for Result<Transaction<'c, RustFbClient>, FbError> {
-    fn from(tr: SimpleTransaction<'c>) -> Self {
+impl<'c> TryFrom<SimpleTransaction<'c>> for Transaction<'c, RustFbClient> {
+    type Error = FbError;
+
+    fn try_from(tr: SimpleTransaction<'c>) -> Result<Self, FbError> {
         #[allow(irrefutable_let_patterns)]
         if let TypeTransactionContainer::PureRust(t) = tr.inner {
             Ok(t)

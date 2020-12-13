@@ -12,7 +12,7 @@ use rsfbclient_native::DynLoad;
 use rsfbclient_native::NativeFbClient;
 #[cfg(feature = "pure_rust")]
 use rsfbclient_rust::RustFbClient;
-use std::convert::From;
+use std::convert::{From, TryFrom};
 
 /// A connection API without client types
 pub struct SimpleConnection {
@@ -37,8 +37,10 @@ impl From<Connection<NativeFbClient<DynLink>>> for SimpleConnection {
 }
 
 #[cfg(feature = "linking")]
-impl From<SimpleConnection> for Result<Connection<NativeFbClient<DynLink>>, FbError> {
-    fn from(conn: SimpleConnection) -> Self {
+impl TryFrom<SimpleConnection> for Connection<NativeFbClient<DynLink>> {
+    type Error = FbError;
+
+    fn try_from(conn: SimpleConnection) -> Result<Self, Self::Error> {
         #[allow(irrefutable_let_patterns)]
         if let TypeConnectionContainer::NativeDynLink(c) = conn.inner {
             Ok(c)
@@ -57,8 +59,10 @@ impl From<Connection<NativeFbClient<DynLoad>>> for SimpleConnection {
 }
 
 #[cfg(feature = "dynamic_loading")]
-impl From<SimpleConnection> for Result<Connection<NativeFbClient<DynLoad>>, FbError> {
-    fn from(conn: SimpleConnection) -> Self {
+impl TryFrom<SimpleConnection> for Connection<NativeFbClient<DynLoad>> {
+    type Error = FbError;
+
+    fn try_from(conn: SimpleConnection) -> Result<Self, Self::Error> {
         #[allow(irrefutable_let_patterns)]
         if let TypeConnectionContainer::NativeDynLoad(c) = conn.inner {
             Ok(c)
@@ -77,8 +81,10 @@ impl From<Connection<RustFbClient>> for SimpleConnection {
 }
 
 #[cfg(feature = "pure_rust")]
-impl From<SimpleConnection> for Result<Connection<RustFbClient>, FbError> {
-    fn from(conn: SimpleConnection) -> Self {
+impl TryFrom<SimpleConnection> for Connection<RustFbClient> {
+    type Error = FbError;
+
+    fn try_from(conn: SimpleConnection) -> Result<Self, Self::Error> {
         #[allow(irrefutable_let_patterns)]
         if let TypeConnectionContainer::PureRust(c) = conn.inner {
             Ok(c)
