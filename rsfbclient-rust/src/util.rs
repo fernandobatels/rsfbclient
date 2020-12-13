@@ -65,7 +65,18 @@ pub trait BytesWireExt {
     /// Gets an IEEE754 double-precision (8 bytes) floating point number from `self` in big-endian byte order
     fn get_f64(&mut self) -> Result<f64, FbError>;
 
+    /// Copies bytes from `self` into `dst`.
+    ///
+    /// The cursor is advanced by the number of bytes copied. `self` must have
+    /// enough remaining bytes to fill `dst`.
     fn copy_to_slice(&mut self, dst: &mut [u8]) -> Result<(), FbError>;
+
+    /// Get the length of the bytes from the first u16 little-endian
+    /// and return the bytes read
+    fn get_u16_le_bytes(&mut self) -> Result<Bytes, FbError>;
+
+    /// Return `Ok` if the next bytes are equal to `pattern`
+    fn get_pattern(&mut self, pattern: &[u8]) -> Result<(), FbError>;
 }
 
 impl BytesWireExt for Bytes {
@@ -173,6 +184,29 @@ impl BytesWireExt for Bytes {
         bytes::Buf::copy_to_slice(self, dst);
 
         Ok(())
+    }
+
+    fn get_u16_le_bytes(&mut self) -> Result<Bytes, FbError> {
+        let len = self.get_u16_le()? as usize;
+        if self.remaining() < len {
+            return err_invalid_response();
+        }
+
+        let bytes = self.slice(..len);
+
+        self.advance(len)?;
+
+        Ok(bytes)
+    }
+
+    fn get_pattern(&mut self, pattern: &[u8]) -> Result<(), FbError> {
+        if self.remaining() >= pattern.len() && self[..pattern.len()] == *pattern {
+            bytes::Buf::advance(self, pattern.len());
+
+            Ok(())
+        } else {
+            err_invalid_response()
+        }
     }
 }
 

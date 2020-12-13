@@ -1,7 +1,5 @@
 //! Structs and functions to parse and send data about the sql parameters and columns
 
-#![allow(non_upper_case_globals)]
-
 use crate::util::*;
 use bytes::{BufMut, Bytes, BytesMut};
 use rsfbclient_core::{ibase, FbError, StmtType};
@@ -174,10 +172,7 @@ pub struct PrepareInfo {
 /// Returns the statement type, xsqlda and an indicator if the data was truncated (xsqlda not entirely filled)
 pub fn parse_xsqlda(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<PrepareInfo, FbError> {
     // Asserts that the first 7 bytes are the statement type information
-    if resp.remaining() < 7 || resp[..3] != [ibase::isc_info_sql_stmt_type as u8, 0x04, 0x00] {
-        return err_invalid_xsqlda();
-    }
-    resp.advance(3)?;
+    resp.get_pattern(&[ibase::isc_info_sql_stmt_type as u8, 0x04, 0x00])?;
 
     let stmt_type =
         StmtType::try_from(resp.get_u32_le()? as u8).map_err(|e| FbError::Other(e.to_string()))?;
@@ -185,40 +180,28 @@ pub fn parse_xsqlda(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<Prepa
     let param_count;
 
     // Asserts that the next 8 bytes are the start of the parameters data
-    if resp.remaining() < 8
-        || resp[..2]
-            != [
-                ibase::isc_info_sql_bind as u8,          // Start of param data
-                ibase::isc_info_sql_describe_vars as u8, // Param count
-            ]
-    {
-        return err_invalid_xsqlda();
-    }
-    resp.advance(2)?;
-    // Parameter count
+    resp.get_pattern(&[
+        ibase::isc_info_sql_bind as u8,          // Start of param data
+        ibase::isc_info_sql_describe_vars as u8, // Param count
+    ])?;
 
     // Assume 0x04 0x00
     resp.advance(2)?;
 
     param_count = resp.get_u32_le()? as usize;
 
-    while resp.remaining() > 0 && resp[0] == ibase::isc_info_sql_describe_end as u8 {
+    while resp
+        .get_pattern(&[ibase::isc_info_sql_describe_end as u8])
+        .is_ok()
+    {
         // Indicates the end of param data, skip it as it appears only once. has one for each param
-        resp.advance(1)?;
     }
 
     // Asserts that the next 8 bytes are the start of the columns data
-    if resp.remaining() < 8
-        || resp[..2]
-            != [
-                ibase::isc_info_sql_select as u8,        // Start of column data
-                ibase::isc_info_sql_describe_vars as u8, // Column count
-            ]
-    {
-        return err_invalid_xsqlda();
-    }
-    resp.advance(2)?;
-    // Column count
+    resp.get_pattern(&[
+        ibase::isc_info_sql_select as u8,        // Start of column data
+        ibase::isc_info_sql_describe_vars as u8, // Column count
+    ])?;
 
     // Assume 0x04 0x00
     resp.advance(2)?;
@@ -328,10 +311,7 @@ pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result
             }
 
             ibase::isc_info_sql_field => {
-                let len = resp.get_u16_le()? as usize;
-
-                let mut buff = vec![0; len];
-                resp.copy_to_slice(&mut buff)?;
+                let buff = resp.get_u16_le_bytes()?.to_vec();
 
                 if let Some(var) = xsqlda.get_mut(col_index) {
                     var.field_name = String::from_utf8(buff).unwrap_or_default();
@@ -341,10 +321,7 @@ pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result
             }
 
             ibase::isc_info_sql_relation => {
-                let len = resp.get_u16_le()? as usize;
-
-                let mut buff = vec![0; len];
-                resp.copy_to_slice(&mut buff)?;
+                let buff = resp.get_u16_le_bytes()?.to_vec();
 
                 if let Some(var) = xsqlda.get_mut(col_index) {
                     var.relation_name = String::from_utf8(buff).unwrap_or_default();
@@ -354,10 +331,7 @@ pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result
             }
 
             ibase::isc_info_sql_owner => {
-                let len = resp.get_u16_le()? as usize;
-
-                let mut buff = vec![0; len];
-                resp.copy_to_slice(&mut buff)?;
+                let buff = resp.get_u16_le_bytes()?.to_vec();
 
                 if let Some(var) = xsqlda.get_mut(col_index) {
                     var.owner_name = String::from_utf8(buff).unwrap_or_default();
@@ -367,10 +341,7 @@ pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result
             }
 
             ibase::isc_info_sql_alias => {
-                let len = resp.get_u16_le()? as usize;
-
-                let mut buff = vec![0; len];
-                resp.copy_to_slice(&mut buff)?;
+                let buff = resp.get_u16_le_bytes()?.to_vec();
 
                 if let Some(var) = xsqlda.get_mut(col_index) {
                     var.alias_name = String::from_utf8(buff).unwrap_or_default();

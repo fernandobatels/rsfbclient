@@ -445,6 +445,7 @@ impl FirebirdWireConnection {
     ) -> Result<(StmtType, StmtHandleData), FbError> {
         // Alloc statement
         self.socket.write_all(&allocate_statement(db_handle.0))?;
+
         // Prepare statement
         self.socket.write_all(&prepare_statement(
             tr_handle.0,

@@ -1,7 +1,5 @@
 //! Structs and functions to write and parse the firebird wire protocol messages
 
-#![allow(non_upper_case_globals)]
-
 use bytes::{BufMut, Bytes, BytesMut};
 use std::{convert::TryFrom, str};
 
@@ -915,27 +913,17 @@ pub fn parse_srp_auth_data(resp: &mut Bytes) -> Result<Option<SrpAuthData>, FbEr
         return Ok(None);
     }
 
-    let len = resp.get_u16_le()? as usize;
-    if resp.remaining() < len {
-        return err_invalid_response();
-    }
-    let salt = resp.slice(..len);
     // * DO NOT PARSE AS HEXADECIMAL *
-    let salt = salt.to_vec();
-    resp.advance(len)?;
+    let salt = resp.get_u16_le_bytes()?.to_vec();
 
-    let len = resp.get_u16_le()? as usize;
-    if resp.remaining() < len {
-        return err_invalid_response();
-    }
-    let mut pub_key = resp.slice(..len).to_vec();
-    if len % 2 != 0 {
+    let mut pub_key = resp.get_u16_le_bytes()?.to_vec();
+    if pub_key.len() % 2 != 0 {
         // We need to add a 0 to the start
         pub_key = [b"0", &pub_key[..]].concat();
     }
+
     let pub_key =
         hex::decode(&pub_key).map_err(|_| FbError::from("Invalid hex pub_key in srp data"))?;
-    resp.advance(len)?;
 
     Ok(Some(SrpAuthData {
         salt: salt.into_boxed_slice(),

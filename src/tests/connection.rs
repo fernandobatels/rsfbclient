@@ -5,8 +5,6 @@
 //!
 
 mk_tests_default! {
-    use crate::*;
-
     #[test]
     #[cfg(all(feature = "linking", not(feature = "embedded_tests"), not(feature = "pure_rust")))]
     fn string_conn() -> Result<(), FbError> {

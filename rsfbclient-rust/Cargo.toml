@@ -10,7 +10,7 @@ categories = ["database"]
 license = "MIT"
 
 [dependencies]
-bytes = "0.5.6"
+bytes = "0.6.0"
 digest = "0.9.0"
 generic-array = "0.14.4"
 hex = "0.4.2"
