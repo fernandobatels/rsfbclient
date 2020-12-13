@@ -141,7 +141,7 @@ where
     Self: FirebirdClientFactory<C = NativeFbClient<A>>,
 {
     /// Create a new connection from the fully-built builder
-    pub fn connect(&self) -> Result<Connection<impl FirebirdClient>, FbError> {
+    pub fn connect(&self) -> Result<Connection<NativeFbClient<A>>, FbError> {
         Connection::open(self.new_instance()?, &self.conn_conf)
     }
 }

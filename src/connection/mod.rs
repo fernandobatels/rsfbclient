@@ -35,6 +35,9 @@ pub mod builders {
 pub(crate) mod conn_string;
 pub(crate) mod stmt_cache;
 
+pub(crate) mod simple;
+pub use simple::SimpleConnection;
+
 /// A generic factory for creating multiple preconfigured instances of a particular client implementation
 /// Intended mainly for use by connection pool
 pub trait FirebirdClientFactory {
