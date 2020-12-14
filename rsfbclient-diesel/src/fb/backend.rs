@@ -1,8 +1,8 @@
 //! The Firebird backend
 
-use crate::query_builder::FbQueryBuilder;
-use crate::types::SupportedType;
-use crate::value::FbValue;
+use super::query_builder::FbQueryBuilder;
+use super::types::SupportedType;
+use super::value::FbValue;
 use byteorder::NetworkEndian;
 use diesel::backend::*;
 use diesel::query_builder::bind_collector::RawBytesBindCollector;

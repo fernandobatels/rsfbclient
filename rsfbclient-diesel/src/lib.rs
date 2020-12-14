@@ -1,15 +1,31 @@
-//! The Firebird Diesel implementation
+//! The Firebird Diesel
+//!
+//! This crate re-export all diesel API with the intention of simulate the others [Diesel](https://docs.diesel.rs/diesel/index.html) implementations.
+//!
+//! ### To use, you must use this create as an alias to the official diesel crate
+//! ```rust,ignore
+//! // Cargo.toml
+//! diesel = { package = "rsfbclient-diesel", version = "..." }
+//! ```
+//! By default the lib will use the [native client](../rsfbclient_native/struct.NativeFbClient.html). If you want
+//! use the [pure rust client](../rsfbclient_rust/struct.RustFbClient.html), enable the `pure_rust` feature:
+//! ```rust,ignore
+//! // Cargo.toml
+//! diesel = { package = "rsfbclient-diesel", version = "...", features = ["pure_rust"] }
+//! ```
+//!
+//! ### Establishing a connection
+//! ```rust,ignore
+//! use diesel::prelude::*;
+//! use diesel::fb::FbConnection;
+//!
+//! let conn = FbConnection::establish("firebird://test.fdb");
+//! ```
 
-pub mod backend;
-pub mod connection;
-pub mod query_builder;
-pub mod transaction;
-pub mod types;
-pub mod value;
+pub mod fb;
+use diesel;
 
-pub mod prelude {
-    pub use crate::connection::*;
-}
+pub use crate::diesel::*;
 
 #[cfg(test)]
 mod tests;

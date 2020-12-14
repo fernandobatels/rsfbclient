@@ -1,5 +1,5 @@
+use crate::fb::FbConnection;
 use crate::prelude::*;
-use diesel::prelude::*;
 
 #[derive(Insertable, Queryable)]
 #[table_name = "users"]

@@ -13,7 +13,7 @@ use diesel::result::Error::DatabaseError;
 use diesel::result::Error::DeserializationError;
 use diesel::result::*;
 use rsfbclient::SimpleConnection as FbRawConnection;
-use rsfbclient::{Execute, SqlType, Queryable};
+use rsfbclient::{Execute, Queryable, SqlType};
 use std::cell::RefCell;
 
 pub struct FbConnection<'c> {
@@ -38,13 +38,13 @@ impl<'c> Connection for FbConnection<'c> {
     type Backend = Fb;
 
     fn establish(database_url: &str) -> ConnectionResult<Self> {
-
         #[cfg(feature = "pure_rust")]
         let raw_builder = rsfbclient::builder_pure_rust().from_string(database_url);
         #[cfg(not(feature = "pure_rust"))]
         let raw_builder = rsfbclient::builder_native().from_string(database_url);
 
-        let raw = raw_builder.map_err(|e| ConnectionError::BadConnection(e.to_string()))
+        let raw = raw_builder
+            .map_err(|e| ConnectionError::BadConnection(e.to_string()))
             .unwrap()
             .connect()
             .map_err(|e| ConnectionError::BadConnection(e.to_string()))
@@ -150,10 +150,10 @@ impl<'c> Connection for FbConnection<'c> {
 #[cfg(test)]
 mod tests {
 
-    use crate::connection::FbConnection;
-    use diesel::connection::SimpleConnection;
-    use diesel::prelude::*;
-    use diesel::result::Error;
+    use crate::connection::SimpleConnection;
+    use crate::fb::FbConnection;
+    use crate::prelude::*;
+    use crate::result::Error;
 
     #[test]
     fn establish() -> Result<(), ConnectionError> {
