@@ -39,11 +39,12 @@ impl<'c> Connection for FbConnection<'c> {
 
     fn establish(database_url: &str) -> ConnectionResult<Self> {
         #[cfg(feature = "pure_rust")]
-        let raw_builder = rsfbclient::builder_pure_rust().from_string(database_url);
+        let mut raw_builder = rsfbclient::builder_pure_rust();
         #[cfg(not(feature = "pure_rust"))]
-        let raw_builder = rsfbclient::builder_native().from_string(database_url);
+        let raw_builder = rsfbclient::builder_native();
 
         let raw = raw_builder
+            .from_string(database_url)
             .map_err(|e| ConnectionError::BadConnection(e.to_string()))
             .unwrap()
             .connect()
