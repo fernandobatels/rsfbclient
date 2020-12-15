@@ -24,6 +24,28 @@ fn insert() -> Result<(), String> {
 }
 
 #[test]
+fn insert_returning() -> Result<(), String> {
+    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
+
+    schema::setup(&conn)?;
+
+    let user = schema::User {
+        id: 10,
+        name: "Pedro".to_string(),
+    };
+
+    let id: i32 = diesel::insert_into(schema::users::table)
+        .values(&user)
+        .returning(schema::users::columns::id)
+        .get_result(&conn)
+        .map_err(|e| e.to_string())?;
+
+    assert_eq!(id, user.id);
+
+    Ok(())
+}
+
+#[test]
 fn update() -> Result<(), String> {
     let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
 

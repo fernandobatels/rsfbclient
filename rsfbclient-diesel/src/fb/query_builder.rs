@@ -6,12 +6,14 @@ use diesel::{QueryResult, QuerySource};
 
 pub struct FbQueryBuilder {
     query: String,
+    pub has_cursor: bool,
 }
 
 impl FbQueryBuilder {
     pub fn new() -> Self {
         FbQueryBuilder {
             query: String::new(),
+            has_cursor: true,
         }
     }
 }
@@ -19,6 +21,10 @@ impl FbQueryBuilder {
 impl QueryBuilder<Fb> for FbQueryBuilder {
     fn push_sql(&mut self, sql: &str) {
         self.query.push_str(sql);
+
+        if sql.trim().to_lowercase() == "returning" {
+            self.has_cursor = false;
+        }
     }
 
     fn push_identifier(&mut self, identifier: &str) -> QueryResult<()> {

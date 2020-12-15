@@ -83,6 +83,7 @@ impl<'c> Connection for FbConnection<'c> {
 
         let mut qb = FbQueryBuilder::new();
         source.to_sql(&mut qb)?;
+        let has_cursor = qb.has_cursor;
         let sql = qb.finish();
 
         let params: Vec<SqlType> = bc
@@ -92,19 +93,37 @@ impl<'c> Connection for FbConnection<'c> {
             .map(|(tp, val)| tp.to_param(val))
             .collect();
 
-        let result;
+        let results;
 
         let mut tr_ref = self.tr_manager.raw.borrow_mut();
         if let Some(tr) = tr_ref.as_mut() {
-            result = tr.query::<Vec<SqlType>, FbRow>(&sql, params);
+            if has_cursor {
+                results = tr.query::<Vec<SqlType>, FbRow>(&sql, params);
+            } else {
+                results = match tr.execute_returnable::<Vec<SqlType>, FbRow>(&sql, params) {
+                    Ok(result) => Ok(vec![result]),
+                    Err(e) => Err(e),
+                };
+            }
         } else {
-            result = self
-                .raw
-                .borrow_mut()
-                .query::<Vec<SqlType>, FbRow>(&sql, params);
+            if has_cursor {
+                results = self
+                    .raw
+                    .borrow_mut()
+                    .query::<Vec<SqlType>, FbRow>(&sql, params);
+            } else {
+                results = match self
+                    .raw
+                    .borrow_mut()
+                    .execute_returnable::<Vec<SqlType>, FbRow>(&sql, params)
+                {
+                    Ok(result) => Ok(vec![result]),
+                    Err(e) => Err(e),
+                };
+            }
         }
 
-        result
+        results
             .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?
             .iter()
             .map(|row| U::build_from_row(row).map_err(DeserializationError))
