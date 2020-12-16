@@ -17,7 +17,7 @@ use rsfbclient::{Execute, Queryable, SqlType};
 use std::cell::RefCell;
 
 pub struct FbConnection<'c> {
-    pub(crate) raw: RefCell<FbRawConnection>,
+    pub raw: RefCell<FbRawConnection>,
     tr_manager: FbTransactionManager<'c>,
 }
 
@@ -45,11 +45,9 @@ impl<'c> Connection for FbConnection<'c> {
 
         let raw = raw_builder
             .from_string(database_url)
-            .map_err(|e| ConnectionError::BadConnection(e.to_string()))
-            .unwrap()
+            .map_err(|e| ConnectionError::BadConnection(e.to_string()))?
             .connect()
-            .map_err(|e| ConnectionError::BadConnection(e.to_string()))
-            .unwrap();
+            .map_err(|e| ConnectionError::BadConnection(e.to_string()))?;
 
         Ok(FbConnection {
             raw: RefCell::new(raw.into()),

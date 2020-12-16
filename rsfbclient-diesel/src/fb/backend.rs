@@ -28,5 +28,4 @@ impl TypeMetadata for Fb {
 }
 
 impl UsesAnsiSavepointSyntax for Fb {}
-impl SupportsDefaultKeyword for Fb {}
 impl SupportsReturningClause for Fb {}

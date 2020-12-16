@@ -1,8 +1,9 @@
 //! The Firebird query builder
 
 use super::backend::Fb;
+use diesel::insertable::*;
 use diesel::query_builder::*;
-use diesel::{QueryResult, QuerySource};
+use diesel::{AppearsOnTable, Column, Expression, QueryResult, QuerySource};
 
 pub struct FbQueryBuilder {
     query: String,
@@ -97,6 +98,32 @@ where
         self.group_by.walk_ast(out.reborrow())?;
         self.order.walk_ast(out.reborrow())?;
         self.locking.walk_ast(out.reborrow())?;
+        Ok(())
+    }
+}
+
+impl<Col, Expr> InsertValues<Col::Table, Fb> for ColumnInsertValue<Col, Expr>
+where
+    Col: Column,
+    Expr: Expression<SqlType = Col::SqlType> + AppearsOnTable<()>,
+    Self: QueryFragment<Fb>,
+{
+    fn column_names(&self, mut out: AstPass<Fb>) -> QueryResult<()> {
+        if let ColumnInsertValue::Expression(..) = *self {
+            out.push_identifier(Col::NAME)?;
+        }
+        Ok(())
+    }
+}
+
+impl<Col, Expr> QueryFragment<Fb> for ColumnInsertValue<Col, Expr>
+where
+    Expr: QueryFragment<Fb>,
+{
+    fn walk_ast(&self, mut out: AstPass<Fb>) -> QueryResult<()> {
+        if let ColumnInsertValue::Expression(_, ref value) = *self {
+            value.walk_ast(out.reborrow())?;
+        }
         Ok(())
     }
 }

@@ -13,13 +13,18 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-diesel = { version = "2.0.0", git = "https://github.com/fernandobatels/diesel", features = ["no-default-stmt-impl"] }
+diesel = { version = "2.0.0", git = "https://github.com/fernandobatels/diesel", features = ["no-default-stmt-impl", "chrono"], default-features = false }
 rsfbclient = { version = "0.13.0", path = "../", features = ["dynamic_loading", "pure_rust"] }
 byteorder = "1.0"
 bytes = "0.6.0"
+chrono = { version = "0.4.13", optional = true }
 
 [features]
 default = ["linking"]
 dynamic_loading = []
 linking = []
 pure_rust = []
+date_time = ["chrono"]
+
+[package.metadata.docs.rs]
+all-features = true

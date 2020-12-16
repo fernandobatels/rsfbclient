@@ -33,6 +33,10 @@ impl<'a> Field<'a, Fb> for FbField<'a> {
     }
 
     fn value(&self) -> Option<RawValue<'a, Fb>> {
+        if self.raw.value.is_null() {
+            return None;
+        }
+
         Some(FbValue {
             raw: self.raw.clone(),
             _marker: PhantomData,
