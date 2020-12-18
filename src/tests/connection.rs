@@ -7,7 +7,7 @@
 mk_tests_default! {
     #[test]
     #[cfg(all(feature = "linking", not(feature = "embedded_tests"), not(feature = "pure_rust")))]
-    fn string_conn() -> Result<(), FbError> {
+    fn string_conn() -> Result<(), crate::FbError> {
         builder_native()
             .from_string(
                 "firebird://SYSDBA:masterkey@localhost:3050/test.fdb?dialect=3",
@@ -25,7 +25,7 @@ mk_tests_default! {
 
     #[test]
     #[cfg(all(feature = "dynamic_loading", not(feature = "embedded_tests"), not(feature = "pure_rust")))]
-    fn string_conn() -> Result<(), FbError> {
+    fn string_conn() -> Result<(), crate::FbError> {
 
         #[cfg(target_os = "linux")]
         let libfbclient = "libfbclient.so";
@@ -51,7 +51,7 @@ mk_tests_default! {
 
     #[test]
     #[cfg(all(feature = "linking", feature = "embedded_tests", not(feature = "dynamic_loading"), not(feature = "pure_rust")))]
-    fn string_conn() -> Result<(), FbError> {
+    fn string_conn() -> Result<(), crate::FbError> {
         builder_native()
             .from_string(
                 "firebird:///tmp/embedded_tests.fdb?dialect=3",
@@ -63,7 +63,7 @@ mk_tests_default! {
 
     #[test]
     #[cfg(all(feature = "dynamic_loading", feature = "embedded_tests", not(feature = "linking"), not(feature = "pure_rust")))]
-    fn string_conn() -> Result<(), FbError> {
+    fn string_conn() -> Result<(), crate::FbError> {
 
         #[cfg(target_os = "linux")]
         let libfbclient = "libfbclient.so";
@@ -83,7 +83,7 @@ mk_tests_default! {
 
     #[test]
     #[cfg(all(feature = "pure_rust", not(feature = "native_client")))]
-    fn string_conn() -> Result<(), FbError> {
+    fn string_conn() -> Result<(), crate::FbError> {
         builder_pure_rust()
             .from_string(
                 "firebird://SYSDBA:masterkey@localhost:3050/test.fdb?dialect=3",
