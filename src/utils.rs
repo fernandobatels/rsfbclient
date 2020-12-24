@@ -42,6 +42,12 @@ impl PartialEq for EngineVersion {
     }
 }
 
+impl PartialOrd for EngineVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some((*self as u8).cmp(&(*other as u8)))
+    }
+}
+
 impl Eq for EngineVersion {}
 
 impl<C: FirebirdClient> SystemInfos for Connection<C> {
@@ -56,17 +62,48 @@ impl<C: FirebirdClient> SystemInfos for Connection<C> {
     }
 
     fn server_engine(&mut self) -> Result<EngineVersion, FbError> {
-        todo!()
+        let row: Option<(String,)> = self.query_first(
+            "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') from rdb$database;",
+            (),
+        )?;
+
+        if let Some((version,)) = row {
+            return match version {
+                ver if ver.starts_with("4.") => Ok(EngineVersion::V4),
+                ver if ver.starts_with("3.") => Ok(EngineVersion::V3),
+                ver if ver.starts_with("2.") => Ok(EngineVersion::V2),
+                ver => Err(FbError::from(format!("Version not detected: {}", ver)))
+            };
+        }
+
+        // ENGINE_VERSION is only avaliable after fb 2.1
+        Ok(EngineVersion::V1)
     }
 }
 
-
 #[cfg(test)]
-pub(crate) mod test {
+mk_tests_default! {
     use crate::*;
 
     #[test]
-    fn eng_version_cmp() {
+    fn server_engine() -> Result<(), FbError> {
+
+        let mut conn = cbuilder().connect()?;
+
+        let version = conn.server_engine()?;
+
+        // Our current CI versions..
+        assert!([EngineVersion::V2, EngineVersion::V3, EngineVersion::V4].contains(&version));
+
+        Ok(())
+    }
+
+    #[test]
+    fn eng_version() {
         assert_eq!(EngineVersion::V1, EngineVersion::V1);
+        assert!(EngineVersion::V1 == EngineVersion::V1);
+
+        assert!(EngineVersion::V1 >= EngineVersion::V1);
+        assert!(EngineVersion::V3 > EngineVersion::V2);
     }
 }
