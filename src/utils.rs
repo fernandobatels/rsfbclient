@@ -86,6 +86,18 @@ mk_tests_default! {
     use crate::*;
 
     #[test]
+    fn db_name() -> Result<(), FbError> {
+
+        let mut conn = cbuilder().connect()?;
+
+        let name = conn.db_name()?;
+
+        assert!(name.ends_with("test.fdb"));
+
+        Ok(())
+    }
+
+    #[test]
     fn server_engine() -> Result<(), FbError> {
 
         let mut conn = cbuilder().connect()?;
