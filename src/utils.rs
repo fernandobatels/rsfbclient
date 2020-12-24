@@ -2,14 +2,12 @@
 //! Some API utils
 //!
 
-use rsfbclient_core::{FirebirdClient};
-use crate::{FbError, Connection, SimpleConnection, Queryable};
+use crate::{FbError, Queryable};
 use std::cmp::*;
 use std::convert::From;
 
 /// Infos about the server, database, engine...
 pub trait SystemInfos {
-
     /// Return the current connected database name
     fn db_name(&mut self) -> Result<String, FbError>;
 
@@ -31,7 +29,7 @@ impl From<EngineVersion> for u8 {
             EngineVersion::V1 => 1,
             EngineVersion::V2 => 2,
             EngineVersion::V3 => 3,
-            EngineVersion::V4 => 4
+            EngineVersion::V4 => 4,
         }
     }
 }
@@ -50,13 +48,17 @@ impl PartialOrd for EngineVersion {
 
 impl Eq for EngineVersion {}
 
-impl<C: FirebirdClient> SystemInfos for Connection<C> {
-
+impl<T> SystemInfos for T
+where
+    T: Queryable,
+{
     fn db_name(&mut self) -> Result<String, FbError> {
-        let (name,): (String,) = self.query_first(
-            "SELECT rdb$get_context('SYSTEM', 'DB_NAME') from rdb$database;",
-            (),
-        )?.unwrap();
+        let (name,): (String,) = self
+            .query_first(
+                "SELECT rdb$get_context('SYSTEM', 'DB_NAME') from rdb$database;",
+                (),
+            )?
+            .unwrap();
 
         Ok(name)
     }
@@ -72,7 +74,7 @@ impl<C: FirebirdClient> SystemInfos for Connection<C> {
                 ver if ver.starts_with("4.") => Ok(EngineVersion::V4),
                 ver if ver.starts_with("3.") => Ok(EngineVersion::V3),
                 ver if ver.starts_with("2.") => Ok(EngineVersion::V2),
-                ver => Err(FbError::from(format!("Version not detected: {}", ver)))
+                ver => Err(FbError::from(format!("Version not detected: {}", ver))),
             };
         }
 
@@ -92,7 +94,7 @@ mk_tests_default! {
 
         let name = conn.db_name()?;
 
-        assert!(name.ends_with("test.fdb"));
+        assert!(name.ends_with("test.fdb") || name.ends_with("tests.fdb"));
 
         Ok(())
     }

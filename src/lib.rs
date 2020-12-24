@@ -92,7 +92,7 @@ pub use crate::{
     query::{Execute, Queryable},
     statement::Statement,
     transaction::{SimpleTransaction, Transaction},
-    utils::{SystemInfos, EngineVersion}
+    utils::{EngineVersion, SystemInfos},
 };
 pub use rsfbclient_core::{
     Column, Dialect, FbError, FromRow, IntoParam, IntoParams, ParamsType, Row, SqlType,
