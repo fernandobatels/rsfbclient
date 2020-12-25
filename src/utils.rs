@@ -3,8 +3,6 @@
 //!
 
 use crate::{FbError, Queryable};
-use std::cmp::*;
-use std::convert::From;
 
 /// Infos about the server, database, engine...
 pub trait SystemInfos {
@@ -15,38 +13,14 @@ pub trait SystemInfos {
     fn server_engine(&mut self) -> Result<EngineVersion, FbError>;
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(PartialOrd, PartialEq, Eq, Debug, Copy, Clone)]
+#[repr(u8)]
 pub enum EngineVersion {
-    V1,
-    V2,
-    V3,
-    V4,
+    V1 = 1,
+    V2 = 2,
+    V3 = 3,
+    V4 = 4,
 }
-
-impl From<EngineVersion> for u8 {
-    fn from(eg: EngineVersion) -> Self {
-        match eg {
-            EngineVersion::V1 => 1,
-            EngineVersion::V2 => 2,
-            EngineVersion::V3 => 3,
-            EngineVersion::V4 => 4,
-        }
-    }
-}
-
-impl PartialEq for EngineVersion {
-    fn eq(&self, other: &Self) -> bool {
-        (*self as u8) == (*other as u8)
-    }
-}
-
-impl PartialOrd for EngineVersion {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some((*self as u8).cmp(&(*other as u8)))
-    }
-}
-
-impl Eq for EngineVersion {}
 
 impl<T> SystemInfos for T
 where
@@ -70,11 +44,11 @@ where
         )?;
 
         if let Some((version,)) = row {
-            return match version {
-                ver if ver.starts_with("4.") => Ok(EngineVersion::V4),
-                ver if ver.starts_with("3.") => Ok(EngineVersion::V3),
-                ver if ver.starts_with("2.") => Ok(EngineVersion::V2),
-                ver => Err(FbError::from(format!("Version not detected: {}", ver))),
+            return match &version.get(0..2) {
+                Some("4.") => Ok(EngineVersion::V4),
+                Some("3.") => Ok(EngineVersion::V3),
+                Some("2.") => Ok(EngineVersion::V2),
+                _ => Err(FbError::from(format!("Version not detected: {}", version))),
             };
         }
 
@@ -98,14 +72,5 @@ mk_tests_default! {
         assert!([EngineVersion::V2, EngineVersion::V3, EngineVersion::V4].contains(&version));
 
         Ok(())
-    }
-
-    #[test]
-    fn eng_version() {
-        assert_eq!(EngineVersion::V1, EngineVersion::V1);
-        assert!(EngineVersion::V1 == EngineVersion::V1);
-
-        assert!(EngineVersion::V1 >= EngineVersion::V1);
-        assert!(EngineVersion::V3 > EngineVersion::V2);
     }
 }
