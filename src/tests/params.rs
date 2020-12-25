@@ -5,7 +5,7 @@
 //!
 
 mk_tests_default! {
-    use crate::{prelude::*, FbError, SqlType};
+    use crate::{prelude::*, FbError, SqlType, EngineVersion, SystemInfos};
     use chrono::{NaiveDate, NaiveTime};
     use rand::{distributions::Standard, Rng};
 
@@ -152,11 +152,7 @@ mk_tests_default! {
     fn boolean() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
-        let (engine_version,): (String,) = conn.query_first(
-            "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') from rdb$database;",
-            (),
-        )?.unwrap();
-        if engine_version.starts_with("2.") {
+        if conn.server_engine()? <= EngineVersion::V2 {
             return Ok(());
         }
 
