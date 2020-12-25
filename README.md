@@ -6,7 +6,7 @@
 
 A [Firebird](https://firebirdsql.org/) client library to [Rust programing language](https://rust-lang.org/)
 
-## [How to use](https://docs.rs/rsfbclient/0.13.0/rsfbclient/index.html#how-to-use-it)
+## [How to use](https://docs.rs/rsfbclient/0.14.0/rsfbclient/index.html#how-to-use-it)
 
 ## [Examples](https://github.com/fernandobatels/rsfbclient/tree/master/examples)
 
