@@ -1,6 +1,6 @@
 [package]
 name = "rsfbclient-core"
-version = "0.13.0"
+version = "0.14.0"
 description = "Core of firebird client lib"
 authors = ["Luis Fernando Batels <luisfbatels@gmail.com>", "Jairo H Wiethan <jairinhowiethan@gmail.com>"]
 edition = "2018"
@@ -18,3 +18,6 @@ regex = "1.4"
 
 [features]
 date_time = ["chrono"]
+
+[package.metadata.docs.rs]
+all-features = true

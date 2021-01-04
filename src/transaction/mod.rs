@@ -14,6 +14,9 @@ use crate::{
     statement::StatementData, Execute, Queryable,
 };
 
+mod simple;
+pub use simple::SimpleTransaction;
+
 pub struct Transaction<'c, C>
 where
     C: FirebirdClient,

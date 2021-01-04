@@ -5,7 +5,7 @@
 //!
 
 mk_tests_default! {
-    use crate::{prelude::*, FbError, Row};
+    use crate::{prelude::*, FbError, Row, EngineVersion, SystemInfos};
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
     use rsfbclient_core::ColumnToVal;
     use std::str;
@@ -15,11 +15,7 @@ mk_tests_default! {
     fn execute_procedure() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
-        let (engine_version,): (String,) = conn.query_first(
-            "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') from rdb$database;",
-            (),
-        )?.unwrap();
-        if engine_version.starts_with("2.") {
+        if conn.server_engine()? <= EngineVersion::V2 {
             return Ok(());
         }
 
@@ -95,11 +91,7 @@ mk_tests_default! {
     fn boolean() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
-        let (engine_version,): (String,) = conn.query_first(
-            "SELECT rdb$get_context('SYSTEM', 'ENGINE_VERSION') from rdb$database;",
-            (),
-        )?.unwrap();
-        if engine_version.starts_with("2.") {
+        if conn.server_engine()? <= EngineVersion::V2 {
             return Ok(());
         }
 
