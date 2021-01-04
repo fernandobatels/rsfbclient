@@ -249,10 +249,12 @@ impl<A> NativeConnectionBuilder<A, ConnTypeNotConfigured> {
     /// Configure the native client for remote connections.
     /// This will allow configuration via the 'host', 'port' and 'pass' methods.
     pub fn with_remote(mut self) -> NativeConnectionBuilder<A, ConnRemote> {
-        let mut remote: RemoteConfig = Default::default();
-        remote.host = "localhost".to_string();
-        remote.port = 3050;
-        remote.pass = "masterkey".to_string();
+        let remote = RemoteConfig {
+            host: "localhost".to_string(),
+            port: 3050,
+            pass: "masterkey".to_string(),
+        };
+
         self.conn_conf.attachment_conf.remote = Some(remote);
         self.safe_transmute()
     }
