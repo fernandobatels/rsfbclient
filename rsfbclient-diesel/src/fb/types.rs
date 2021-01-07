@@ -29,7 +29,7 @@ pub enum SupportedType {
     Time,
     DateTime,
     Bool,
-    Blob
+    Blob,
 }
 
 impl SupportedType {

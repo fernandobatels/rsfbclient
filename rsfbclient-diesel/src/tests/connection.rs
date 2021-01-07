@@ -7,7 +7,8 @@ use crate::result::Error;
 
 #[test]
 fn transaction() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+        .map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 
@@ -45,7 +46,8 @@ fn transaction() -> Result<(), String> {
 
 #[test]
 fn transaction_depth() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+        .map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 

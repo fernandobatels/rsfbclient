@@ -19,7 +19,7 @@
 //! use diesel::prelude::*;
 //! use diesel::fb::FbConnection;
 //!
-//! let conn = FbConnection::establish("firebird://test.fdb");
+//! let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb");
 //! ```
 
 pub mod fb;
@@ -27,5 +27,6 @@ use diesel;
 
 pub use crate::diesel::*;
 
+#[cfg(not(any(feature = "dynamic_loading", feature = "embedded_tests")))]
 #[cfg(test)]
 mod tests;

@@ -8,7 +8,8 @@ use std::str;
 
 #[test]
 fn types1() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+        .map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 
@@ -39,7 +40,8 @@ fn types1() -> Result<(), String> {
 
 #[test]
 fn null() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+        .map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 
@@ -96,7 +98,8 @@ fn null() -> Result<(), String> {
 fn types2() -> Result<(), String> {
     use chrono::*;
 
-    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+        .map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 
@@ -128,7 +131,8 @@ fn types2() -> Result<(), String> {
 
 #[test]
 fn boolean() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+        .map_err(|e| e.to_string())?;
 
     let se = conn
         .raw
@@ -166,13 +170,13 @@ fn boolean() -> Result<(), String> {
 
 #[test]
 fn blob() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://test.fdb").map_err(|e| e.to_string())?;
+    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+        .map_err(|e| e.to_string())?;
 
     schema::setup(&conn)?;
 
     let text_test = "ab çç dd 123".to_string();
-    let blob_test = text_test.as_bytes()
-        .to_vec();
+    let blob_test = text_test.as_bytes().to_vec();
 
     let types1 = schema::BlobType {
         id: 2,
@@ -191,7 +195,10 @@ fn blob() -> Result<(), String> {
 
     assert_eq!(types1.a, blob_test);
     assert_eq!(types1.b, Some(blob_test));
-    assert_eq!(str::from_utf8(&types1.a).expect("Invalid UTF-8 sequence"), text_test);
+    assert_eq!(
+        str::from_utf8(&types1.a).expect("Invalid UTF-8 sequence"),
+        text_test
+    );
 
     Ok(())
 }

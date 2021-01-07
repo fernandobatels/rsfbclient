@@ -165,6 +165,7 @@ impl<'c> Connection for FbConnection<'c> {
     }
 }
 
+#[cfg(not(any(feature = "dynamic_loading", feature = "embedded_tests")))]
 #[cfg(test)]
 mod tests {
 
@@ -175,14 +176,15 @@ mod tests {
 
     #[test]
     fn establish() -> Result<(), ConnectionError> {
-        FbConnection::establish("firebird://test.fdb")?;
+        FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")?;
 
         Ok(())
     }
 
     #[test]
     fn execute() -> Result<(), Error> {
-        let conn = FbConnection::establish("firebird://test.fdb").unwrap();
+        let conn =
+            FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb").unwrap();
 
         conn.batch_execute("drop table conn_exec").ok();
 
