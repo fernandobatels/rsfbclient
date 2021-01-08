@@ -19,6 +19,12 @@ impl FbQueryBuilder {
     }
 }
 
+impl Default for FbQueryBuilder {
+    fn default() -> Self {
+        FbQueryBuilder::new()
+    }
+}
+
 impl QueryBuilder<Fb> for FbQueryBuilder {
     fn push_sql(&mut self, sql: &str) {
         self.query.push_str(sql);
@@ -35,7 +41,7 @@ impl QueryBuilder<Fb> for FbQueryBuilder {
     }
 
     fn push_bind_param(&mut self) {
-        self.query.push_str("?");
+        self.query.push('?');
     }
 
     fn finish(self) -> String {

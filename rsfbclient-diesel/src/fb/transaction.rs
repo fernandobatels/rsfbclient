@@ -23,6 +23,12 @@ impl<'c> FbTransactionManager<'c> {
     }
 }
 
+impl<'c> Default for FbTransactionManager<'c> {
+    fn default() -> Self {
+        FbTransactionManager::new()
+    }
+}
+
 impl<'c> TransactionManager<FbConnection<'c>> for FbTransactionManager<'c> {
     fn begin_transaction(&self, conn: &FbConnection) -> QueryResult<()> {
         let depth = self.depth.get() + 1;

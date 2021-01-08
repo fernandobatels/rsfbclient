@@ -40,7 +40,7 @@ impl<'c> Connection for FbConnection<'c> {
     fn establish(database_url: &str) -> ConnectionResult<Self> {
         #[cfg(feature = "pure_rust")]
         let mut raw_builder = rsfbclient::builder_pure_rust();
-        #[cfg(not(feature = "pure_rust"))]
+        #[cfg(any(feature = "linking", feature = "dynamic_loading"))]
         let raw_builder = rsfbclient::builder_native();
 
         let raw = raw_builder
@@ -89,7 +89,7 @@ impl<'c> Connection for FbConnection<'c> {
             .metadata
             .into_iter()
             .zip(bc.binds)
-            .map(|(tp, val)| tp.to_param(val))
+            .map(|(tp, val)| tp.into_param(val))
             .collect();
 
         let results;
@@ -104,22 +104,20 @@ impl<'c> Connection for FbConnection<'c> {
                     Err(e) => Err(e),
                 };
             }
+        } else if has_cursor {
+            results = self
+                .raw
+                .borrow_mut()
+                .query::<Vec<SqlType>, FbRow>(&sql, params);
         } else {
-            if has_cursor {
-                results = self
-                    .raw
-                    .borrow_mut()
-                    .query::<Vec<SqlType>, FbRow>(&sql, params);
-            } else {
-                results = match self
-                    .raw
-                    .borrow_mut()
-                    .execute_returnable::<Vec<SqlType>, FbRow>(&sql, params)
-                {
-                    Ok(result) => Ok(vec![result]),
-                    Err(e) => Err(e),
-                };
-            }
+            results = match self
+                .raw
+                .borrow_mut()
+                .execute_returnable::<Vec<SqlType>, FbRow>(&sql, params)
+            {
+                Ok(result) => Ok(vec![result]),
+                Err(e) => Err(e),
+            };
         }
 
         results
@@ -144,7 +142,7 @@ impl<'c> Connection for FbConnection<'c> {
             .metadata
             .into_iter()
             .zip(bc.binds)
-            .map(|(tp, val)| tp.to_param(val))
+            .map(|(tp, val)| tp.into_param(val))
             .collect();
 
         let mut tr_ref = self.tr_manager.raw.borrow_mut();

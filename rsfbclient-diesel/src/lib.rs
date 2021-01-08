@@ -23,9 +23,7 @@
 //! ```
 
 pub mod fb;
-use diesel;
-
-pub use crate::diesel::*;
+pub use diesel::*;
 
 #[cfg(not(any(feature = "dynamic_loading", feature = "embedded_tests")))]
 #[cfg(test)]

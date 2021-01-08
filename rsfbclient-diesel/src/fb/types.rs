@@ -33,7 +33,7 @@ pub enum SupportedType {
 }
 
 impl SupportedType {
-    pub fn to_param(self, source_val: Option<Vec<u8>>) -> SqlType {
+    pub fn into_param(self, source_val: Option<Vec<u8>>) -> SqlType {
         if let Some(val) = source_val {
             #[allow(unreachable_patterns)]
             match self {

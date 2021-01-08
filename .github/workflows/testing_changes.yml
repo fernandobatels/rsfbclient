@@ -15,9 +15,9 @@
 on:
   push:
     paths-ignore:
-      - '.github/workflows/**'
+      - ".github/workflows/**"
   pull_request:
-    types: [opened,reopened,synchronize,ready_for_review,labeled]
+    types: [opened, reopened, synchronize, ready_for_review, labeled]
 
 name: testing_changes
 
@@ -31,7 +31,7 @@ jobs:
     #
     # on success it dumps the action's 'github' context
     runs-on: ubuntu-latest
-    name: 'run-guard'
+    name: "run-guard"
     if: |
       (
            (github.event.action != 'labeled')
@@ -113,10 +113,13 @@ jobs:
             image: "4.0"
           - build: linking
             features: linking date_time pool
+            features_diesel: linking date_time
           - build: dynamic_loading
             features: dynamic_loading date_time pool
+            features_diesel: dynamic_loading date_time
           - build: pure_rust
             features: pure_rust date_time pool
+            features_diesel: pure_rust date_time
     runs-on: "${{ matrix.os }}"
     steps:
       - name: Setup FirebirdSQL ${{ matrix.firebird }} with image  ${{ matrix.image }} on docker
@@ -221,14 +224,28 @@ jobs:
           args: -vv --no-default-features --features '${{ matrix.features }}'
           # Searching for fbclient.lib in rsfbclient-native/build.rs
 
-      - name: Run cargo test
+      - name: Run cargo test on rsfbclient
         uses: actions-rs/cargo@v1
         if: matrix.plataform != 'macos' || matrix.build != 'linking'
         with:
           command: test
-          args: --no-default-features --features '${{ matrix.features }}' --workspace -- --test-threads 1
+          args: --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
 
-      - name: Run cargo-tarpaulin
+      - name: Run cargo test on rsfbclient-rust
+        uses: actions-rs/cargo@v1
+        if: matrix.plataform != 'macos' || matrix.build != 'linking'
+        with:
+          command: test
+          args: -p rsfbclient-rust
+
+      - name: Run cargo test on rsfbclient-diesel
+        uses: actions-rs/cargo@v1
+        if: matrix.plataform != 'macos' || matrix.build != 'linking'
+        with:
+          command: test
+          args: --manifest-path rsfbclient-diesel/Cargo.toml --no-default-features --features '${{ matrix.features_diesel }} -- --test-threads 1
+
+      - name: Run cargo-tarpaulin on rsfbclient
         uses: actions-rs/tarpaulin@v0.1
         if: matrix.plataform == 'linux'
         # TODO: #[error]The process 'C:\Rust\.cargo\bin\cargo.exe' failed with exit code 101: error: no such subcommand: `tarpaulin`
@@ -236,13 +253,55 @@ jobs:
           version: "latest"
           run-types: "AllTargets"
           out-type: "Lcov"
-          args: -v --line --count --branch --no-default-features --features '${{ matrix.features }}' --workspace -- --test-threads 1
+          args: -v --line --count --branch --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
 
-      - name: Coveralls Parallel
+      - name: Coveralls Parallel on rsfbclient
         uses: coverallsapp/github-action@master
         if: matrix.plataform == 'linux'
         env:
-          COVERALLS_FLAG_NAME: run-${{ matrix.firebird }}-${{ matrix.build }}
+          COVERALLS_FLAG_NAME: run-${{ matrix.firebird }}-${{ matrix.build }}-rsfbclient
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: "./lcov.info"
+          parallel: true
+          # flag-name: run-${{ matrix.firebird }}-${{ matrix.build }}
+
+      - name: Run cargo-tarpaulin on rsfbclient-diesel
+        uses: actions-rs/tarpaulin@v0.1
+        if: matrix.plataform == 'linux'
+        # TODO: #[error]The process 'C:\Rust\.cargo\bin\cargo.exe' failed with exit code 101: error: no such subcommand: `tarpaulin`
+        with:
+          version: "latest"
+          run-types: "AllTargets"
+          out-type: "Lcov"
+          args: -v --line --count --branch -p rsfbclient-rust
+
+      - name: Coveralls Parallel on rsfbclient-rust
+        uses: coverallsapp/github-action@master
+        if: matrix.plataform == 'linux'
+        env:
+          COVERALLS_FLAG_NAME: run-${{ matrix.firebird }}-${{ matrix.build }}-rsfbclient-rust
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: "./lcov.info"
+          parallel: true
+          # flag-name: run-${{ matrix.firebird }}-${{ matrix.build }}
+
+      - name: Run cargo-tarpaulin on rsfbclient-diesel
+        uses: actions-rs/tarpaulin@v0.1
+        if: matrix.plataform == 'linux'
+        # TODO: #[error]The process 'C:\Rust\.cargo\bin\cargo.exe' failed with exit code 101: error: no such subcommand: `tarpaulin`
+        with:
+          version: "latest"
+          run-types: "AllTargets"
+          out-type: "Lcov"
+          args: -v --line --count --branch --manifest-path rsfbclient-diesel/Cargo.toml --no-default-features --features '${{ matrix.features_diesel }} -- --test-threads 1
+
+      - name: Coveralls Parallel on rsfbclient-diesel
+        uses: coverallsapp/github-action@master
+        if: matrix.plataform == 'linux'
+        env:
+          COVERALLS_FLAG_NAME: run-${{ matrix.firebird }}-${{ matrix.build }}-rsfbclient-diesel
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: "./lcov.info"
