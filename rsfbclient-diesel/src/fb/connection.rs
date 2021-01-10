@@ -21,8 +21,6 @@ pub struct FbConnection<'c> {
     tr_manager: FbTransactionManager<'c>,
 }
 
-unsafe impl<'c> Send for FbConnection<'c> {}
-
 impl<'c> SimpleConnection for FbConnection<'c> {
     fn batch_execute(&self, query: &str) -> QueryResult<()> {
         self.raw
