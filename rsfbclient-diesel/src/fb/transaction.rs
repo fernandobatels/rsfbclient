@@ -5,41 +5,34 @@ use diesel::connection::*;
 use diesel::result::Error::DatabaseError;
 use diesel::result::*;
 use diesel::QueryResult;
-use rsfbclient::SimpleTransaction as FbRawTransaction;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 
 /// Firebird transaction manager
-pub struct FbTransactionManager<'c> {
-    pub(crate) raw: RefCell<Option<FbRawTransaction<'c>>>,
+pub struct FbTransactionManager {
     depth: Cell<u32>,
 }
 
-impl<'c> FbTransactionManager<'c> {
+impl FbTransactionManager {
     pub fn new() -> Self {
         FbTransactionManager {
-            raw: RefCell::new(None),
             depth: Cell::new(0),
         }
     }
 }
 
-impl<'c> Default for FbTransactionManager<'c> {
+impl Default for FbTransactionManager {
     fn default() -> Self {
         FbTransactionManager::new()
     }
 }
 
-impl<'c> TransactionManager<FbConnection<'c>> for FbTransactionManager<'c> {
+impl TransactionManager<FbConnection> for FbTransactionManager {
     fn begin_transaction(&self, conn: &FbConnection) -> QueryResult<()> {
         let depth = self.depth.get() + 1;
         if depth == 1 {
-            let conn = unsafe { conn.raw.as_ptr().as_mut().unwrap() };
-
-            let tr = FbRawTransaction::new(conn).map_err(|e| {
+            conn.raw.borrow_mut().begin_transaction().map_err(|e| {
                 DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
             })?;
-
-            self.raw.replace(Some(tr));
         } else {
             // Firebird does not support nested transactions, so
             // let's simulate this using save points
@@ -54,16 +47,9 @@ impl<'c> TransactionManager<FbConnection<'c>> for FbTransactionManager<'c> {
     fn rollback_transaction(&self, conn: &FbConnection) -> QueryResult<()> {
         let depth = self.depth.get();
         if depth <= 1 {
-            self.raw
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .rollback_retaining()
-                .map_err(|e| {
-                    DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
-                })?;
-
-            self.raw.replace(None);
+            conn.raw.borrow_mut().rollback().map_err(|e| {
+                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
+            })?;
         } else {
             conn.execute(&format!("rollback to savepoint sp_diesel_{}", depth))?;
         }
@@ -73,15 +59,11 @@ impl<'c> TransactionManager<FbConnection<'c>> for FbTransactionManager<'c> {
         Ok(())
     }
 
-    fn commit_transaction(&self, _conn: &FbConnection) -> QueryResult<()> {
-        self.raw
+    fn commit_transaction(&self, conn: &FbConnection) -> QueryResult<()> {
+        conn.raw
             .borrow_mut()
-            .as_mut()
-            .unwrap()
-            .commit_retaining()
+            .commit()
             .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?;
-
-        self.raw.replace(None);
 
         self.depth.set(0);
 

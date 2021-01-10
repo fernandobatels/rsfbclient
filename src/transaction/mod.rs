@@ -320,4 +320,17 @@ where
             .borrow_mut()
             .transaction_operation(self.handle, TrOp::Rollback)
     }
+
+    /// Creates a transaction from this handle
+    pub fn into_transaction(self, conn: &mut Connection<C>) -> Transaction<C> {
+        Transaction { data: self, conn }
+    }
+
+    /// Extracts the `TransactionData` from the transaction
+    pub fn from_transaction(tr: Transaction<C>) -> Self {
+        let tr = mem::ManuallyDrop::new(tr);
+
+        // Make a copy the handler. Is safe as the original copy cant be dropped as it is inside the `ManuallyDrop`
+        unsafe { std::ptr::read(&tr.data) }
+    }
 }

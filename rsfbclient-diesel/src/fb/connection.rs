@@ -16,12 +16,12 @@ use rsfbclient::SimpleConnection as FbRawConnection;
 use rsfbclient::{Execute, Queryable, SqlType};
 use std::cell::RefCell;
 
-pub struct FbConnection<'c> {
+pub struct FbConnection {
     pub raw: RefCell<FbRawConnection>,
-    tr_manager: FbTransactionManager<'c>,
+    tr_manager: FbTransactionManager,
 }
 
-impl<'c> SimpleConnection for FbConnection<'c> {
+impl SimpleConnection for FbConnection {
     fn batch_execute(&self, query: &str) -> QueryResult<()> {
         self.raw
             .borrow_mut()
@@ -31,8 +31,8 @@ impl<'c> SimpleConnection for FbConnection<'c> {
     }
 }
 
-impl<'c> Connection for FbConnection<'c> {
-    type TransactionManager = FbTransactionManager<'c>;
+impl Connection for FbConnection {
+    type TransactionManager = FbTransactionManager;
     type Backend = Fb;
 
     fn establish(database_url: &str) -> ConnectionResult<Self> {
@@ -54,13 +54,6 @@ impl<'c> Connection for FbConnection<'c> {
     }
 
     fn execute(&self, query: &str) -> QueryResult<usize> {
-        let mut tr_ref = self.tr_manager.raw.borrow_mut();
-        if let Some(tr) = tr_ref.as_mut() {
-            return tr
-                .execute(query, ())
-                .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())));
-        }
-
         self.raw
             .borrow_mut()
             .execute(query, ())
@@ -92,17 +85,7 @@ impl<'c> Connection for FbConnection<'c> {
 
         let results;
 
-        let mut tr_ref = self.tr_manager.raw.borrow_mut();
-        if let Some(tr) = tr_ref.as_mut() {
-            if has_cursor {
-                results = tr.query::<Vec<SqlType>, FbRow>(&sql, params);
-            } else {
-                results = match tr.execute_returnable::<Vec<SqlType>, FbRow>(&sql, params) {
-                    Ok(result) => Ok(vec![result]),
-                    Err(e) => Err(e),
-                };
-            }
-        } else if has_cursor {
+        if has_cursor {
             results = self
                 .raw
                 .borrow_mut()
@@ -142,13 +125,6 @@ impl<'c> Connection for FbConnection<'c> {
             .zip(bc.binds)
             .map(|(tp, val)| tp.into_param(val))
             .collect();
-
-        let mut tr_ref = self.tr_manager.raw.borrow_mut();
-        if let Some(tr) = tr_ref.as_mut() {
-            return tr
-                .execute(&sql, params)
-                .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())));
-        }
 
         self.raw
             .borrow_mut()

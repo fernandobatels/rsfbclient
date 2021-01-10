@@ -4,7 +4,7 @@ use crate::prelude::*;
 use chrono::*;
 use rsfbclient::{EngineVersion, SystemInfos};
 
-#[derive(Insertable, Queryable)]
+#[derive(Insertable, Queryable, QueryableByName)]
 #[table_name = "users"]
 pub struct User {
     pub id: i32,

@@ -25,6 +25,6 @@
 pub mod fb;
 pub use diesel::*;
 
-#[cfg(not(any(feature = "dynamic_loading", feature = "embedded_tests")))]
+#[cfg(any(feature = "linking", feature = "pure_rust"))]
 #[cfg(test)]
 mod tests;

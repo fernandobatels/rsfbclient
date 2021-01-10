@@ -105,7 +105,7 @@ impl<'a, 'b> RowIndex<&'a str> for FbRow<'b> {
             .cols
             .iter()
             .enumerate()
-            .find(|(_idx, col)| col.name == field_name)
+            .find(|(_idx, col)| col.name.to_lowercase() == field_name.to_lowercase())
             .map(|(idx, _col)| idx)
     }
 }

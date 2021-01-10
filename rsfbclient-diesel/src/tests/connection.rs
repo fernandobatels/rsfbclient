@@ -4,6 +4,7 @@ use super::schema;
 use crate::fb::FbConnection;
 use crate::prelude::*;
 use crate::result::Error;
+use crate::sql_query;
 
 #[test]
 fn transaction() -> Result<(), String> {
@@ -35,6 +36,20 @@ fn transaction() -> Result<(), String> {
         Err(Error::RollbackTransaction)
     });
 
+    conn.test_transaction::<(), Error, _>(|| {
+        diesel::insert_into(schema::users::table)
+            .values(schema::users::columns::name.eq("Teste 2"))
+            .execute(&conn)?;
+
+        let names = schema::users::table
+            .select(schema::users::columns::name)
+            .load::<String>(&conn)?;
+
+        assert_eq!(vec!["Teste 1", "Teste 2"], names);
+
+        Ok(())
+    });
+
     let names = schema::users::table
         .select(schema::users::columns::name)
         .load::<String>(&conn)
@@ -51,20 +66,20 @@ fn transaction_depth() -> Result<(), String> {
 
     schema::setup(&conn)?;
 
-    let _ = conn.transaction::<(), _, _>(|| {
+    conn.test_transaction::<(), Error, _>(|| {
         conn.execute("insert into users (id, name) values (1, 'Teste 1')")
-            .ok();
+            .unwrap();
         conn.execute("insert into users (id, name) values (2, 'Teste 2')")
-            .ok();
+            .unwrap();
 
         let names = schema::users::table
             .select(schema::users::columns::name)
             .load::<String>(&conn)?;
         assert_eq!(vec!["Teste 1", "Teste 2"], names);
 
-        let _ = conn.transaction::<(), _, _>(|| {
-            conn.execute("insert into users (id, name) values (2, 'Teste 3')")
-                .ok();
+        conn.transaction::<(), Error, _>(|| {
+            conn.execute("insert into users (id, name) values (3, 'Teste 3')")
+                .unwrap();
 
             let names = schema::users::table
                 .select(schema::users::columns::name)
@@ -72,89 +87,72 @@ fn transaction_depth() -> Result<(), String> {
             assert_eq!(vec!["Teste 1", "Teste 2", "Teste 3"], names);
 
             Err(Error::RollbackTransaction)
-        });
+        })
+        .ok();
 
         let names = schema::users::table
             .select(schema::users::columns::name)
             .load::<String>(&conn)?;
         assert_eq!(vec!["Teste 1", "Teste 2"], names);
 
-        Err(Error::RollbackTransaction)
+        Ok(())
     });
 
     Ok(())
 }
 
 #[test]
-fn transaction_depth_multithreaded() -> Result<(), String> {
+fn transaction_depth_moved_connection() -> Result<(), String> {
     let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
 
-    for i in 0_u8..10 {
-        conn.execute(&format!("drop table users{}", i)).ok();
-        conn.execute(&format!(
-            "create table users{}(id int, name varchar(50))",
-            i
-        ))
-        .ok();
-    }
+    schema::setup(&conn)?;
 
-    let jobs: Vec<_> = (0_u8..10)
-        .map(|i| {
-            std::thread::spawn(move || {
-                let conn =
-                    FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
-                        .map_err(|e| e.to_string())
-                        .unwrap();
+    let mut opt_conn = Some(conn);
+    let mut opt_conn2 = None;
 
-                let _ = conn
-                    .transaction::<(), _, _>(|| {
-                        conn.execute(&format!(
-                            "insert into users{} (id, name) values (1, 'Teste 1')",
-                            i
-                        ))
-                        .ok();
-                        conn.execute(&format!(
-                            "insert into users{} (id, name) values (2, 'Teste 2')",
-                            i
-                        ))
-                        .ok();
+    opt_conn.as_ref().unwrap().begin_test_transaction().unwrap();
 
-                        let names = schema::users::table
-                            .select(schema::users::columns::name)
-                            .load::<String>(&conn)?;
-                        assert_eq!(vec!["Teste 1", "Teste 2"], names);
+    let names = schema::users::table
+        .select(schema::users::columns::name)
+        .load::<String>(opt_conn.as_ref().unwrap())
+        .unwrap();
+    assert_eq!(Vec::<&str>::new(), names);
 
-                        let _ = conn.transaction::<(), _, _>(|| {
-                            conn.execute(&format!(
-                                "insert into users{} (id, name) values (2, 'Teste 3')",
-                                i
-                            ))
-                            .ok();
+    std::mem::swap(&mut opt_conn, &mut opt_conn2);
+    drop(opt_conn);
 
-                            let names = schema::users::table
-                                .select(schema::users::columns::name)
-                                .load::<String>(&conn)?;
-                            assert_eq!(vec!["Teste 1", "Teste 2", "Teste 3"], names);
+    let conn = opt_conn2.take().unwrap();
 
-                            Err(Error::RollbackTransaction)
-                        });
+    conn.execute("insert into users (id, name) values (1, 'Teste 1')")
+        .unwrap();
+    conn.execute("insert into users (id, name) values (2, 'Teste 2')")
+        .unwrap();
 
-                        let names = schema::users::table
-                            .select(schema::users::columns::name)
-                            .load::<String>(&conn)?;
-                        assert_eq!(vec!["Teste 1", "Teste 2"], names);
+    let names = schema::users::table
+        .select(schema::users::columns::name)
+        .load::<String>(&conn)
+        .unwrap();
+    assert_eq!(vec!["Teste 1", "Teste 2"], names);
 
-                        Err(Error::RollbackTransaction)
-                    })
-                    .unwrap();
-            })
-        })
-        .collect();
+    conn.transaction::<(), Error, _>(|| {
+        conn.execute("insert into users (id, name) values (3, 'Teste 3')")
+            .unwrap();
 
-    for j in jobs {
-        j.join().unwrap();
-    }
+        let names = schema::users::table
+            .select(schema::users::columns::name)
+            .load::<String>(&conn)?;
+        assert_eq!(vec!["Teste 1", "Teste 2", "Teste 3"], names);
+
+        Err(Error::RollbackTransaction)
+    })
+    .ok();
+
+    let names = schema::users::table
+        .select(schema::users::columns::name)
+        .load::<String>(&conn)
+        .unwrap();
+    assert_eq!(vec!["Teste 1", "Teste 2"], names);
 
     Ok(())
 }
