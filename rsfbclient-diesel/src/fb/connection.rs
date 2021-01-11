@@ -13,7 +13,7 @@ use diesel::result::Error::DatabaseError;
 use diesel::result::Error::DeserializationError;
 use diesel::result::*;
 use rsfbclient::SimpleConnection as FbRawConnection;
-use rsfbclient::{Execute, Queryable, SqlType};
+use rsfbclient::{Execute, Queryable, Row, SqlType};
 use std::cell::RefCell;
 
 pub struct FbConnection {
@@ -89,12 +89,12 @@ impl Connection for FbConnection {
             results = self
                 .raw
                 .borrow_mut()
-                .query::<Vec<SqlType>, FbRow>(&sql, params);
+                .query::<Vec<SqlType>, Row>(&sql, params);
         } else {
             results = match self
                 .raw
                 .borrow_mut()
-                .execute_returnable::<Vec<SqlType>, FbRow>(&sql, params)
+                .execute_returnable::<Vec<SqlType>, Row>(&sql, params)
             {
                 Ok(result) => Ok(vec![result]),
                 Err(e) => Err(e),
@@ -104,7 +104,7 @@ impl Connection for FbConnection {
         results
             .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?
             .iter()
-            .map(|row| U::build_from_row(row).map_err(DeserializationError))
+            .map(|row| U::build_from_row(&FbRow::new(row)).map_err(DeserializationError))
             .collect()
     }
 

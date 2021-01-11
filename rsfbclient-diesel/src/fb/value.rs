@@ -3,33 +3,21 @@
 use super::backend::Fb;
 use diesel::backend::RawValue;
 use diesel::row::{Field, PartialRow, Row as DsRow, RowIndex};
+use rsfbclient::Column;
 use rsfbclient::Row as RsRow;
-use rsfbclient::{Column, FbError, FromRow};
-use std::ffi::CStr;
-use std::marker::PhantomData;
 use std::ops::Range;
 
 pub struct FbValue<'a> {
-    pub raw: Column,
-    _marker: PhantomData<&'a ()>,
+    pub raw: &'a Column,
 }
 
 pub struct FbField<'a> {
-    raw: Column,
-    _marker: PhantomData<&'a ()>,
+    raw: &'a Column,
 }
 
 impl<'a> Field<'a, Fb> for FbField<'a> {
     fn field_name(&self) -> Option<&'a str> {
-        let name_ptr = self.raw.name.as_ptr();
-
-        unsafe {
-            Some(
-                CStr::from_ptr(name_ptr as *const _)
-                    .to_str()
-                    .expect("Error on get the field name"),
-            )
-        }
+        Some(self.raw.name.as_str())
     }
 
     fn value(&self) -> Option<RawValue<'a, Fb>> {
@@ -37,27 +25,17 @@ impl<'a> Field<'a, Fb> for FbField<'a> {
             return None;
         }
 
-        Some(FbValue {
-            raw: self.raw.clone(),
-            _marker: PhantomData,
-        })
+        Some(FbValue { raw: self.raw })
     }
 }
 
 pub struct FbRow<'a> {
-    raw: RsRow,
-    _marker: PhantomData<&'a ()>,
+    raw: &'a RsRow,
 }
 
-impl<'a> FromRow for FbRow<'a> {
-    fn try_from(row: Vec<Column>) -> Result<Self, FbError>
-    where
-        Self: Sized,
-    {
-        Ok(Self {
-            raw: RsRow::try_from(row)?,
-            _marker: PhantomData,
-        })
+impl<'a> FbRow<'a> {
+    pub fn new(row: &'a RsRow) -> Self {
+        Self { raw: row }
     }
 }
 
@@ -71,10 +49,7 @@ impl<'a> DsRow<'a, Fb> for FbRow<'a> {
     {
         let idx = self.idx(idx)?;
         if let Some(col) = self.raw.cols.get(idx) {
-            return Some(Self::Field {
-                raw: col.clone(),
-                _marker: PhantomData,
-            });
+            return Some(Self::Field { raw: col });
         }
 
         None

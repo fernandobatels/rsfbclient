@@ -179,7 +179,7 @@ impl<C: FirebirdClient> Connection<C> {
     /// Run a closure with the default transaction, no rollback or commit will be automatically performed
     /// after the closure returns. The next call to this function will use the same transaction
     /// if it was not closed with `commit_retaining` or `rollback_retaining`
-    pub fn use_transaction<T, F>(&mut self, closure: F) -> Result<T, FbError>
+    fn use_transaction<T, F>(&mut self, closure: F) -> Result<T, FbError>
     where
         F: FnOnce(&mut Transaction<C>) -> Result<T, FbError>,
     {

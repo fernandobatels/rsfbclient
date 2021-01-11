@@ -4,7 +4,6 @@ use super::schema;
 use crate::fb::FbConnection;
 use crate::prelude::*;
 use crate::result::Error;
-use crate::sql_query;
 
 #[test]
 fn transaction() -> Result<(), String> {

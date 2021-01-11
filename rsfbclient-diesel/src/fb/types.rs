@@ -139,10 +139,10 @@ impl HasSqlType<sql_types::Bool> for Fb {
 
 impl FromSql<sql_types::Integer, Fb> for i32 {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs = value
-            .raw
-            .to_val()
-            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?;
+        let rs =
+            value.raw.clone().to_val().map_err(|e| {
+                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
+            })?;
 
         Ok(rs)
     }
@@ -150,10 +150,10 @@ impl FromSql<sql_types::Integer, Fb> for i32 {
 
 impl FromSql<sql_types::VarChar, Fb> for String {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs = value
-            .raw
-            .to_val()
-            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?;
+        let rs =
+            value.raw.clone().to_val().map_err(|e| {
+                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
+            })?;
 
         Ok(rs)
     }
@@ -161,10 +161,10 @@ impl FromSql<sql_types::VarChar, Fb> for String {
 
 impl FromSql<sql_types::Float, Fb> for f32 {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs = value
-            .raw
-            .to_val()
-            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?;
+        let rs =
+            value.raw.clone().to_val().map_err(|e| {
+                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
+            })?;
 
         Ok(rs)
     }
@@ -173,10 +173,10 @@ impl FromSql<sql_types::Float, Fb> for f32 {
 #[cfg(feature = "date_time")]
 impl FromSql<sql_types::Date, Fb> for NaiveDate {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs = value
-            .raw
-            .to_val()
-            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?;
+        let rs =
+            value.raw.clone().to_val().map_err(|e| {
+                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
+            })?;
 
         Ok(rs)
     }
@@ -195,10 +195,10 @@ impl ToSql<sql_types::Date, Fb> for NaiveDate {
 #[cfg(feature = "date_time")]
 impl FromSql<sql_types::Timestamp, Fb> for NaiveDateTime {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs = value
-            .raw
-            .to_val()
-            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?;
+        let rs =
+            value.raw.clone().to_val().map_err(|e| {
+                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
+            })?;
 
         Ok(rs)
     }
@@ -217,10 +217,10 @@ impl ToSql<sql_types::Timestamp, Fb> for NaiveDateTime {
 #[cfg(feature = "date_time")]
 impl FromSql<sql_types::Time, Fb> for NaiveTime {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs = value
-            .raw
-            .to_val()
-            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?;
+        let rs =
+            value.raw.clone().to_val().map_err(|e| {
+                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
+            })?;
 
         Ok(rs)
     }
@@ -238,10 +238,10 @@ impl ToSql<sql_types::Time, Fb> for NaiveTime {
 
 impl FromSql<sql_types::Bool, Fb> for bool {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs = value
-            .raw
-            .to_val()
-            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?;
+        let rs =
+            value.raw.clone().to_val().map_err(|e| {
+                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
+            })?;
 
         Ok(rs)
     }
@@ -258,10 +258,10 @@ impl ToSql<sql_types::Bool, Fb> for bool {
 
 impl FromSql<sql_types::Binary, Fb> for Vec<u8> {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs = value
-            .raw
-            .to_val()
-            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?;
+        let rs =
+            value.raw.clone().to_val().map_err(|e| {
+                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
+            })?;
 
         Ok(rs)
     }
