@@ -60,12 +60,17 @@ impl TransactionManager<FbConnection> for FbTransactionManager {
     }
 
     fn commit_transaction(&self, conn: &FbConnection) -> QueryResult<()> {
-        conn.raw
-            .borrow_mut()
-            .commit()
-            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?;
+        let depth = self.depth.get();
+        // We only commit in the outermost transaction, because the commit API
+        // will be performed in the throughout transaction. Firebird does not support
+        // nested transaction, so we can't commit a savepoint only.
+        if depth <= 1 {
+            conn.raw.borrow_mut().commit().map_err(|e| {
+                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
+            })?;
+        }
 
-        self.depth.set(0);
+        self.depth.set(depth - 1);
 
         Ok(())
     }

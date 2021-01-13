@@ -243,7 +243,7 @@ jobs:
         if: matrix.plataform != 'macos' || matrix.build != 'linking'
         with:
           command: test
-          args: --manifest-path rsfbclient-diesel/Cargo.toml --no-default-features --features '${{ matrix.features_diesel }}'' -- --test-threads 1
+          args: --manifest-path rsfbclient-diesel/Cargo.toml --no-default-features --features '${{ matrix.features_diesel }}' -- --test-threads 1
 
       - name: Run cargo-tarpaulin on rsfbclient
         uses: actions-rs/tarpaulin@v0.1
