@@ -87,7 +87,7 @@ pub struct Connection<C: FirebirdClient> {
 }
 
 impl<C: FirebirdClient> Connection<C> {
-    fn open(
+    pub fn open(
         mut cli: C,
         conf: &ConnectionConfiguration<C::AttachmentConfig>,
     ) -> Result<Connection<C>, FbError> {
