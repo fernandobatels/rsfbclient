@@ -13,9 +13,9 @@ categories = ["database"]
 license = "MIT"
 
 [dependencies]
-rsfbclient = { version = "0.14", default-features = false }
-rsfbclient-core = { version = "0.14" }
+rsfbclient = { version = "0.14", path = "../", default-features = false }
+rsfbclient-core = { version = "0.14", path = "../rsfbclient-core" }
 r2d2 = { version = "0.8" }
 
 [dev-dependencies]
-rsfbclient = { version = "0.14", features = ["linking", "date_time"] }
+rsfbclient = { version = "0.14", path = "../", features = ["linking", "date_time"] }
