@@ -4,11 +4,14 @@
 //! R2D2 Connection Pool
 //!
 
-use super::{FirebirdClientDbOps, FirebirdClientFactory};
-use crate::{Connection, FbError, Transaction};
+use rsfbclient::{Connection, FbError, FirebirdClientFactory, Transaction};
+use rsfbclient_core::FirebirdClientDbOps;
 
 /// A manager for connection pools. Requires the `pool` feature.
-pub struct FirebirdConnectionManager<F: FirebirdClientFactory> {
+pub struct FirebirdConnectionManager<F>
+where
+    F: FirebirdClientFactory,
+{
     client_factory: F,
 }
 

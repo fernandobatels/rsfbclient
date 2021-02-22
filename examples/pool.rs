@@ -8,8 +8,8 @@
 
 #![allow(unused_variables, unused_mut)]
 
+use r2d2_firebird::FirebirdConnectionManager;
 use rsfbclient::prelude::*;
-use rsfbclient::FirebirdConnectionManager;
 use std::{sync::Arc, thread, time::Duration};
 
 fn main() {

@@ -9,9 +9,6 @@ use std::{marker, mem};
 use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
 use stmt_cache::{StmtCache, StmtCacheData};
 
-#[cfg(feature = "pool")]
-pub mod pool;
-
 pub mod builders {
 
     #![allow(unused_imports)]
