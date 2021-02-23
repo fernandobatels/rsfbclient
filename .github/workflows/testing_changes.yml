@@ -112,11 +112,11 @@ jobs:
           - firebird: v4
             image: "4.0"
           - build: linking
-            features: linking date_time pool
+            features: linking date_time
           - build: dynamic_loading
-            features: dynamic_loading date_time pool
+            features: dynamic_loading date_time
           - build: pure_rust
-            features: pure_rust date_time pool
+            features: pure_rust date_time
     runs-on: "${{ matrix.os }}"
     steps:
       - name: Setup FirebirdSQL ${{ matrix.firebird }} with image  ${{ matrix.image }} on docker
@@ -275,9 +275,9 @@ jobs:
         build: [linking, dynamic_loading]
         include:
           - build: linking
-            features: linking date_time pool embedded_tests
+            features: linking date_time embedded_tests
           - build: dynamic_loading
-            features: dynamic_loading date_time pool embedded_tests
+            features: dynamic_loading date_time embedded_tests
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2

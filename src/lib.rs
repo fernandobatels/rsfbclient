@@ -101,9 +101,6 @@ pub use rsfbclient_core::{
 #[doc(hidden)]
 pub use rsfbclient_core::{charset, Charset};
 
-#[cfg(feature = "pool")]
-pub use crate::connection::pool::FirebirdConnectionManager;
-
 //builders are behind feature gates inside this module
 pub use crate::connection::builders;
 pub use builders::*;
