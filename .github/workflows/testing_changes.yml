@@ -113,13 +113,10 @@ jobs:
             image: "4.0"
           - build: linking
             features: linking date_time
-            features_diesel: linking date_time
           - build: dynamic_loading
             features: dynamic_loading date_time
-            features_diesel: dynamic_loading date_time
           - build: pure_rust
             features: pure_rust date_time
-            features_diesel: pure_rust date_time
     runs-on: "${{ matrix.os }}"
     steps:
       - name: Setup FirebirdSQL ${{ matrix.firebird }} with image  ${{ matrix.image }} on docker
@@ -238,12 +235,6 @@ jobs:
           command: test
           args: -p rsfbclient-rust
 
-      - name: Run cargo test on rsfbclient-diesel
-        uses: actions-rs/cargo@v1
-        if: matrix.plataform != 'macos' || matrix.build != 'linking'
-        with:
-          command: test
-          args: --manifest-path rsfbclient-diesel/Cargo.toml --no-default-features --features '${{ matrix.features_diesel }}' -- --test-threads 1
 
       - name: Run cargo-tarpaulin on rsfbclient
         uses: actions-rs/tarpaulin@v0.1
@@ -287,26 +278,6 @@ jobs:
           parallel: true
           # flag-name: run-${{ matrix.firebird }}-${{ matrix.build }}
 
-      - name: Run cargo-tarpaulin on rsfbclient-diesel
-        uses: actions-rs/tarpaulin@v0.1
-        if: matrix.plataform == 'linux'
-        # TODO: #[error]The process 'C:\Rust\.cargo\bin\cargo.exe' failed with exit code 101: error: no such subcommand: `tarpaulin`
-        with:
-          version: "latest"
-          run-types: "AllTargets"
-          out-type: "Lcov"
-          args: -v --line --count --branch --manifest-path rsfbclient-diesel/Cargo.toml --no-default-features --features '${{ matrix.features_diesel }}' -- --test-threads 1
-
-      - name: Coveralls Parallel on rsfbclient-diesel
-        uses: coverallsapp/github-action@master
-        if: matrix.plataform == 'linux'
-        env:
-          COVERALLS_FLAG_NAME: run-${{ matrix.firebird }}-${{ matrix.build }}-rsfbclient-diesel
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: "./lcov.info"
-          parallel: true
-          # flag-name: run-${{ matrix.firebird }}-${{ matrix.build }}
 
       - name: Cleanup docker and coverage
         if: matrix.plataform == 'linux'
