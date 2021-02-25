@@ -1,7 +1,7 @@
 [package]
 name = "rsfbclient"
 description = "Binds to official firebird client lib"
-version = "0.14.0"
+version = "0.15.0"
 authors = ["Luis Fernando Batels <luisfbatels@gmail.com>", "Jairo H Wiethan <jairinhowiethan@gmail.com>"]
 edition = "2018"
 repository = "https://github.com/fernandobatels/rsfbclient"
@@ -13,29 +13,28 @@ readme = "README.md"
 [dependencies]
 chrono = { version = "0.4", optional = true }
 lru-cache = "0.1.2"
-r2d2 = { version = "0.8.9", optional = true }
-rsfbclient-core = { version = "0.14.0", path = "rsfbclient-core" }
-rsfbclient-native = { version = "0.14.0", path = "rsfbclient-native", optional = true }
-rsfbclient-rust = { version = "0.14.0", path = "rsfbclient-rust", optional = true }
-rsfbclient-derive = { version = "0.14.0", path = "rsfbclient-derive" }
+rsfbclient-core = { version = "0.15.0", path = "rsfbclient-core" }
+rsfbclient-native = { version = "0.15.0", path = "rsfbclient-native", optional = true }
+rsfbclient-rust = { version = "0.15.0", path = "rsfbclient-rust", optional = true }
+rsfbclient-derive = { version = "0.15.0", path = "rsfbclient-derive" }
 url = "2.2.0"
 percent-encoding = "2.1.0"
 
 [dev-dependencies]
-rand = "0.7.3"
+rand = "0.8.3"
+r2d2 = { version = "0.8" }
 
 [features]
-default = ["linking", "date_time", "pool"]
+default = ["linking", "date_time"]
 date_time = ["rsfbclient-core/date_time", "rsfbclient-native/date_time", "rsfbclient-rust/date_time", "chrono"]
 dynamic_loading = ["rsfbclient-native/dynamic_loading", "native_client"]
 linking = ["rsfbclient-native/linking", "native_client"]
 embedded_tests = []
-pool = ["r2d2"]
 pure_rust = ["rsfbclient-rust"]
 native_client = []
 
 [workspace]
-members = ["rsfbclient-core", "rsfbclient-native", "rsfbclient-rust", "rsfbclient-derive", "rsfbclient-diesel"]
+members = ["rsfbclient-core", "rsfbclient-native", "rsfbclient-rust", "rsfbclient-derive", "rsfbclient-diesel", "r2d2_firebird"]
 
 [package.metadata.docs.rs]
 all-features = true

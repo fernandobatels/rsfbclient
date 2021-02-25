@@ -1,0 +1,21 @@
+[package]
+name = "r2d2_firebird"
+version = "0.15.0"
+description = "Firebird support for the r2d2 connection pool"
+authors = [
+    "silvioprog <silvioprog@gmail.com>",
+    "Jairo H Wiethan <jairinhowiethan@gmail.com>",
+]
+edition = "2018"
+repository = "https://github.com/fernandobatels/rsfbclient"
+keywords = ["firebird", "sql", "pool", "database"]
+categories = ["database"]
+license = "MIT"
+
+[dependencies]
+rsfbclient = { version = "0.15", path = "../", default-features = false }
+rsfbclient-core = { version = "0.15", path = "../rsfbclient-core" }
+r2d2 = { version = "0.8" }
+
+[dev-dependencies]
+rsfbclient = { version = "0.15", path = "../", features = ["pure_rust", "date_time"], default-features = false }

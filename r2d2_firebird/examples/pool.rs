@@ -8,21 +8,12 @@
 
 #![allow(unused_variables, unused_mut)]
 
+use r2d2_firebird::FirebirdConnectionManager;
 use rsfbclient::prelude::*;
-use rsfbclient::FirebirdConnectionManager;
 use std::{sync::Arc, thread, time::Duration};
 
 fn main() {
     let builder = {
-        #[cfg(feature = "linking")]
-        let mut builder = rsfbclient::builder_native().with_dyn_link().with_remote();
-
-        #[cfg(feature = "dynamic_loading")]
-        let mut builder = rsfbclient::builder_native()
-            .with_dyn_load("./fbclient.lib")
-            .with_remote();
-
-        #[cfg(feature = "pure_rust")]
         let mut builder = rsfbclient::builder_pure_rust();
 
         builder
