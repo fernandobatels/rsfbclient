@@ -32,8 +32,8 @@ where
         Ok(Statement { data, tr })
     }
 
-    /// Execute the current statement without returnig the
-    /// affecteds rows
+    /// Execute the current statement, returning a
+    /// count of affected rows upon success
     ///
     /// Use `()` for no parameters or a tuple of parameters
     pub fn execute<T>(&mut self, params: T) -> Result<usize, FbError>
