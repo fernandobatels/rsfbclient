@@ -173,7 +173,7 @@ impl<'c, C: FirebirdClient> Queryable for Transaction<'c, C> {
 }
 
 impl<C: FirebirdClient> Execute for Transaction<'_, C> {
-    fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
+    fn execute<P>(&mut self, sql: &str, params: P) -> Result<usize, FbError>
     where
         P: IntoParams,
     {
@@ -190,9 +190,7 @@ impl<C: FirebirdClient> Execute for Transaction<'_, C> {
         // Return the statement to the cache
         StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
 
-        res?;
-
-        Ok(())
+        res
     }
 
     fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
@@ -266,5 +264,18 @@ where
     pub fn rollback(&mut self, conn: &mut Connection<C>) -> Result<(), FbError> {
         conn.cli
             .transaction_operation(&mut self.handle, TrOp::Rollback)
+    }
+
+    /// Creates a transaction from this handle
+    pub fn into_transaction(self, conn: &mut Connection<C>) -> Transaction<C> {
+        Transaction { data: self, conn }
+    }
+
+    /// Extracts the `TransactionData` from the transaction
+    pub fn from_transaction(tr: Transaction<C>) -> Self {
+        let tr = mem::ManuallyDrop::new(tr);
+
+        // Make a copy the handler. Is safe as the original copy cant be dropped as it is inside the `ManuallyDrop`
+        unsafe { std::ptr::read(&tr.data) }
     }
 }

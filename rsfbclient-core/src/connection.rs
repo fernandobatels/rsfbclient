@@ -95,13 +95,14 @@ pub trait FirebirdClientSqlOps {
     ) -> Result<(), FbError>;
 
     /// Execute the prepared statement with parameters
+    /// and returns the affected rows count
     fn execute(
         &mut self,
         db_handle: &mut Self::DbHandle,
         tr_handle: &mut Self::TrHandle,
         stmt_handle: &mut Self::StmtHandle,
         params: Vec<SqlType>,
-    ) -> Result<(), FbError>;
+    ) -> Result<usize, FbError>;
 
     /// Execute the prepared statement
     /// with input and output parameters.

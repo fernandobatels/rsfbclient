@@ -7,9 +7,9 @@ use crate::{
     status::Status,
     xsqlda::XSqlDa,
 };
+use byteorder::{LittleEndian, ReadBytesExt};
 use rsfbclient_core::*;
-
-use std::{convert::TryFrom, ptr};
+use std::{convert::TryFrom, io::Cursor, ptr};
 
 type NativeDbHandle = ibase::isc_db_handle;
 type NativeTrHandle = ibase::isc_tr_handle;
@@ -412,7 +412,7 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         tr_handle: &mut Self::TrHandle,
         stmt_handle: &mut Self::StmtHandle,
         params: Vec<SqlType>,
-    ) -> Result<(), FbError> {
+    ) -> Result<usize, FbError> {
         let params = Params::new(
             db_handle,
             tr_handle,
@@ -443,7 +443,57 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         // Just to make sure the params are not dropped too soon
         drop(params);
 
-        Ok(())
+        // Get the affected rows count
+        let info_req = [ibase::isc_info_sql_records as std::os::raw::c_char];
+        let mut info_buf = [0u8; 64];
+
+        unsafe {
+            if self.ibase.isc_dsql_sql_info()(
+                &mut self.status[0],
+                &mut stmt_handle.handle,
+                info_req.len() as i16,
+                &info_req[0],
+                info_buf.len() as i16,
+                info_buf.as_mut_ptr() as _,
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+
+        let mut affected = 0;
+
+        let mut data = Cursor::new(info_buf);
+
+        if data.read_u8()? == ibase::isc_info_sql_records as u8 {
+            let _info_buf_size = data.read_u16::<LittleEndian>()?;
+
+            loop {
+                match data.read_u8()? as u32 {
+                    ibase::isc_info_req_select_count => {
+                        // Not interested in the selected count
+                        let len = data.read_u16::<LittleEndian>()? as usize;
+                        let _selected = data.read_uint::<LittleEndian>(len)?;
+                    }
+
+                    ibase::isc_info_req_insert_count
+                    | ibase::isc_info_req_update_count
+                    | ibase::isc_info_req_delete_count => {
+                        let len = data.read_u16::<LittleEndian>()? as usize;
+
+                        affected += data.read_uint::<LittleEndian>(len)? as usize;
+                    }
+
+                    ibase::isc_info_end => {
+                        break;
+                    }
+
+                    _ => return Err(FbError::from("Invalid affected rows response")),
+                }
+            }
+        }
+
+        Ok(affected as usize)
     }
 
     fn fetch(

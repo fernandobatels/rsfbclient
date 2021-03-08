@@ -6,7 +6,9 @@
 use rsfbclient_core::{Dialect, FbError, FirebirdClient, FirebirdClientDbOps, FromRow, IntoParams};
 use std::{marker, mem};
 
-use crate::{query::Queryable, statement::StatementData, Execute, Transaction};
+use crate::{
+    query::Queryable, statement::StatementData, transaction::TransactionData, Execute, Transaction,
+};
 use stmt_cache::{StmtCache, StmtCacheData};
 
 pub mod builders {
@@ -79,6 +81,14 @@ pub struct Connection<C: FirebirdClient> {
     /// Cache for the prepared statements
     pub(crate) stmt_cache: StmtCache<StatementData<C>>,
 
+    /// Default transaction to be used when no explicit
+    /// transaction is used
+    pub(crate) def_tr: Option<TransactionData<C>>,
+
+    /// If true, methods in `Queryable` and `Executable` should not
+    /// automatically commit and rollback
+    pub(crate) in_transaction: bool,
+
     /// Firebird client
     pub(crate) cli: C,
 }
@@ -96,6 +106,8 @@ impl<C: FirebirdClient> Connection<C> {
             handle,
             dialect: conf.dialect,
             stmt_cache,
+            def_tr: None,
+            in_transaction: false,
             cli,
         })
     }
@@ -114,9 +126,14 @@ impl<C: FirebirdClient> Connection<C> {
         res
     }
 
-    //cleans up statement cache and releases the database handle
+    // Cleans up statement cache and releases the database handle
     fn cleanup_and_detach(&mut self) -> Result<(), FbError> {
         StmtCache::close_all(self);
+
+        // Drop the default transaction
+        if let Some(mut tr) = self.def_tr.take() {
+            tr.rollback(self).ok();
+        }
 
         self.cli.detach_database(&mut self.handle)?;
 
@@ -124,39 +141,114 @@ impl<C: FirebirdClient> Connection<C> {
     }
 
     /// Run a closure with a transaction, if the closure returns an error
-    /// the transaction will rollback, else it will be committed
+    /// and the default transaction is not active, the transaction will rollback, else it will be committed
     pub fn with_transaction<T, F>(&mut self, closure: F) -> Result<T, FbError>
     where
         F: FnOnce(&mut Transaction<C>) -> Result<T, FbError>,
     {
-        let mut tr = Transaction::new(self)?;
+        let in_transaction = self.in_transaction;
+
+        let mut tr = if let Some(tr) = self.def_tr.take() {
+            tr.into_transaction(self)
+        } else {
+            Transaction::new(self)?
+        };
 
         let res = closure(&mut tr);
 
-        if res.is_ok() {
-            tr.commit_retaining()?;
-        } else {
-            tr.rollback_retaining()?;
-        };
+        if !in_transaction {
+            if res.is_ok() {
+                tr.commit_retaining()?;
+            } else {
+                tr.rollback_retaining()?;
+            }
+        }
+
+        let tr = TransactionData::from_transaction(tr);
+
+        if let Some(mut tr) = self.def_tr.replace(tr) {
+            // Should never happen, but just to be sure
+            tr.rollback(self).ok();
+        }
 
         res
+    }
+
+    /// Run a closure with the default transaction, no rollback or commit will be automatically performed
+    /// after the closure returns. The next call to this function will use the same transaction
+    /// if it was not closed with `commit_retaining` or `rollback_retaining`
+    fn use_transaction<T, F>(&mut self, closure: F) -> Result<T, FbError>
+    where
+        F: FnOnce(&mut Transaction<C>) -> Result<T, FbError>,
+    {
+        let mut tr = if let Some(tr) = self.def_tr.take() {
+            tr.into_transaction(self)
+        } else {
+            Transaction::new(self)?
+        };
+
+        let res = closure(&mut tr);
+
+        let tr = TransactionData::from_transaction(tr);
+
+        if let Some(mut tr) = self.def_tr.replace(tr) {
+            // Should never happen, but just to be sure
+            tr.rollback(self).ok();
+        }
+
+        res
+    }
+
+    /// Begins a new transaction, and instructs all the `query` and `execute` methods
+    /// performed in the [`Connection`] type to not automatically commit and rollback
+    /// until [`commit`][`Connection::commit`] or [`rollback`][`Connection::rollback`] are called
+    pub fn begin_transaction(&mut self) -> Result<(), FbError> {
+        let tr = if let Some(tr) = self.def_tr.take() {
+            tr.into_transaction(self)
+        } else {
+            Transaction::new(self)?
+        };
+
+        let tr = TransactionData::from_transaction(tr);
+
+        if let Some(mut tr) = self.def_tr.replace(tr) {
+            // Should never happen, but just to be sure
+            tr.rollback(self).ok();
+        }
+
+        self.in_transaction = true;
+
+        Ok(())
+    }
+
+    /// Commit the default transaction
+    pub fn commit(&mut self) -> Result<(), FbError> {
+        self.in_transaction = false;
+
+        self.use_transaction(|tr| tr.commit_retaining())
+    }
+
+    /// Rollback the default transaction
+    pub fn rollback(&mut self) -> Result<(), FbError> {
+        self.in_transaction = false;
+
+        self.use_transaction(|tr| tr.rollback_retaining())
     }
 }
 
 impl<C: FirebirdClient> Drop for Connection<C> {
     fn drop(&mut self) {
-        //ignore the possible error value
+        // Ignore the possible error value
         let _ = self.cleanup_and_detach();
     }
 }
 
-/// Variant of the `StatementIter` that owns the `Transaction` and uses the statement cache
+/// Variant of the `StatementIter` borrows `Connection` and uses the statement cache
 pub struct StmtIter<'a, R, C: FirebirdClient> {
     /// Statement cache data. Wrapped in option to allow taking the value to send back to the cache
     stmt_cache_data: Option<StmtCacheData<StatementData<C>>>,
 
-    /// Transaction needs to be alive for the fetch to work
-    tr: Transaction<'a, C>,
+    conn: &'a mut Connection<C>,
 
     _marker: marker::PhantomData<R>,
 }
@@ -171,14 +263,16 @@ where
             .as_mut()
             .unwrap()
             .stmt
-            .close_cursor(self.tr.conn)
+            .close_cursor(self.conn)
             .ok();
 
         // Send the statement back to the cache
-        StmtCache::insert_and_close(self.tr.conn, self.stmt_cache_data.take().unwrap()).ok();
+        StmtCache::insert_and_close(self.conn, self.stmt_cache_data.take().unwrap()).ok();
 
-        // Commit the transaction
-        self.tr.commit_retaining().ok();
+        if !self.conn.in_transaction {
+            // Commit the transaction
+            self.conn.commit().ok();
+        }
     }
 }
 
@@ -190,13 +284,17 @@ where
     type Item = Result<R, FbError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.stmt_cache_data
-            .as_mut()
-            .unwrap()
-            .stmt
-            .fetch(self.tr.conn, &mut self.tr.data)
-            .and_then(|row| row.map(FromRow::try_from).transpose())
-            .transpose()
+        let stmt_cache_data = self.stmt_cache_data.as_mut().unwrap();
+
+        self.conn
+            .use_transaction(move |tr| {
+                Ok(stmt_cache_data
+                    .stmt
+                    .fetch(tr.conn, &mut tr.data)
+                    .and_then(|row| row.map(FromRow::try_from).transpose())
+                    .transpose())
+            })
+            .unwrap_or_default()
     }
 }
 
@@ -213,29 +311,34 @@ where
         P: IntoParams,
         R: FromRow + 'static,
     {
-        let mut tr = Transaction::new(self)?;
-        let params = params.to_params();
+        let stmt_cache_data = self.use_transaction(|tr| {
+            let params = params.to_params();
 
-        // Get a statement from the cache
-        let mut stmt_cache_data = StmtCache::get_or_prepare(&mut tr, sql, params.named())?;
+            // Get a statement from the cache
+            let mut stmt_cache_data = StmtCache::get_or_prepare(tr, sql, params.named())?;
 
-        match stmt_cache_data.stmt.query(tr.conn, &mut tr.data, params) {
-            Ok(_) => {
-                let iter = StmtIter {
-                    stmt_cache_data: Some(stmt_cache_data),
-                    tr,
-                    _marker: Default::default(),
-                };
+            match stmt_cache_data.stmt.query(tr.conn, &mut tr.data, params) {
+                Ok(_) => Ok(stmt_cache_data),
+                Err(e) => {
+                    // Return the statement to the cache
+                    StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
 
-                Ok(Box::new(iter))
+                    if !tr.conn.in_transaction {
+                        tr.rollback_retaining().ok();
+                    }
+
+                    Err(e)
+                }
             }
-            Err(e) => {
-                // Return the statement to the cache
-                StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
+        })?;
 
-                Err(e)
-            }
-        }
+        let iter = StmtIter {
+            stmt_cache_data: Some(stmt_cache_data),
+            conn: self,
+            _marker: Default::default(),
+        };
+
+        Ok(Box::new(iter))
     }
 }
 
@@ -243,27 +346,24 @@ impl<C> Execute for Connection<C>
 where
     C: FirebirdClient,
 {
-    fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
+    fn execute<P>(&mut self, sql: &str, params: P) -> Result<usize, FbError>
     where
         P: IntoParams,
     {
-        let mut tr = Transaction::new(self)?;
         let params = params.to_params();
 
-        // Get a statement from the cache
-        let mut stmt_cache_data = StmtCache::get_or_prepare(&mut tr, sql, params.named())?;
+        self.with_transaction(|tr| {
+            // Get a statement from the cache
+            let mut stmt_cache_data = StmtCache::get_or_prepare(tr, sql, params.named())?;
 
-        // Do not return now in case of error, because we need to return the statement to the cache
-        let res = stmt_cache_data.stmt.execute(tr.conn, &mut tr.data, params);
+            // Do not return now in case of error, because we need to return the statement to the cache
+            let res = stmt_cache_data.stmt.execute(tr.conn, &mut tr.data, params);
 
-        // Return the statement to the cache
-        StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
+            // Return the statement to the cache
+            StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
 
-        res?;
-
-        tr.commit()?;
-
-        Ok(())
+            res
+        })
     }
 
     fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
@@ -271,23 +371,22 @@ where
         P: IntoParams,
         R: FromRow + 'static,
     {
-        let mut tr = Transaction::new(self)?;
         let params = params.to_params();
 
-        // Get a statement from the cache
-        let mut stmt_cache_data = StmtCache::get_or_prepare(&mut tr, sql, params.named())?;
+        self.with_transaction(|tr| {
+            // Get a statement from the cache
+            let mut stmt_cache_data = StmtCache::get_or_prepare(tr, sql, params.named())?;
 
-        // Do not return now in case of error, because we need to return the statement to the cache
-        let res = stmt_cache_data.stmt.execute2(tr.conn, &mut tr.data, params);
+            // Do not return now in case of error, because we need to return the statement to the cache
+            let res = stmt_cache_data.stmt.execute2(tr.conn, &mut tr.data, params);
 
-        // Return the statement to the cache
-        StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
+            // Return the statement to the cache
+            StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
 
-        let f_res = FromRow::try_from(res?)?;
+            let f_res = FromRow::try_from(res?)?;
 
-        tr.commit()?;
-
-        Ok(f_res)
+            Ok(f_res)
+        })
     }
 }
 

@@ -32,10 +32,11 @@ where
         Ok(Statement { data, tr })
     }
 
-    /// Execute the current statement without returnig any row
+    /// Execute the current statement, returning a
+    /// count of affected rows upon success
     ///
     /// Use `()` for no parameters or a tuple of parameters
-    pub fn execute<T>(&mut self, params: T) -> Result<(), FbError>
+    pub fn execute<T>(&mut self, params: T) -> Result<usize, FbError>
     where
         T: IntoParams,
     {
@@ -158,11 +159,11 @@ where
         conn: &mut Connection<C>,
         tr: &mut TransactionData<C>,
         params: T,
-    ) -> Result<(), FbError>
+    ) -> Result<usize, FbError>
     where
         T: IntoParams,
     {
-        conn.cli.execute(
+        let rows_count = conn.cli.execute(
             &mut conn.handle,
             &mut tr.handle,
             &mut self.handle,
@@ -174,7 +175,7 @@ where
             self.close_cursor(conn)?;
         }
 
-        Ok(())
+        Ok(rows_count)
     }
 
     /// Execute the current statement with input and returns a single row
@@ -198,7 +199,7 @@ where
     }
 
     /// Execute the current statement
-    /// and returns the column buffer
+    /// and returns the affected rows count
     ///
     /// Use `()` for no parameters or a tuple of parameters
     pub fn query<'s, T>(
@@ -206,7 +207,7 @@ where
         conn: &'s mut Connection<C>,
         tr: &mut TransactionData<C>,
         params: T,
-    ) -> Result<(), FbError>
+    ) -> Result<usize, FbError>
     where
         T: IntoParams,
     {

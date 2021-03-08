@@ -12,6 +12,28 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
+    fn execute_affected_rows() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        conn.execute("DROP TABLE EAFFECTEDROW", ()).ok();
+        conn.execute("CREATE TABLE EAFFECTEDROW (id int)", ())?;
+
+        let affected = conn.execute("insert into EAFFECTEDROW (id) values (10)", ())?;
+        assert_eq!(1, affected);
+
+        let affected = conn.execute("insert into EAFFECTEDROW (id) select 11 from RDB$DATABASE union all select 12 from RDB$DATABASE", ())?;
+        assert_eq!(2, affected);
+
+        let affected = conn.execute("update EAFFECTEDROW set id = 50", ())?;
+        assert_eq!(3, affected);
+
+        let affected = conn.execute("delete from EAFFECTEDROW", ())?;
+        assert_eq!(3, affected);
+
+        Ok(())
+    }
+
+    #[test]
     fn execute_procedure() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 

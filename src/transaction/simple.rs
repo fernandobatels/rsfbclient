@@ -172,7 +172,7 @@ impl<'c> SimpleTransaction<'c> {
 }
 
 impl<'c> Execute for SimpleTransaction<'c> {
-    fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
+    fn execute<P>(&mut self, sql: &str, params: P) -> Result<usize, FbError>
     where
         P: IntoParams,
     {

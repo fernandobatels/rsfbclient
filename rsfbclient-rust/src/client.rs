@@ -14,7 +14,7 @@ use crate::{
     srp::*,
     util::*,
     wire::*,
-    xsqlda::{parse_xsqlda, xsqlda_to_blr, PrepareInfo, XSqlVar},
+    xsqlda::{parse_xsqlda, xsqlda_to_blr, PrepareInfo, XSqlVar, XSQLDA_DESCRIBE_VARS},
 };
 use rsfbclient_core::{
     ibase, Charset, Column, Dialect, FbError, FirebirdClientDbOps, FirebirdClientSqlOps,
@@ -51,6 +51,9 @@ pub struct FirebirdWireConnection {
 
     /// Buffer to read the network data
     buff: Box<[u8]>,
+
+    /// Lazy responses to read
+    lazy_count: u32,
 
     pub(crate) charset: Charset,
 }
@@ -197,7 +200,7 @@ impl FirebirdClientSqlOps for RustFbClient {
         tr_handle: &mut Self::TrHandle,
         stmt_handle: &mut Self::StmtHandle,
         params: Vec<SqlType>,
-    ) -> Result<(), FbError> {
+    ) -> Result<usize, FbError> {
         self.conn
             .as_mut()
             .map(|conn| conn.execute(tr_handle, stmt_handle, &params))
@@ -337,6 +340,7 @@ impl FirebirdWireConnection {
             socket,
             version,
             buff,
+            lazy_count: 0,
             charset,
         })
     }
@@ -455,7 +459,18 @@ impl FirebirdWireConnection {
         )?)?;
         self.socket.flush()?;
 
-        let (op_code, mut resp) = self.read_packet()?;
+        let (mut op_code, mut resp) = self.read_packet()?;
+
+        // Read lazy responses
+        for _ in 0..self.lazy_count {
+            if op_code != WireOp::Response as u32 {
+                return err_conn_rejected(op_code);
+            }
+            self.lazy_count -= 1;
+            parse_response(&mut resp)?;
+
+            op_code = resp.get_u32()?;
+        }
 
         // Alloc resp
         if op_code != WireOp::Response as u32 {
@@ -482,8 +497,21 @@ impl FirebirdWireConnection {
 
         while truncated {
             // Get more info on the types
-            self.socket
-                .write_all(&info_sql(stmt_handle.0, xsqlda.len()))?;
+            let next_index = (xsqlda.len() as u16).to_le_bytes();
+
+            self.socket.write_all(&info_sql(
+                stmt_handle.0,
+                &[
+                    &[
+                        ibase::isc_info_sql_sqlda_start as u8, // Describe a xsqlda
+                        2,
+                        next_index[0], // Index, first byte
+                        next_index[1], // Index, second byte
+                    ],
+                    &XSQLDA_DESCRIBE_VARS[..], // Data to be returned
+                ]
+                .concat(),
+            ))?;
             self.socket.flush()?;
 
             let mut data = self.read_response()?.data;
@@ -520,6 +548,8 @@ impl FirebirdWireConnection {
             .write_all(&free_statement(stmt_handle.handle.0, op))?;
         // Obs.: Lazy response
 
+        self.lazy_count += 1;
+
         Ok(())
     }
 
@@ -529,7 +559,7 @@ impl FirebirdWireConnection {
         tr_handle: &mut TrHandle,
         stmt_handle: &mut StmtHandleData,
         params: &[SqlType],
-    ) -> Result<(), FbError> {
+    ) -> Result<usize, FbError> {
         if params.len() != stmt_handle.param_count {
             return Err(format!(
                 "Tried to execute a statement that has {} parameters while providing {}",
@@ -539,6 +569,7 @@ impl FirebirdWireConnection {
             .into());
         }
 
+        // Execute
         let params = blr::params_to_blr(self, tr_handle, params)?;
 
         self.socket.write_all(&execute(
@@ -551,7 +582,16 @@ impl FirebirdWireConnection {
 
         self.read_response()?;
 
-        Ok(())
+        // Get affected rows
+        self.socket.write_all(&info_sql(
+            stmt_handle.handle.0,
+            &[ibase::isc_info_sql_records as u8], // Request affected rows,
+        ))?;
+        self.socket.flush()?;
+
+        let mut data = self.read_response()?.data;
+
+        Ok(parse_info_sql_affected_rows(&mut data)?)
     }
 
     /// Execute the prepared statement with parameters, returning data
@@ -581,7 +621,18 @@ impl FirebirdWireConnection {
         ))?;
         self.socket.flush()?;
 
-        let (op_code, mut resp) = read_packet(&mut self.socket, &mut self.buff)?;
+        let (mut op_code, mut resp) = read_packet(&mut self.socket, &mut self.buff)?;
+
+        // Read lazy responses
+        for _ in 0..self.lazy_count {
+            if op_code != WireOp::Response as u32 {
+                return err_conn_rejected(op_code);
+            }
+            self.lazy_count -= 1;
+            parse_response(&mut resp)?;
+
+            op_code = resp.get_u32()?;
+        }
 
         if op_code == WireOp::Response as u32 {
             // An error ocurred
@@ -617,7 +668,18 @@ impl FirebirdWireConnection {
             .write_all(&fetch(stmt_handle.handle.0, &stmt_handle.blr))?;
         self.socket.flush()?;
 
-        let (op_code, mut resp) = read_packet(&mut self.socket, &mut self.buff)?;
+        let (mut op_code, mut resp) = read_packet(&mut self.socket, &mut self.buff)?;
+
+        // Read lazy responses
+        for _ in 0..self.lazy_count {
+            if op_code != WireOp::Response as u32 {
+                return err_conn_rejected(op_code);
+            }
+            self.lazy_count -= 1;
+            parse_response(&mut resp)?;
+
+            op_code = resp.get_u32()?;
+        }
 
         if op_code == WireOp::Response as u32 {
             // An error ocurred
@@ -720,7 +782,7 @@ impl FirebirdWireConnection {
 
     /// Read a server response
     fn read_response(&mut self) -> Result<Response, FbError> {
-        read_response(&mut self.socket, &mut self.buff)
+        read_response(&mut self.socket, &mut self.buff, &mut self.lazy_count)
     }
 
     /// Reads a packet from the socket
@@ -730,8 +792,23 @@ impl FirebirdWireConnection {
 }
 
 /// Read a server response
-fn read_response(socket: &mut impl Read, buff: &mut [u8]) -> Result<Response, FbError> {
-    let (op_code, mut resp) = read_packet(socket, buff)?;
+fn read_response(
+    socket: &mut impl Read,
+    buff: &mut [u8],
+    lazy_count: &mut u32,
+) -> Result<Response, FbError> {
+    let (mut op_code, mut resp) = read_packet(socket, buff)?;
+
+    // Read lazy responses
+    for _ in 0..*lazy_count {
+        if op_code != WireOp::Response as u32 {
+            return err_conn_rejected(op_code);
+        }
+        *lazy_count -= 1;
+        parse_response(&mut resp)?;
+
+        op_code = resp.get_u32()?;
+    }
 
     if op_code != WireOp::Response as u32 {
         return err_conn_rejected(op_code);
@@ -800,7 +877,7 @@ where
     ))?;
     socket.flush()?;
 
-    read_response(&mut socket, buff)?;
+    read_response(&mut socket, buff, &mut 0)?;
 
     // Enable wire encryption
     socket.write_all(&crypt("Arc4", "Symmetric"))?;
@@ -815,7 +892,7 @@ where
         buff.len(),
     ));
 
-    read_response(&mut socket, buff)?;
+    read_response(&mut socket, buff, &mut 0)?;
 
     Ok(socket)
 }

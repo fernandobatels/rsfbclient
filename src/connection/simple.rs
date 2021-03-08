@@ -4,6 +4,7 @@
 //!
 
 use crate::{Connection, Execute, FbError, FromRow, IntoParams, Queryable, SimpleTransaction};
+
 #[cfg(feature = "linking")]
 use rsfbclient_native::DynLink;
 #[cfg(feature = "dynamic_loading")]
@@ -137,10 +138,48 @@ impl SimpleConnection {
 
         res
     }
+
+    /// Begins a new transaction, and instructs all the `query` and `execute` methods
+    /// performed in the [`SimpleConnection`] type to not automatically commit and rollback
+    /// until [`commit`][`SimpleConnection::commit`] or [`rollback`][`SimpleConnection::rollback`] are called
+    pub fn begin_transaction(&mut self) -> Result<(), FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.begin_transaction(),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.begin_transaction(),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.begin_transaction(),
+        }
+    }
+
+    /// Commit the default transaction
+    pub fn commit(&mut self) -> Result<(), FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.commit(),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.commit(),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.commit(),
+        }
+    }
+
+    /// Rollback the default transaction
+    pub fn rollback(&mut self) -> Result<(), FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.rollback(),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.rollback(),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.rollback(),
+        }
+    }
 }
 
 impl Execute for SimpleConnection {
-    fn execute<P>(&mut self, sql: &str, params: P) -> Result<(), FbError>
+    fn execute<P>(&mut self, sql: &str, params: P) -> Result<usize, FbError>
     where
         P: IntoParams,
     {
