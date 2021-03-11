@@ -120,7 +120,7 @@ pub fn setup(conn: &FbConnection) -> Result<(), String> {
     conn.execute("drop table types1null").ok();
     conn.execute("create table types1null(id int, a varchar(50), b int, c float, d char(2))")
         .ok();
-        
+
     conn.execute("drop table types2").ok();
     conn.execute("create table types2(id int, a date, b time, c timestamp)")
         .ok();
