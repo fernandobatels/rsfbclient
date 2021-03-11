@@ -11,7 +11,7 @@ license = "MIT"
 readme = "README.md"
 
 [dependencies]
-chrono = { version = "0.4.19", optional = true }
+chrono = "0.4.19"
 lru-cache = "0.1.2"
 rsfbclient-core = { version = "0.15.0", path = "rsfbclient-core" }
 rsfbclient-native = { version = "0.15.0", path = "rsfbclient-native", optional = true }
@@ -25,8 +25,7 @@ rand = "0.8.3"
 r2d2 = "0.8.9"
 
 [features]
-default = ["linking", "date_time"]
-date_time = ["rsfbclient-core/date_time", "rsfbclient-native/date_time", "rsfbclient-rust/date_time", "chrono"]
+default = ["linking"]
 dynamic_loading = ["rsfbclient-native/dynamic_loading", "native_client"]
 linking = ["rsfbclient-native/linking", "native_client"]
 embedded_tests = []

@@ -4,7 +4,6 @@ use super::backend::Fb;
 use super::value::FbValue;
 use bytes::Buf;
 use bytes::Bytes;
-#[cfg(feature = "date_time")]
 use chrono::*;
 use diesel::deserialize::{self, FromSql};
 use diesel::result::Error::DatabaseError;
@@ -43,17 +42,14 @@ impl SupportedType {
                 SupportedType::BigInt => Bytes::copy_from_slice(&val).get_i64().into_param(),
                 SupportedType::Float => Bytes::copy_from_slice(&val).get_f32().into_param(),
                 SupportedType::Double => Bytes::copy_from_slice(&val).get_f64().into_param(),
-                #[cfg(feature = "date_time")]
                 SupportedType::Date => {
                     let days = Bytes::copy_from_slice(&val).get_i32();
                     NaiveDate::from_num_days_from_ce(days).into_param()
                 }
-                #[cfg(feature = "date_time")]
                 SupportedType::Time => {
                     let secs = Bytes::copy_from_slice(&val).get_u32();
                     NaiveTime::from_num_seconds_from_midnight(secs, 0).into_param()
                 }
-                #[cfg(feature = "date_time")]
                 SupportedType::DateTime => {
                     let tms = Bytes::copy_from_slice(&val).get_i64();
                     NaiveDateTime::from_timestamp(tms, 0).into_param()
@@ -169,8 +165,6 @@ impl FromSql<sql_types::Float, Fb> for f32 {
         Ok(rs)
     }
 }
-
-#[cfg(feature = "date_time")]
 impl FromSql<sql_types::Date, Fb> for NaiveDate {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
         let rs =
@@ -181,8 +175,6 @@ impl FromSql<sql_types::Date, Fb> for NaiveDate {
         Ok(rs)
     }
 }
-
-#[cfg(feature = "date_time")]
 impl ToSql<sql_types::Date, Fb> for NaiveDate {
     fn to_sql<W: Write>(&self, out: &mut serialize::Output<W, Fb>) -> serialize::Result {
         let days = self.num_days_from_ce().to_be_bytes();
@@ -191,8 +183,6 @@ impl ToSql<sql_types::Date, Fb> for NaiveDate {
             .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 }
-
-#[cfg(feature = "date_time")]
 impl FromSql<sql_types::Timestamp, Fb> for NaiveDateTime {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
         let rs =
@@ -203,8 +193,6 @@ impl FromSql<sql_types::Timestamp, Fb> for NaiveDateTime {
         Ok(rs)
     }
 }
-
-#[cfg(feature = "date_time")]
 impl ToSql<sql_types::Timestamp, Fb> for NaiveDateTime {
     fn to_sql<W: Write>(&self, out: &mut serialize::Output<W, Fb>) -> serialize::Result {
         let tms = self.timestamp().to_be_bytes();
@@ -213,8 +201,6 @@ impl ToSql<sql_types::Timestamp, Fb> for NaiveDateTime {
             .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 }
-
-#[cfg(feature = "date_time")]
 impl FromSql<sql_types::Time, Fb> for NaiveTime {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
         let rs =
@@ -225,8 +211,6 @@ impl FromSql<sql_types::Time, Fb> for NaiveTime {
         Ok(rs)
     }
 }
-
-#[cfg(feature = "date_time")]
 impl ToSql<sql_types::Time, Fb> for NaiveTime {
     fn to_sql<W: Write>(&self, out: &mut serialize::Output<W, Fb>) -> serialize::Result {
         let secs = self.num_seconds_from_midnight().to_be_bytes();

@@ -18,4 +18,4 @@ rsfbclient-core = { version = "0.15", path = "../rsfbclient-core" }
 r2d2 = "0.8.9"
 
 [dev-dependencies]
-rsfbclient = { version = "0.15", path = "../", features = ["pure_rust", "date_time"], default-features = false }
+rsfbclient = { version = "0.15", path = "../", features = ["pure_rust"], default-features = false }

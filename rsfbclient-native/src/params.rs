@@ -180,8 +180,6 @@ impl ParamBuffer {
             SqlType::Integer(i) => (mem::size_of_val(&i), Integer(Box::new(i))),
 
             SqlType::Floating(f) => (mem::size_of_val(&f), Floating(Box::new(f))),
-
-            #[cfg(feature = "date_time")]
             SqlType::Timestamp(dt) => {
                 let ts = rsfbclient_core::date_time::encode_timestamp(dt);
 

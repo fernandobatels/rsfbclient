@@ -1,6 +1,5 @@
 use crate::fb::FbConnection;
 use crate::prelude::*;
-#[cfg(feature = "date_time")]
 use chrono::*;
 use rsfbclient::{EngineVersion, SystemInfos};
 
@@ -57,8 +56,6 @@ table! {
         d -> Nullable<Text>,
     }
 }
-
-#[cfg(feature = "date_time")]
 #[derive(Insertable, Queryable)]
 #[table_name = "types2"]
 pub struct Types2 {
@@ -67,8 +64,6 @@ pub struct Types2 {
     pub b: NaiveTime,
     pub c: NaiveDateTime,
 }
-
-#[cfg(feature = "date_time")]
 table! {
     types2(id) {
         id -> Int4,
@@ -124,10 +119,7 @@ pub fn setup(conn: &FbConnection) -> Result<(), String> {
     conn.execute("drop table types1null").ok();
     conn.execute("create table types1null(id int, a varchar(50), b int, c float, d char(2))")
         .ok();
-
-    #[cfg(feature = "date_time")]
     conn.execute("drop table types2").ok();
-    #[cfg(feature = "date_time")]
     conn.execute("create table types2(id int, a date, b time, c timestamp)")
         .ok();
 

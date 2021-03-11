@@ -91,8 +91,6 @@ pub fn params_to_blr(
 
                 values.put_f64(*f);
             }
-
-            #[cfg(feature = "date_time")]
             SqlType::Timestamp(dt) => {
                 blr.put_u8(consts::blr::TIMESTAMP);
 

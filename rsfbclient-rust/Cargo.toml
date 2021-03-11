@@ -25,7 +25,6 @@ sha2 = "0.9.3"
 
 [features]
 fuzz_testing = []
-date_time = ["rsfbclient-core/date_time"]
 
 [package.metadata.docs.rs]
 all-features = true

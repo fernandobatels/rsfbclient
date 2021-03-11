@@ -174,8 +174,6 @@ impl ColumnBuffer {
             Integer(i) => SqlType::Integer(**i),
 
             Float(f) => SqlType::Floating(**f),
-
-            #[cfg(feature = "date_time")]
             Timestamp(ts) => SqlType::Timestamp(rsfbclient_core::date_time::decode_timestamp(**ts)),
 
             BlobText(b) => SqlType::Text(blobtext_to_string(**b, db, tr, ibase, &charset)?),
