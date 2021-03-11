@@ -91,6 +91,7 @@ pub fn params_to_blr(
 
                 values.put_f64(*f);
             }
+
             SqlType::Timestamp(dt) => {
                 blr.put_u8(consts::blr::TIMESTAMP);
 

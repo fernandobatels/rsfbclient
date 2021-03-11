@@ -591,6 +591,7 @@ pub fn parse_sql_response(
                     )))
                 }
             }
+
             ibase::SQL_TIMESTAMP => {
                 let ts = ibase::ISC_TIMESTAMP {
                     timestamp_date: resp.get_i32()?,

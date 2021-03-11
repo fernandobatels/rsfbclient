@@ -92,6 +92,7 @@ fn null() -> Result<(), String> {
 
     Ok(())
 }
+
 #[test]
 fn types2() -> Result<(), String> {
     use chrono::*;

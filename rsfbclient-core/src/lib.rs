@@ -23,6 +23,7 @@ pub enum SqlType {
     Integer(i64),
 
     Floating(f64),
+
     Timestamp(chrono::NaiveDateTime),
 
     Binary(Vec<u8>),
