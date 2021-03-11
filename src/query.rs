@@ -41,7 +41,7 @@ pub trait Queryable {
     /// `(param0, param1, param2...)`: a tuple of `IntoParam` values corresponding to positional `?` sql parameters
     ///
     /// A struct for which `IntoParams` has been derived ([see there for details](prelude/derive.IntoParams.html))
-    fn query<'a, P, R>(&'a mut self, sql: &str, params: P) -> Result<Vec<R>, FbError>
+    fn query<P, R>(&mut self, sql: &str, params: P) -> Result<Vec<R>, FbError>
     where
         P: IntoParams,
         R: FromRow + 'static,
@@ -61,7 +61,7 @@ pub trait Queryable {
     /// `(param0, param1, param2...)`: a tuple of `IntoParam` values corresponding to positional `?` sql parameters
     ///
     /// A struct for which `IntoParams` has been derived ([see there for details](prelude/derive.IntoParams.html))
-    fn query_first<'a, P, R>(&'a mut self, sql: &str, params: P) -> Result<Option<R>, FbError>
+    fn query_first<P, R>(&mut self, sql: &str, params: P) -> Result<Option<R>, FbError>
     where
         P: IntoParams,
         R: FromRow + 'static,

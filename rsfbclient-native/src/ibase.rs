@@ -37,9 +37,9 @@ use std::ffi::OsStr;
 #[cfg(feature = "dynamic_loading")]
 impl IBaseDynLoading {
     pub fn with_client(fbclient: &OsStr) -> Result<Self, libloading::Error> {
-        Ok(IBaseDynLoading(std::sync::Arc::new(
-            libloading::Library::new(fbclient)?,
-        )))
+        Ok(IBaseDynLoading(std::sync::Arc::new(unsafe {
+            libloading::Library::new(fbclient)?
+        })))
     }
 }
 
