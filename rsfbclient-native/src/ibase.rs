@@ -37,9 +37,16 @@ use std::ffi::OsStr;
 #[cfg(feature = "dynamic_loading")]
 impl IBaseDynLoading {
     pub fn with_client(fbclient: &OsStr) -> Result<Self, libloading::Error> {
-        Ok(IBaseDynLoading(std::sync::Arc::new(unsafe {
-            libloading::Library::new(fbclient)?
-        })))
+        #[cfg(not(target_os = "macos"))]
+        let lib = unsafe { libloading::Library::new(fbclient)? };
+
+        #[cfg(target_os = "macos")]
+        let lib = unsafe {
+            libloading::os::unix::Library::open(Some(fbclient), libloading::os::unix::RTLD_NOW)?
+                .into()
+        };
+
+        Ok(IBaseDynLoading(std::sync::Arc::new(lib)))
     }
 }
 
