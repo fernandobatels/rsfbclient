@@ -62,7 +62,6 @@ impl ColumnToVal<String> for Column {
 
             Floating(f) => Ok(f.to_string()),
 
-            #[cfg(feature = "date_time")]
             Timestamp(ts) => Ok(ts.to_string()),
 
             Binary(_) => Err("This is a binary column. You cannot use string to access".into()),

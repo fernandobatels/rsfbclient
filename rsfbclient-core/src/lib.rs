@@ -3,7 +3,6 @@
 
 pub mod charset;
 mod connection;
-#[cfg(feature = "date_time")]
 pub mod date_time;
 pub(crate) mod error;
 pub mod ibase;
@@ -25,7 +24,6 @@ pub enum SqlType {
 
     Floating(f64),
 
-    #[cfg(feature = "date_time")]
     Timestamp(chrono::NaiveDateTime),
 
     Binary(Vec<u8>),

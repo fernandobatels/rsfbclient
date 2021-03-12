@@ -10,14 +10,13 @@ categories = ["database"]
 license = "MIT"
 
 [dependencies]
-chrono = { version = "0.4.13", optional = true }
+chrono = "0.4.19"
 num_enum = "0.5.1"
-thiserror = "1.0.20"
-encoding = "0.2"
-regex = "1.4"
+thiserror = "1.0.24"
+encoding = "0.2.33"
+regex = "1.4.3"
 
 [features]
-date_time = ["chrono"]
 
 [package.metadata.docs.rs]
 all-features = true

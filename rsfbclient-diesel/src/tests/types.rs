@@ -93,7 +93,6 @@ fn null() -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(feature = "date_time")]
 #[test]
 fn types2() -> Result<(), String> {
     use chrono::*;
