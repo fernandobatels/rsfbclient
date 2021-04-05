@@ -7,6 +7,8 @@ on:
     # would run a command only on Mondays.
 jobs:
   audit:
+    # Avoid running security audit on forked repositories
+    if: ( github.ref == 'refs/heads/master' ) && ( github.repository == 'fernandobatels/rsfbclient' )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
