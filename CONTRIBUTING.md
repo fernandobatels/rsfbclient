@@ -74,11 +74,8 @@ See the section on testing for more information.
 
 ## Testing
 ### Setting up a test database `test.fdb`
-#### Using the docker image
-  TODO
-#### Manually
-  * To set up a Firebird database for testing you will need to install the Firebird server. This process may vary by platform. (TODO: notes for different platforms/server versions)
-  * With a version of the server installed, you may run these commands to create a database: (TODO)
+  * To set up a Firebird database for testing you will need to install the Firebird server. This process may vary by platform.
+  * With a version of the server installed, you will need create a empty database named 'test.fdb'. 
 
 ### Notes about running the tests
 #### TL;DR
