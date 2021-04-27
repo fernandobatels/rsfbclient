@@ -105,7 +105,7 @@ fn select() -> Result<(), String> {
 
     assert_eq!(1, users.len());
 
-    let user = users.iter().next().unwrap();
+    let user = users.get(0).unwrap();
     assert_eq!(user.id, 1);
     assert_eq!(user.name, "Luis A");
 

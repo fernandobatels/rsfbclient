@@ -49,7 +49,7 @@ mk_tests_default! {
         struct ParamTest {
             pub num1: Option<i32>,
             pub str1: Option<String>
-        };
+        }
 
         let ptest = ParamTest {
             num1: Some(10),
@@ -85,7 +85,7 @@ mk_tests_default! {
         struct User {
             pub name: String,
             pub age: i32
-        };
+        }
 
         let user1 = User {
             name: "Pedro".to_string(),
@@ -113,7 +113,7 @@ mk_tests_default! {
             pub num: i32,
             pub num2: f64,
             pub str1: String
-        };
+        }
 
         let ptest = ParamTest {
             num: 10,

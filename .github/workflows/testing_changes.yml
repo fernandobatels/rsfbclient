@@ -221,7 +221,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: -vv --no-default-features --features '${{ matrix.features }}'
+          args: -v --no-default-features --features '${{ matrix.features }}'
           # Searching for fbclient.lib in rsfbclient-native/build.rs
 
       - name: Run cargo test on rsfbclient

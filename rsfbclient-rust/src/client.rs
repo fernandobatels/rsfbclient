@@ -591,7 +591,7 @@ impl FirebirdWireConnection {
 
         let mut data = self.read_response()?.data;
 
-        Ok(parse_info_sql_affected_rows(&mut data)?)
+        parse_info_sql_affected_rows(&mut data)
     }
 
     /// Execute the prepared statement with parameters, returning data

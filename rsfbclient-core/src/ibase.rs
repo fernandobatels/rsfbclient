@@ -4,7 +4,8 @@
     non_upper_case_globals,
     dead_code,
     non_camel_case_types,
-    clippy::redundant_static_lifetimes
+    clippy::redundant_static_lifetimes,
+    clippy::upper_case_acronyms
 )]
 
 pub const FB_API_VER: u32 = 30;

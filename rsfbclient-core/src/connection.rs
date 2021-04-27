@@ -194,7 +194,7 @@ pub enum StmtType {
     Insert = ibase::isc_info_sql_stmt_insert as u8,
     Update = ibase::isc_info_sql_stmt_update as u8,
     Delete = ibase::isc_info_sql_stmt_delete as u8,
-    DDL = ibase::isc_info_sql_stmt_ddl as u8,
+    Ddl = ibase::isc_info_sql_stmt_ddl as u8,
     GetSegment = ibase::isc_info_sql_stmt_get_segment as u8,
     PutSegment = ibase::isc_info_sql_stmt_put_segment as u8,
     ExecProcedure = ibase::isc_info_sql_stmt_exec_procedure as u8,

@@ -46,6 +46,7 @@ impl Column {
     }
 }
 
+#[allow(clippy::wrong_self_convention)]
 /// Define the conversion from the buffer to a value
 pub trait ColumnToVal<T> {
     fn to_val(self) -> Result<T, FbError>

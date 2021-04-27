@@ -5,6 +5,7 @@
 //!
 
 mk_tests_default! {
+    #[allow(unused_imports)]
     use crate::*;
 
     #[test]
