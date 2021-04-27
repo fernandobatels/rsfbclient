@@ -7,6 +7,7 @@ use rsfbclient::{EngineVersion, SystemInfos};
 use std::str;
 
 #[test]
+#[allow(clippy::float_cmp)]
 fn types1() -> Result<(), String> {
     let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;

@@ -235,7 +235,7 @@ fn read_blob<T: IBase>(
     let mut blob_stat = 0;
 
     while blob_stat == 0 || status[1] == (ibase::isc_segment as isize) {
-        let mut blob_seg_loaded = 0 as u16;
+        let mut blob_seg_loaded = 0;
         let mut blob_seg_slice = [0_u8; 255];
 
         blob_stat = unsafe {

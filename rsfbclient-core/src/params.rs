@@ -158,6 +158,7 @@ impl ParamsType {
     }
 }
 
+#[allow(clippy::wrong_self_convention)]
 /// Types with an associated boolean flag function, `named()` indiciating support for named or positional parameters.
 ///
 ///

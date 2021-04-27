@@ -36,7 +36,10 @@ impl Connection for FbConnection {
     type Backend = Fb;
 
     fn establish(database_url: &str) -> ConnectionResult<Self> {
-        #[cfg(feature = "pure_rust")]
+        #[cfg(all(
+            feature = "pure_rust",
+            not(any(feature = "linking", feature = "dynamic_loading"))
+        ))]
         let mut raw_builder = rsfbclient::builder_pure_rust();
         #[cfg(any(feature = "linking", feature = "dynamic_loading"))]
         let raw_builder = rsfbclient::builder_native();

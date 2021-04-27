@@ -8,6 +8,7 @@
 
 use rsfbclient::{prelude::*, FbError};
 
+#[allow(clippy::unnecessary_wraps)]
 fn main() -> Result<(), FbError> {
     #[cfg(not(feature = "pure_rust"))] // No support for embedded with pure rust driver
     {
