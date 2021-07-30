@@ -265,17 +265,17 @@ parse_functions! {
     //         arg7: *const ISC_SCHAR,
     //     ) -> ISC_STATUS;
     // }
-    // extern "C" {
-    //     pub fn isc_create_database(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: ::std::os::raw::c_short,
-    //         arg3: *const ISC_SCHAR,
-    //         arg4: *mut isc_db_handle,
-    //         arg5: ::std::os::raw::c_short,
-    //         arg6: *const ISC_SCHAR,
-    //         arg7: ::std::os::raw::c_short,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "C" {
+        pub fn isc_create_database(
+           arg1: *mut ISC_STATUS,
+           arg2: ::std::os::raw::c_short,
+           arg3: *const ISC_SCHAR,
+           arg4: *mut isc_db_handle,
+           arg5: ::std::os::raw::c_short,
+           arg6: *const ISC_SCHAR,
+           arg7: ::std::os::raw::c_short,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_database_info(
     //         arg1: *mut ISC_STATUS,

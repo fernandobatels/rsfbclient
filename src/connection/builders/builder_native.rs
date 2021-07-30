@@ -140,9 +140,14 @@ where
     A: LinkageMarker,
     Self: FirebirdClientFactory<C = NativeFbClient<A>>,
 {
-    /// Create a new connection from the fully-built builder
+    /// Start a new connection from the fully-built builder
     pub fn connect(&self) -> Result<Connection<NativeFbClient<A>>, FbError> {
         Connection::open(self.new_instance()?, &self.conn_conf)
+    }
+
+    /// Create the database and start new connection from the fully-built builder
+    pub fn create_database(&self) -> Result<Connection<NativeFbClient<A>>, FbError> {
+        Connection::create_database(self.new_instance()?, &self.conn_conf)
     }
 }
 

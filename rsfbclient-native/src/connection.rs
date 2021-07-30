@@ -111,46 +111,8 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
         &mut self,
         config: &Self::AttachmentConfig,
     ) -> Result<NativeDbHandle, FbError> {
-        let user = &config.user;
-        let mut password = None;
-        let db_name = &config.db_name;
-        let maybe_remote = &config.remote;
-
-        let conn_string = match maybe_remote {
-            None => db_name.clone(),
-            Some(remote_conf) => {
-                password = Some(remote_conf.pass.as_str());
-                format!(
-                    "{}/{}:{}",
-                    remote_conf.host.as_str(),
-                    remote_conf.port,
-                    db_name.as_str()
-                )
-            }
-        };
-
+        let (dpb, conn_string) = self.build_dpb(config);
         let mut handle = 0;
-
-        let dpb = {
-            let mut dpb: Vec<u8> = Vec::with_capacity(64);
-
-            dpb.extend(&[ibase::isc_dpb_version1 as u8]);
-
-            dpb.extend(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
-            dpb.extend(user.bytes());
-
-            if let Some(pass_str) = password {
-                dpb.extend(&[ibase::isc_dpb_password as u8, pass_str.len() as u8]);
-                dpb.extend(pass_str.bytes());
-            };
-
-            let charset = self.charset.on_firebird.bytes();
-
-            dpb.extend(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
-            dpb.extend(charset);
-
-            dpb
-        };
 
         unsafe {
             if self.ibase.isc_attach_database()(
@@ -191,6 +153,34 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
             }
         }
         Ok(())
+    }
+
+    fn create_database(
+        &mut self,
+        config: &Self::AttachmentConfig,
+    ) -> Result<NativeDbHandle, FbError> {
+        let (dpb, conn_string) = self.build_dpb(config);
+        let mut handle = 0;
+
+        unsafe {
+            if self.ibase.isc_create_database()(
+                &mut self.status[0],
+                conn_string.len() as i16,
+                conn_string.as_ptr() as *const _,
+                &mut handle,
+                dpb.len() as i16,
+                dpb.as_ptr() as *const _,
+                0 as i16,
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+
+        // Assert that the handle is valid
+        debug_assert_ne!(handle, 0);
+
+        Ok(handle)
     }
 }
 
@@ -574,5 +564,52 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
             .collect::<Result<_, _>>()?;
 
         Ok(rcol)
+    }
+}
+
+impl<T: LinkageMarker> NativeFbClient<T> {
+    /// Build the dpb and the connection string
+    ///
+    /// Used by attach database operations
+    fn build_dpb(&mut self, config: &NativeFbAttachmentConfig) -> (Vec<u8>, String) {
+        let user = &config.user;
+        let mut password = None;
+        let db_name = &config.db_name;
+
+        let conn_string = match &config.remote {
+            None => db_name.clone(),
+            Some(remote_conf) => {
+                password = Some(remote_conf.pass.as_str());
+                format!(
+                    "{}/{}:{}",
+                    remote_conf.host.as_str(),
+                    remote_conf.port,
+                    db_name.as_str()
+                )
+            }
+        };
+
+        let dpb = {
+            let mut dpb: Vec<u8> = Vec::with_capacity(64);
+
+            dpb.extend(&[ibase::isc_dpb_version1 as u8]);
+
+            dpb.extend(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
+            dpb.extend(user.bytes());
+
+            if let Some(pass_str) = password {
+                dpb.extend(&[ibase::isc_dpb_password as u8, pass_str.len() as u8]);
+                dpb.extend(pass_str.bytes());
+            };
+
+            let charset = self.charset.on_firebird.bytes();
+
+            dpb.extend(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
+            dpb.extend(charset);
+
+            dpb
+        };
+
+        (dpb, conn_string)
     }
 }

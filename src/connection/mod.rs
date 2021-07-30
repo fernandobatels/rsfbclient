@@ -112,6 +112,24 @@ impl<C: FirebirdClient> Connection<C> {
         })
     }
 
+    /// Create the database and start the client connection.
+    pub fn create_database(
+        mut cli: C,
+        conf: &ConnectionConfiguration<C::AttachmentConfig>,
+    ) -> Result<Connection<C>, FbError> {
+        let handle = cli.create_database(&conf.attachment_conf)?;
+        let stmt_cache = StmtCache::new(conf.stmt_cache_size);
+
+        Ok(Connection {
+            handle,
+            dialect: conf.dialect,
+            stmt_cache,
+            def_tr: None,
+            in_transaction: false,
+            cli,
+        })
+    }
+
     /// Drop the current database
     pub fn drop_database(mut self) -> Result<(), FbError> {
         self.cli.drop_database(&mut self.handle)?;
