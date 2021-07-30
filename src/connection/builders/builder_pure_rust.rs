@@ -39,6 +39,10 @@ impl PureRustConnectionBuilder {
         Connection::open(self.new_instance()?, &self.0)
     }
 
+    pub fn create_database(&self) -> Result<Connection<RustFbClient>, FbError> {
+        Connection::create_database(self.new_instance()?, &self.0)
+    }
+
     /// Username. Default: SYSDBA
     pub fn user<S: Into<String>>(&mut self, user: S) -> &mut Self {
         self.0.attachment_conf.user = user.into();

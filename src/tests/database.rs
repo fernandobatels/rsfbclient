@@ -55,7 +55,7 @@ mk_tests_default! {
         let conn = builder_native()
             .with_dyn_load(libfbclient)
             .with_remote()
-            .db_name("test_create_db12.fdb")
+            .db_name("test_create_db2.fdb")
             .user("SYSDBA")
             .host("localhost")
             .create_database()?;
@@ -110,7 +110,28 @@ mk_tests_default! {
         let conn = builder_native()
             .with_dyn_load(libfbclient)
             .with_embedded()
-            .db_name("/tmp/embedded_test_create_db12.fdb")
+            .db_name("/tmp/embedded_test_create_db22.fdb")
+            .user("SYSDBA")
+            .create_database()?;
+
+        conn.drop_database()?;
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(all(feature = "pure_rust", not(feature = "native_client")))]
+    fn pure_rust() -> Result<(), FbError> {
+        let conn = builder_pure_rust()
+            .from_string(
+                "firebird://localhost:3050/test_create_db3.fdb",
+            )?
+            .create_database()?;
+
+        conn.drop_database()?;
+
+        let conn = builder_pure_rust()
+            .db_name("test_create_db33.fdb")
             .user("SYSDBA")
             .create_database()?;
 

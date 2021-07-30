@@ -18,14 +18,7 @@ use rsfbclient_core::{ibase, Charset, Column, FbError, FreeStmtOp, SqlType, TrOp
 pub const BUFFER_LENGTH: u32 = 1024;
 
 /// Connection request
-pub fn connect(
-    db_name: &str,
-    create_db: bool,
-    user: &str,
-    username: &str,
-    hostname: &str,
-    srp_key: &[u8],
-) -> Bytes {
+pub fn connect(db_name: &str, user: &str, username: &str, hostname: &str, srp_key: &[u8]) -> Bytes {
     let protocols = [
         // PROTOCOL_VERSION, Arch type (Generic=1), min, max, weight
         [ProtocolVersion::V10 as u32, 1, 0, 5, 2],
@@ -37,11 +30,7 @@ pub fn connect(
     let mut connect = BytesMut::with_capacity(256);
 
     connect.put_u32(WireOp::Connect as u32);
-    connect.put_u32(if create_db {
-        WireOp::Create
-    } else {
-        WireOp::Attach
-    } as u32);
+    connect.put_u32(WireOp::Attach as u32);
     connect.put_u32(3); // CONNECT_VERSION
     connect.put_u32(1); // arch_generic
 
@@ -150,42 +139,7 @@ pub fn attach(
     protocol: ProtocolVersion,
     charset: Charset,
 ) -> Bytes {
-    let dpb = {
-        let mut dpb = BytesMut::with_capacity(64);
-
-        dpb.put_u8(1); //Version
-
-        let charset = charset.on_firebird.as_bytes();
-
-        dpb.put_slice(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
-        dpb.put_slice(charset);
-
-        dpb.put_slice(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
-        dpb.put_slice(user.as_bytes());
-
-        match protocol {
-            // Plaintext password
-            ProtocolVersion::V10 => {
-                dpb.put_slice(&[ibase::isc_dpb_password as u8, pass.len() as u8]);
-                dpb.put_slice(pass.as_bytes());
-            }
-
-            // Hashed password
-            ProtocolVersion::V11 | ProtocolVersion::V12 => {
-                #[allow(deprecated)]
-                let enc_pass = pwhash::unix_crypt::hash_with("9z", pass).unwrap();
-                let enc_pass = &enc_pass[2..];
-
-                dpb.put_slice(&[ibase::isc_dpb_password_enc as u8, enc_pass.len() as u8]);
-                dpb.put_slice(enc_pass.as_bytes());
-            }
-
-            // Password already verified
-            ProtocolVersion::V13 => {}
-        }
-
-        dpb.freeze()
-    };
+    let dpb = build_dpb(user, pass, protocol, charset);
 
     let mut attach = BytesMut::with_capacity(16 + db_name.len() + dpb.len());
 
@@ -197,6 +151,66 @@ pub fn attach(
     attach.put_wire_bytes(&dpb);
 
     attach.freeze()
+}
+
+/// Create db request
+pub fn create(
+    db_name: &str,
+    user: &str,
+    pass: &str,
+    protocol: ProtocolVersion,
+    charset: Charset,
+) -> Bytes {
+    let dpb = build_dpb(user, pass, protocol, charset);
+
+    let mut create = BytesMut::with_capacity(16 + db_name.len() + dpb.len());
+
+    create.put_u32(WireOp::Create as u32);
+    create.put_u32(0); // Database Object ID
+
+    create.put_wire_bytes(db_name.as_bytes());
+
+    create.put_wire_bytes(&dpb);
+
+    create.freeze()
+}
+
+/// Dpb builder
+fn build_dpb(user: &str, pass: &str, protocol: ProtocolVersion, charset: Charset) -> Bytes {
+    let mut dpb = BytesMut::with_capacity(64);
+
+    dpb.put_u8(1); //Version
+
+    let charset = charset.on_firebird.as_bytes();
+
+    dpb.put_slice(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
+    dpb.put_slice(charset);
+
+    dpb.put_slice(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
+    dpb.put_slice(user.as_bytes());
+
+    match protocol {
+        // Plaintext password
+        ProtocolVersion::V10 => {
+            dpb.put_slice(&[ibase::isc_dpb_password as u8, pass.len() as u8]);
+            dpb.put_slice(pass.as_bytes());
+        }
+
+        // Hashed password
+        ProtocolVersion::V11 | ProtocolVersion::V12 => {
+            #[allow(deprecated)]
+            let enc_pass = pwhash::unix_crypt::hash_with("9z", pass).unwrap();
+            let enc_pass = &enc_pass[2..];
+
+            dpb.put_slice(&[ibase::isc_dpb_password_enc as u8, enc_pass.len() as u8]);
+            dpb.put_slice(enc_pass.as_bytes());
+        }
+
+        // Password already verified
+        ProtocolVersion::V13 => {}
+    }
+
+    dpb.freeze()
 }
 
 /// Detach from the database request
