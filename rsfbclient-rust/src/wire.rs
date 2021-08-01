@@ -189,7 +189,7 @@ fn build_dpb(
     dpb.put_u8(1); //Version
 
     if let Some(ps) = page_size {
-        dpb.put_slice(&[ibase::isc_dpb_page_size as u8, 4 as u8]);
+        dpb.put_slice(&[ibase::isc_dpb_page_size as u8, 4]);
         dpb.put_u32(ps);
     }
 
@@ -788,7 +788,7 @@ pub fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
                 let msg = std::str::from_utf8(&msg[..]).unwrap_or("**Invalid message**");
 
                 num_arg += 1;
-                message = message.replace(&format!("@{}", num_arg), &msg);
+                message = message.replace(&format!("@{}", num_arg), msg);
             }
 
             // Aditional error message string

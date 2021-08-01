@@ -351,7 +351,7 @@ impl FirebirdWireConnection {
                             // in the initial connection
 
                             socket.write_all(&cont_auth(
-                                &hex::encode(srp.get_a_pub()).as_bytes(),
+                                hex::encode(srp.get_a_pub()).as_bytes(),
                                 plugin,
                                 AuthPluginType::plugin_list(),
                                 &[],
@@ -925,7 +925,7 @@ where
 
     // Send proof data
     socket.write_all(&cont_auth(
-        &proof.as_bytes(),
+        proof.as_bytes(),
         plugin,
         AuthPluginType::plugin_list(),
         &[],

@@ -164,7 +164,7 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
         let mut handle = 0;
 
         if let Some(ps) = page_size {
-            dpb.extend(&[ibase::isc_dpb_page_size as u8, 4 as u8]);
+            dpb.extend(&[ibase::isc_dpb_page_size as u8, 4]);
             dpb.write_u32::<LittleEndian>(ps)?;
         }
 
@@ -176,7 +176,7 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
                 &mut handle,
                 dpb.len() as i16,
                 dpb.as_ptr() as *const _,
-                0 as i16,
+                0,
             ) != 0
             {
                 return Err(self.status.as_error(&self.ibase));

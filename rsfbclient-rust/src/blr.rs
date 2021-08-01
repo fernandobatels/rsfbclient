@@ -44,7 +44,7 @@ pub fn params_to_blr(
                            data: &[u8]| {
         let (blob_handle, id) = conn.create_blob(tr_handle)?;
 
-        conn.put_segments(blob_handle, &data)?;
+        conn.put_segments(blob_handle, data)?;
 
         conn.close_blob(blob_handle)?;
 
@@ -75,7 +75,7 @@ pub fn params_to_blr(
                 }
             }
 
-            SqlType::Binary(data) => handle_blob(conn, &mut blr, &mut values, &data)?,
+            SqlType::Binary(data) => handle_blob(conn, &mut blr, &mut values, data)?,
 
             SqlType::Integer(i) => {
                 blr.put_slice(&[

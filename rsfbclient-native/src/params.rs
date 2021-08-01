@@ -58,7 +58,7 @@ impl Params {
                     db_handle,
                     tr_handle,
                     ibase,
-                    &charset,
+                    charset,
                 )?);
             }
 
