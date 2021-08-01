@@ -132,6 +132,7 @@ impl FirebirdClientDbOps for RustFbClient {
     fn create_database(
         &mut self,
         config: &Self::AttachmentConfig,
+        page_size: Option<u32>,
     ) -> Result<RustDbHandle, FbError> {
         let host = config.host.as_str();
         let port = config.port;
@@ -152,7 +153,7 @@ impl FirebirdClientDbOps for RustFbClient {
             )?,
         };
 
-        let attach_result = conn.create_database(db_name, user, pass);
+        let attach_result = conn.create_database(db_name, user, pass, page_size);
 
         // Put the connection back
         self.conn.replace(conn);
@@ -382,6 +383,7 @@ impl FirebirdWireConnection {
         db_name: &str,
         user: &str,
         pass: &str,
+        page_size: Option<u32>,
     ) -> Result<DbHandle, FbError> {
         self.socket.write_all(&create(
             db_name,
@@ -389,6 +391,7 @@ impl FirebirdWireConnection {
             pass,
             self.version,
             self.charset.clone(),
+            page_size,
         ))?;
         self.socket.flush()?;
 

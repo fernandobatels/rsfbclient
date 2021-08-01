@@ -17,6 +17,7 @@ fn main() -> Result<(), FbError> {
         .db_name("examples.fdb")
         .user("SYSDBA")
         .pass("masterkey")
+        .page_size(8 * 1024) // Optional
         .create_database()?;
 
     #[cfg(feature = "dynamic_loading")]
@@ -27,6 +28,7 @@ fn main() -> Result<(), FbError> {
         .db_name("examples.fdb")
         .user("SYSDBA")
         .pass("masterkey")
+        .page_size(16 * 1024) // Optional
         .create_database()?;
 
     #[cfg(feature = "pure_rust")]
@@ -35,6 +37,7 @@ fn main() -> Result<(), FbError> {
         .db_name("examples.fdb")
         .user("SYSDBA")
         .pass("masterkey")
+        .page_size(16 * 1024) // Optional
         .create_database()?;
 
     conn.close()?;

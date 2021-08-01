@@ -139,7 +139,7 @@ pub fn attach(
     protocol: ProtocolVersion,
     charset: Charset,
 ) -> Bytes {
-    let dpb = build_dpb(user, pass, protocol, charset);
+    let dpb = build_dpb(user, pass, protocol, charset, None);
 
     let mut attach = BytesMut::with_capacity(16 + db_name.len() + dpb.len());
 
@@ -160,8 +160,9 @@ pub fn create(
     pass: &str,
     protocol: ProtocolVersion,
     charset: Charset,
+    page_size: Option<u32>,
 ) -> Bytes {
-    let dpb = build_dpb(user, pass, protocol, charset);
+    let dpb = build_dpb(user, pass, protocol, charset, page_size);
 
     let mut create = BytesMut::with_capacity(16 + db_name.len() + dpb.len());
 
@@ -176,10 +177,21 @@ pub fn create(
 }
 
 /// Dpb builder
-fn build_dpb(user: &str, pass: &str, protocol: ProtocolVersion, charset: Charset) -> Bytes {
+fn build_dpb(
+    user: &str,
+    pass: &str,
+    protocol: ProtocolVersion,
+    charset: Charset,
+    page_size: Option<u32>,
+) -> Bytes {
     let mut dpb = BytesMut::with_capacity(64);
 
     dpb.put_u8(1); //Version
+
+    if let Some(ps) = page_size {
+        dpb.put_slice(&[ibase::isc_dpb_page_size as u8, 4 as u8]);
+        dpb.put_u32(ps);
+    }
 
     let charset = charset.on_firebird.as_bytes();
 

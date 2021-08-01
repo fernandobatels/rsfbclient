@@ -7,7 +7,7 @@ use crate::{
     status::Status,
     xsqlda::XSqlDa,
 };
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use rsfbclient_core::*;
 use std::{convert::TryFrom, io::Cursor, ptr};
 
@@ -158,9 +158,15 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
     fn create_database(
         &mut self,
         config: &Self::AttachmentConfig,
+        page_size: Option<u32>,
     ) -> Result<NativeDbHandle, FbError> {
-        let (dpb, conn_string) = self.build_dpb(config);
+        let (mut dpb, conn_string) = self.build_dpb(config);
         let mut handle = 0;
+
+        if let Some(ps) = page_size {
+            dpb.extend(&[ibase::isc_dpb_page_size as u8, 4 as u8]);
+            dpb.write_u32::<LittleEndian>(ps)?;
+        }
 
         unsafe {
             if self.ibase.isc_create_database()(

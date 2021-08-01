@@ -49,6 +49,7 @@ pub trait FirebirdClientDbOps: Send {
     fn create_database(
         &mut self,
         config: &Self::AttachmentConfig,
+        page_size: Option<u32>,
     ) -> Result<Self::DbHandle, FbError>;
 }
 
