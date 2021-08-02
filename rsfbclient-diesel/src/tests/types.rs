@@ -130,6 +130,7 @@ fn types2() -> Result<(), String> {
 }
 
 #[test]
+#[allow(clippy::bool_assert_comparison)]
 fn boolean() -> Result<(), String> {
     let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;

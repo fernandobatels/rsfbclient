@@ -43,6 +43,14 @@ pub trait FirebirdClientDbOps: Send {
 
     /// Drop the database
     fn drop_database(&mut self, db_handle: &mut Self::DbHandle) -> Result<(), FbError>;
+
+    /// Create the database and attach
+    /// Returns a database handle on success
+    fn create_database(
+        &mut self,
+        config: &Self::AttachmentConfig,
+        page_size: Option<u32>,
+    ) -> Result<Self::DbHandle, FbError>;
 }
 
 ///Responsible for actual transaction and statement execution

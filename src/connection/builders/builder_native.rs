@@ -67,6 +67,7 @@ pub struct NativeConnectionBuilder<LinkageType, ConnectionType> {
 
     charset: Charset,
     lib_path: Option<String>,
+    page_size: Option<u32>,
 }
 
 impl<A, B> From<&NativeConnectionBuilder<A, B>>
@@ -140,9 +141,14 @@ where
     A: LinkageMarker,
     Self: FirebirdClientFactory<C = NativeFbClient<A>>,
 {
-    /// Create a new connection from the fully-built builder
+    /// Start a new connection from the fully-built builder
     pub fn connect(&self) -> Result<Connection<NativeFbClient<A>>, FbError> {
         Connection::open(self.new_instance()?, &self.conn_conf)
+    }
+
+    /// Create the database and start new connection from the fully-built builder
+    pub fn create_database(&self) -> Result<Connection<NativeFbClient<A>>, FbError> {
+        Connection::create_database(self.new_instance()?, &self.conn_conf, self.page_size)
     }
 }
 
@@ -180,6 +186,12 @@ where
         self.conn_conf.stmt_cache_size = stmt_cache_size;
         self
     }
+
+    /// Database page size. Used on db creation. Default: depends on firebird version
+    pub fn page_size(&mut self, size: u32) -> &mut Self {
+        self.page_size = Some(size);
+        self
+    }
 }
 
 impl<A, B> NativeConnectionBuilder<A, B> {
@@ -191,6 +203,7 @@ impl<A, B> NativeConnectionBuilder<A, B> {
             conn_conf: self.conn_conf,
             charset: self.charset,
             lib_path: self.lib_path,
+            page_size: self.page_size,
         }
     }
 }
@@ -203,6 +216,7 @@ impl Default for NativeConnectionBuilder<LinkageNotConfigured, ConnTypeNotConfig
             conn_conf: Default::default(),
             charset: charset::UTF_8,
             lib_path: None,
+            page_size: None,
         };
 
         self_result.conn_conf.dialect = Dialect::D3;

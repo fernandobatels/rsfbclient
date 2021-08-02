@@ -21,6 +21,7 @@ impl FirebirdClientFactory for PureRustConnectionBuilder {
 pub struct PureRustConnectionBuilder(
     ConnectionConfiguration<RustFbClientAttachmentConfig>,
     Charset,
+    Option<u32>,
 );
 
 impl From<&PureRustConnectionBuilder> for ConnectionConfiguration<RustFbClientAttachmentConfig> {
@@ -37,6 +38,10 @@ pub fn builder_pure_rust() -> PureRustConnectionBuilder {
 impl PureRustConnectionBuilder {
     pub fn connect(&self) -> Result<Connection<RustFbClient>, FbError> {
         Connection::open(self.new_instance()?, &self.0)
+    }
+
+    pub fn create_database(&self) -> Result<Connection<RustFbClient>, FbError> {
+        Connection::create_database(self.new_instance()?, &self.0, self.2)
     }
 
     /// Username. Default: SYSDBA
@@ -84,6 +89,12 @@ impl PureRustConnectionBuilder {
     /// Connection charset. Default: UTF-8
     pub fn charset(&mut self, charset: Charset) -> &mut Self {
         self.1 = charset;
+        self
+    }
+
+    /// Database page size. Used on db creation. Default: depends on firebird version
+    pub fn page_size(&mut self, size: u32) -> &mut Self {
+        self.2 = Some(size);
         self
     }
 
@@ -136,7 +147,8 @@ impl Default for PureRustConnectionBuilder {
     fn default() -> Self {
         let conn_conf = Default::default();
         let charset = charset::UTF_8;
-        let mut result = Self(conn_conf, charset);
+        let page_size = None;
+        let mut result = Self(conn_conf, charset, page_size);
 
         result
             .host("localhost")

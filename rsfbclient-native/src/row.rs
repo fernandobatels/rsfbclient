@@ -177,7 +177,7 @@ impl ColumnBuffer {
 
             Timestamp(ts) => SqlType::Timestamp(rsfbclient_core::date_time::decode_timestamp(**ts)),
 
-            BlobText(b) => SqlType::Text(blobtext_to_string(**b, db, tr, ibase, &charset)?),
+            BlobText(b) => SqlType::Text(blobtext_to_string(**b, db, tr, ibase, charset)?),
 
             BlobBinary(b) => SqlType::Binary(blobbinary_to_vec(**b, db, tr, ibase)?),
 

@@ -110,6 +110,7 @@ mk_tests_default! {
     }
 
     #[test]
+    #[allow(clippy::bool_assert_comparison)]
     fn boolean() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 

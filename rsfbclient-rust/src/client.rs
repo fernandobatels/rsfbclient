@@ -128,6 +128,38 @@ impl FirebirdClientDbOps for RustFbClient {
             .map(|conn| conn.drop_database(db_handle))
             .unwrap_or_else(err_client_not_connected)
     }
+
+    fn create_database(
+        &mut self,
+        config: &Self::AttachmentConfig,
+        page_size: Option<u32>,
+    ) -> Result<RustDbHandle, FbError> {
+        let host = config.host.as_str();
+        let port = config.port;
+        let db_name = config.db_name.as_str();
+        let user = config.user.as_str();
+        let pass = config.pass.as_str();
+
+        // Take the existing connection, or connects
+        let mut conn = match self.conn.take() {
+            Some(conn) => conn,
+            None => FirebirdWireConnection::connect(
+                host,
+                port,
+                db_name,
+                user,
+                pass,
+                self.charset.clone(),
+            )?,
+        };
+
+        let attach_result = conn.create_database(db_name, user, pass, page_size);
+
+        // Put the connection back
+        self.conn.replace(conn);
+
+        attach_result
+    }
 }
 
 impl FirebirdClientSqlOps for RustFbClient {
@@ -262,7 +294,7 @@ impl FirebirdWireConnection {
         // Random key for the srp
         let srp_key: [u8; 32] = rand::random();
 
-        let req = connect(db_name, false, user, &username, &hostname, &srp_key);
+        let req = connect(db_name, user, &username, &hostname, &srp_key);
         socket.write_all(&req)?;
         socket.flush()?;
 
@@ -319,7 +351,7 @@ impl FirebirdWireConnection {
                             // in the initial connection
 
                             socket.write_all(&cont_auth(
-                                &hex::encode(srp.get_a_pub()).as_bytes(),
+                                hex::encode(srp.get_a_pub()).as_bytes(),
                                 plugin,
                                 AuthPluginType::plugin_list(),
                                 &[],
@@ -343,6 +375,29 @@ impl FirebirdWireConnection {
             lazy_count: 0,
             charset,
         })
+    }
+
+    /// Create the database and attach, returning a database handle
+    pub fn create_database(
+        &mut self,
+        db_name: &str,
+        user: &str,
+        pass: &str,
+        page_size: Option<u32>,
+    ) -> Result<DbHandle, FbError> {
+        self.socket.write_all(&create(
+            db_name,
+            user,
+            pass,
+            self.version,
+            self.charset.clone(),
+            page_size,
+        ))?;
+        self.socket.flush()?;
+
+        let resp = self.read_response()?;
+
+        Ok(DbHandle(resp.handle))
     }
 
     /// Connect to a database, returning a database handle
@@ -870,7 +925,7 @@ where
 
     // Send proof data
     socket.write_all(&cont_auth(
-        &proof.as_bytes(),
+        proof.as_bytes(),
         plugin,
         AuthPluginType::plugin_list(),
         &[],
