@@ -269,7 +269,7 @@ impl NamedParams {
                 .filter_map(|p| p.map(|m| m.as_str()))
                 .filter(|p| p.starts_with(':'))
             {
-                params_names.push(param.replace(":", ""));
+                params_names.push(param.replace(':', ""));
             }
         }
 

@@ -182,8 +182,6 @@ pub fn parse_xsqlda(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<Prepa
     let stmt_type =
         StmtType::try_from(resp.get_u32_le()? as u8).map_err(|e| FbError::Other(e.to_string()))?;
 
-    let param_count;
-
     // Asserts that the next 8 bytes are the start of the parameters data
     if resp.remaining() < 8
         || resp[..2]
@@ -200,7 +198,7 @@ pub fn parse_xsqlda(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<Prepa
     // Assume 0x04 0x00
     resp.advance(2)?;
 
-    param_count = resp.get_u32_le()? as usize;
+    let param_count = resp.get_u32_le()? as usize;
 
     while resp.remaining() > 0 && resp[0] == ibase::isc_info_sql_describe_end as u8 {
         // Indicates the end of param data, skip it as it appears only once. has one for each param
