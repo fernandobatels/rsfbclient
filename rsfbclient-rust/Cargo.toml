@@ -3,7 +3,7 @@ name = "rsfbclient-rust"
 version = "0.17.0"
 description = "A pure Rust implementation of firebird client lib"
 authors = ["Luis Fernando Batels <luisfbatels@gmail.com>", "Jairo H Wiethan <jairinhowiethan@gmail.com>"]
-edition = "2018"
+edition = "2021"
 repository = "https://github.com/fernandobatels/rsfbclient"
 keywords = ["firebird", "fbclient", "database"]
 categories = ["database"]
@@ -11,7 +11,7 @@ license = "MIT"
 
 [dependencies]
 bytes = "1.0.1"
-digest = "0.9.0"
+digest = "0.10.3"
 generic-array = "0.14.4"
 hex = "0.4.3"
 lazy_static = "1.4.0"
@@ -20,8 +20,8 @@ num_enum = "0.5.1"
 pwhash = "1.0.0"
 rand = "0.8.3"
 rsfbclient-core = { version = "0.17.0", path = "../rsfbclient-core" }
-sha-1 = "0.9.4"
-sha2 = "0.9.3"
+sha-1 = "0.10.0"
+sha2 = "0.10.2"
 
 [features]
 fuzz_testing = []
