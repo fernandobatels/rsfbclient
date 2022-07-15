@@ -93,7 +93,7 @@ jobs:
           - os: "windows-latest"
             firebird: v2
           - os: "windows-latest"
-            firebird: v4
+            firebird: v3
           - os: "macos-latest"
             firebird: v2
           - os: "macos-latest"
