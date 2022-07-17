@@ -33,7 +33,7 @@ pure_rust = ["rsfbclient-rust"]
 native_client = []
 
 [workspace]
-members = ["rsfbclient-core", "rsfbclient-native", "rsfbclient-rust", "rsfbclient-derive", "rsfbclient-diesel", "r2d2_firebird"]
+members = ["rsfbclient-core", "rsfbclient-native", "rsfbclient-rust", "rsfbclient-derive", "r2d2_firebird"]
 
 [package.metadata.docs.rs]
 all-features = true
