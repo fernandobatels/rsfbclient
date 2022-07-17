@@ -11,7 +11,7 @@ license = "MIT"
 readme = "README.md"
 
 [dependencies]
-chrono = "0.4.19"
+chrono = { version = "0.4.19", features = ["clock", "std"], default-features = false }
 lru-cache = "0.1.2"
 rsfbclient-core = { version = "0.17.0", path = "rsfbclient-core" }
 rsfbclient-native = { version = "0.17.0", path = "rsfbclient-native", optional = true }
