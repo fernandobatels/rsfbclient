@@ -78,13 +78,7 @@ impl FromStr for Charset {
     type Err = FbError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s
-            .to_lowercase()
-            .trim()
-            .replace("_", "")
-            .replace("-", "")
-            .as_str()
-        {
+        match s.to_lowercase().trim().replace(['_', '-'], "").as_str() {
             "utf8" => Ok(UTF_8),
             "iso88591" => Ok(ISO_8859_1),
             "iso88592" => Ok(ISO_8859_2),

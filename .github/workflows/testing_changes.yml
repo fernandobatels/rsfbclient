@@ -93,7 +93,7 @@ jobs:
           - os: "windows-latest"
             firebird: v2
           - os: "windows-latest"
-            firebird: v4
+            firebird: v3
           - os: "macos-latest"
             firebird: v2
           - os: "macos-latest"
@@ -113,13 +113,13 @@ jobs:
             image: "4.0"
           - build: linking
             features: linking
-            features_diesel: linking
+            #features_diesel: linking
           - build: dynamic_loading
             features: dynamic_loading
-            features_diesel: dynamic_loading
+            #features_diesel: dynamic_loading
           - build: pure_rust
             features: pure_rust
-            features_diesel: pure_rust
+            #features_diesel: pure_rust
     runs-on: "${{ matrix.os }}"
     steps:
       - name: Setup FirebirdSQL ${{ matrix.firebird }} with image  ${{ matrix.image }} on docker
@@ -198,7 +198,7 @@ jobs:
       - name: Create database test.fdb in fb ${{ matrix.firebird }} on Windows
         if: matrix.plataform == 'windows'
         run: |
-          echo "CREATE DATABASE 'localhost:test.fdb';" | & "C:\Program Files\Firebird\Firebird_3_0\isql.exe" -bail -quiet -z -user SYSDBA -password masterkey
+          echo "CREATE DATABASE 'localhost:test.fdb';" | & "C:\Program Files\Firebird\Firebird_4_0\isql.exe" -bail -quiet -z -user SYSDBA -password masterkey
 
       - name: Create database test.fdb in fb ${{ matrix.firebird }} on MacOSX
         if: matrix.plataform == 'macos'
@@ -238,12 +238,12 @@ jobs:
           command: test
           args: -p rsfbclient-rust
 
-      - name: Run cargo test on rsfbclient-diesel
-        uses: actions-rs/cargo@v1
-        if: matrix.plataform != 'macos' || matrix.build != 'linking'
-        with:
-          command: test
-          args: --manifest-path rsfbclient-diesel/Cargo.toml --no-default-features --features '${{ matrix.features_diesel }}' -- --test-threads 1
+      #- name: Run cargo test on rsfbclient-diesel
+      #  uses: actions-rs/cargo@v1
+      #  if: matrix.plataform != 'macos' || matrix.build != 'linking'
+      #  with:
+      #    command: test
+      #    args: --manifest-path rsfbclient-diesel/Cargo.toml --no-default-features --features '${{ matrix.features_diesel }}' -- --test-threads 1
 
       - name: Run cargo-tarpaulin on rsfbclient
         uses: actions-rs/tarpaulin@v0.1
@@ -287,26 +287,26 @@ jobs:
           parallel: true
           # flag-name: run-${{ matrix.firebird }}-${{ matrix.build }}
 
-      - name: Run cargo-tarpaulin on rsfbclient-diesel
-        uses: actions-rs/tarpaulin@v0.1
-        if: matrix.plataform == 'linux'
-        # TODO: #[error]The process 'C:\Rust\.cargo\bin\cargo.exe' failed with exit code 101: error: no such subcommand: `tarpaulin`
-        with:
-          version: "latest"
-          run-types: "AllTargets"
-          out-type: "Lcov"
-          args: -v --line --count --branch --manifest-path rsfbclient-diesel/Cargo.toml --no-default-features --features '${{ matrix.features_diesel }}' -- --test-threads 1
+      #- name: Run cargo-tarpaulin on rsfbclient-diesel
+      #  uses: actions-rs/tarpaulin@v0.1
+      #  if: matrix.plataform == 'linux'
+      #  # TODO: #[error]The process 'C:\Rust\.cargo\bin\cargo.exe' failed with exit code 101: error: no such subcommand: `tarpaulin`
+      #  with:
+      #    version: "latest"
+      #    run-types: "AllTargets"
+      #    out-type: "Lcov"
+      #    args: -v --line --count --branch --manifest-path rsfbclient-diesel/Cargo.toml --no-default-features --features '${{ matrix.features_diesel }}' -- --test-threads 1
 
-      - name: Coveralls Parallel on rsfbclient-diesel
-        uses: coverallsapp/github-action@master
-        if: matrix.plataform == 'linux'
-        env:
-          COVERALLS_FLAG_NAME: run-${{ matrix.firebird }}-${{ matrix.build }}-rsfbclient-diesel
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: "./lcov.info"
-          parallel: true
-          # flag-name: run-${{ matrix.firebird }}-${{ matrix.build }}
+      #- name: Coveralls Parallel on rsfbclient-diesel
+      #  uses: coverallsapp/github-action@master
+      #  if: matrix.plataform == 'linux'
+      #  env:
+      #    COVERALLS_FLAG_NAME: run-${{ matrix.firebird }}-${{ matrix.build }}-rsfbclient-diesel
+      #  with:
+      #    github-token: ${{ secrets.GITHUB_TOKEN }}
+      #    path-to-lcov: "./lcov.info"
+      #    parallel: true
+      #    # flag-name: run-${{ matrix.firebird }}-${{ matrix.build }}
 
       - name: Cleanup docker and coverage
         if: matrix.plataform == 'linux'

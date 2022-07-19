@@ -86,23 +86,20 @@ impl Connection for FbConnection {
             .map(|(tp, val)| tp.into_param(val))
             .collect();
 
-        let results;
-
-        if has_cursor {
-            results = self
-                .raw
+        let results = if has_cursor {
+            self.raw
                 .borrow_mut()
-                .query::<Vec<SqlType>, Row>(&sql, params);
+                .query::<Vec<SqlType>, Row>(&sql, params)
         } else {
-            results = match self
+            match self
                 .raw
                 .borrow_mut()
                 .execute_returnable::<Vec<SqlType>, Row>(&sql, params)
             {
                 Ok(result) => Ok(vec![result]),
                 Err(e) => Err(e),
-            };
-        }
+            }
+        };
 
         results
             .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?

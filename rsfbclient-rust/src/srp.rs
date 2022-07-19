@@ -4,7 +4,7 @@
 
 use std::{error, fmt, marker::PhantomData};
 
-use digest::Digest;
+use digest::{Digest, OutputSizeUser};
 use generic_array::GenericArray;
 use lazy_static::lazy_static;
 use num_bigint::BigUint;
@@ -40,7 +40,7 @@ pub struct SrpClient<'a, D: Digest> {
 pub struct SrpClientVerifier<D: Digest> {
     proof: GenericArray<u8, D::OutputSize>,
     // Firebird hashes this with SHA1 for some reason
-    key: GenericArray<u8, <Sha1 as Digest>::OutputSize>,
+    key: GenericArray<u8, <Sha1 as OutputSizeUser>::OutputSize>,
 }
 
 /// Compute user private key as described in the RFC 5054. Consider using proper
@@ -51,12 +51,12 @@ pub fn srp_private_key<D: Digest>(
     salt: &[u8],
 ) -> GenericArray<u8, D::OutputSize> {
     let p = D::new()
-        .chain(username)
-        .chain(b":")
-        .chain(password)
+        .chain_update(username)
+        .chain_update(b":")
+        .chain_update(password)
         .finalize();
 
-    D::new().chain(salt).chain(&p).finalize()
+    D::new().chain_update(salt).chain_update(&p).finalize()
 }
 
 impl<'a, D: Digest> SrpClient<'a, D> {
@@ -79,7 +79,7 @@ impl<'a, D: Digest> SrpClient<'a, D> {
         b_pub: &BigUint,
         x: &BigUint,
         u: &BigUint,
-    ) -> GenericArray<u8, <Sha1 as Digest>::OutputSize> {
+    ) -> GenericArray<u8, <Sha1 as OutputSizeUser>::OutputSize> {
         let n = &self.params.n;
         let k = self.params.compute_k::<Sha1>();
         let interm = (k * self.params.powm(x)) % n;
@@ -106,8 +106,8 @@ impl<'a, D: Digest> SrpClient<'a, D> {
             BigUint::from_bytes_be(
                 // Firebird hashes this with SHA1 for some reason
                 &Sha1::new()
-                    .chain(&self.a_pub.to_bytes_be())
-                    .chain(b_pub)
+                    .chain_update(&self.a_pub.to_bytes_be())
+                    .chain_update(b_pub)
                     .finalize(),
             )
         };
@@ -129,24 +129,24 @@ impl<'a, D: Digest> SrpClient<'a, D> {
                 let n = &self.params.n;
 
                 // Firebird hashes this with SHA1 for some reason
-                BigUint::from_bytes_be(&Sha1::new().chain(n.to_bytes_be()).finalize())
+                BigUint::from_bytes_be(&Sha1::new().chain_update(n.to_bytes_be()).finalize())
             };
             let hg = {
                 let g = &self.params.g;
 
                 // Firebird hashes this with SHA1 for some reason
-                BigUint::from_bytes_be(&Sha1::new().chain(g.to_bytes_be()).finalize())
+                BigUint::from_bytes_be(&Sha1::new().chain_update(g.to_bytes_be()).finalize())
             };
             // Firebird hashes this with SHA1 for some reason
-            let hu = Sha1::new().chain(user).finalize();
+            let hu = Sha1::new().chain_update(user).finalize();
 
             D::new()
-                .chain((hn.modpow(&hg, &self.params.n)).to_bytes_be())
-                .chain(hu)
-                .chain(salt)
-                .chain(&self.a_pub.to_bytes_be())
-                .chain(&b_pub.to_bytes_be())
-                .chain(&key)
+                .chain_update((hn.modpow(&hg, &self.params.n)).to_bytes_be())
+                .chain_update(hu)
+                .chain_update(salt)
+                .chain_update(&self.a_pub.to_bytes_be())
+                .chain_update(&b_pub.to_bytes_be())
+                .chain_update(&key)
                 .finalize()
         };
 
@@ -163,7 +163,7 @@ impl<D: Digest> SrpClientVerifier<D> {
     /// Get shared secret key without authenticating server, e.g. for using with
     /// authenticated encryption modes. DO NOT USE this method without
     /// some kind of secure authentication
-    pub fn get_key(self) -> GenericArray<u8, <Sha1 as Digest>::OutputSize> {
+    pub fn get_key(self) -> GenericArray<u8, <Sha1 as OutputSizeUser>::OutputSize> {
         self.key
     }
 
@@ -231,7 +231,7 @@ impl SrpGroup {
         let l = n.len() - g_bytes.len();
         buf[l..].copy_from_slice(&g_bytes);
 
-        BigUint::from_bytes_be(&D::new().chain(&n).chain(&buf).finalize())
+        BigUint::from_bytes_be(&D::new().chain_update(&n).chain_update(&buf).finalize())
     }
 }
 
@@ -254,7 +254,12 @@ mod test {
             let l = n.len() - g_bytes.len();
             buf[l..].copy_from_slice(&g_bytes);
 
-            BigUint::from_bytes_be(&sha1::Sha1::new().chain(&n).chain(&buf).finalize())
+            BigUint::from_bytes_be(
+                &sha1::Sha1::new()
+                    .chain_update(&n)
+                    .chain_update(&buf)
+                    .finalize(),
+            )
         };
 
         assert_eq!(

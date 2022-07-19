@@ -30,7 +30,7 @@ impl Row {
     where
         T: FromRow,
     {
-        T::try_from(self.cols)
+        <T as FromRow>::try_from(self.cols)
     }
 }
 

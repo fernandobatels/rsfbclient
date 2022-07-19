@@ -3,14 +3,14 @@ name = "rsfbclient-core"
 version = "0.17.0"
 description = "Core of firebird client lib"
 authors = ["Luis Fernando Batels <luisfbatels@gmail.com>", "Jairo H Wiethan <jairinhowiethan@gmail.com>"]
-edition = "2018"
+edition = "2021"
 repository = "https://github.com/fernandobatels/rsfbclient"
 keywords = ["firebird", "fbclient", "database"]
 categories = ["database"]
 license = "MIT"
 
 [dependencies]
-chrono = "0.4.19"
+chrono = { version = "0.4.19", features = ["clock", "std"], default-features = false }
 num_enum = "0.5.1"
 thiserror = "1.0.24"
 encoding = "0.2.33"

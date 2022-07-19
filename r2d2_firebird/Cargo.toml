@@ -6,7 +6,7 @@ authors = [
     "silvioprog <silvioprog@gmail.com>",
     "Jairo H Wiethan <jairinhowiethan@gmail.com>",
 ]
-edition = "2018"
+edition = "2021"
 repository = "https://github.com/fernandobatels/rsfbclient"
 keywords = ["firebird", "sql", "pool", "database"]
 categories = ["database"]

@@ -52,7 +52,7 @@ pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
         db => {
             let db = percent_decode_str(db).decode_utf8()?.into_owned();
             if db.starts_with('/') && url.has_host() {
-                Some(db.replacen("/", "", 1))
+                Some(db.replacen('/', "", 1))
             } else {
                 Some(db)
             }

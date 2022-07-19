@@ -63,8 +63,8 @@ fn search_on_windows() {
     if fb3_lib_path.exists() {
         println!("cargo:rustc-link-search=C:\\Program Files\\Firebird\\Firebird_3_0\\lib");
         println!("cargo:rustc-link-lib=dylib=fbclient_ms");
-    } else if search_on_windows_for_lib("fbclient", "fbclient.lib") {
-        if search_on_windows_for_lib("fbclient_ms", "fbclient_ms.lib") {
+    } else if !search_on_windows_for_lib("fbclient", "fbclient.lib") {
+        if !search_on_windows_for_lib("fbclient_ms", "fbclient_ms.lib") {
             println!("warning:fbclient.lib not found!");
         }
     }
@@ -87,9 +87,9 @@ fn search_for_file(filename: &str) -> Option<std::path::PathBuf> {
 
     let firebird_install_dirs: [&str; 5] = [
         "C:\\Program Files\\Firebird\\Firebird_3_0\\lib",
-        "C:\\Program Files\\Firebird\\Firebird*",
-        "C:\\Firebird*",
-        "D:\\Firebird*",
+        "C:\\Program Files\\Firebird\\Firebird*\\lib",
+        "C:\\Firebird*\\lib",
+        "D:\\Firebird*\\lib",
         "C:\\Windows\\System*",
     ];
 

@@ -3,7 +3,7 @@ name = "rsfbclient"
 description = "Binds to official firebird client lib"
 version = "0.17.0"
 authors = ["Luis Fernando Batels <luisfbatels@gmail.com>", "Jairo H Wiethan <jairinhowiethan@gmail.com>"]
-edition = "2018"
+edition = "2021"
 repository = "https://github.com/fernandobatels/rsfbclient"
 keywords = ["firebird", "fbclient", "database", "ffi"]
 categories = ["database"]
@@ -11,7 +11,7 @@ license = "MIT"
 readme = "README.md"
 
 [dependencies]
-chrono = "0.4.19"
+chrono = { version = "0.4.19", features = ["clock", "std"], default-features = false }
 lru-cache = "0.1.2"
 rsfbclient-core = { version = "0.17.0", path = "rsfbclient-core" }
 rsfbclient-native = { version = "0.17.0", path = "rsfbclient-native", optional = true }
@@ -33,7 +33,7 @@ pure_rust = ["rsfbclient-rust"]
 native_client = []
 
 [workspace]
-members = ["rsfbclient-core", "rsfbclient-native", "rsfbclient-rust", "rsfbclient-derive", "rsfbclient-diesel", "r2d2_firebird"]
+members = ["rsfbclient-core", "rsfbclient-native", "rsfbclient-rust", "rsfbclient-derive", "r2d2_firebird"]
 
 [package.metadata.docs.rs]
 all-features = true
