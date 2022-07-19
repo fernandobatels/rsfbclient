@@ -14,7 +14,7 @@ license = "MIT"
 
 [dependencies]
 diesel = { version = "2.0.0", git = "https://github.com/fernandobatels/diesel", features = ["chrono"] }
-rsfbclient = { version = "0.17.0", path = "../", default-features = false }
+rsfbclient = { version = "0.18.0", path = "../", default-features = false }
 byteorder = "1.4.3"
 bytes = "1.0.1"
 chrono = { version = "0.4.19", features = ["clock", "std"], default-features = false }
