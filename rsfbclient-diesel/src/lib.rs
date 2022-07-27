@@ -1,6 +1,6 @@
 //! The Firebird Diesel
 //!
-//! This crate re-export all diesel API with the intention of simulate the others [Diesel](https://docs.diesel.rs/diesel/index.html) implementations.
+//! This crate re-export all diesel API with the intention of simulate the others [Diesel](https://docs.diesel.rs/2.0.x/diesel/index.html) implementations.
 //!
 //! ### To use, you must use this create as an alias to the official diesel crate
 //! ```rust,ignore

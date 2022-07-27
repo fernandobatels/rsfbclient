@@ -68,77 +68,78 @@ impl SupportedType {
 }
 
 impl HasSqlType<sql_types::SmallInt> for Fb {
-    fn metadata(_: &Self::MetadataLookup) -> Self::TypeMetadata {
+    fn metadata(_: &mut Self::MetadataLookup) -> Self::TypeMetadata {
         SupportedType::SmallInt
     }
 }
 
 impl HasSqlType<sql_types::Integer> for Fb {
-    fn metadata(_: &Self::MetadataLookup) -> Self::TypeMetadata {
+    fn metadata(_: &mut Self::MetadataLookup) -> Self::TypeMetadata {
         SupportedType::Int
     }
 }
 
 impl HasSqlType<sql_types::BigInt> for Fb {
-    fn metadata(_: &Self::MetadataLookup) -> Self::TypeMetadata {
+    fn metadata(_: &mut Self::MetadataLookup) -> Self::TypeMetadata {
         SupportedType::BigInt
     }
 }
 
 impl HasSqlType<sql_types::Float> for Fb {
-    fn metadata(_: &Self::MetadataLookup) -> Self::TypeMetadata {
+    fn metadata(_: &mut Self::MetadataLookup) -> Self::TypeMetadata {
         SupportedType::Float
     }
 }
 
 impl HasSqlType<sql_types::Double> for Fb {
-    fn metadata(_: &Self::MetadataLookup) -> Self::TypeMetadata {
+    fn metadata(_: &mut Self::MetadataLookup) -> Self::TypeMetadata {
         SupportedType::Double
     }
 }
 
 impl HasSqlType<sql_types::VarChar> for Fb {
-    fn metadata(_: &Self::MetadataLookup) -> Self::TypeMetadata {
+    fn metadata(_: &mut Self::MetadataLookup) -> Self::TypeMetadata {
         SupportedType::Text
     }
 }
 
 impl HasSqlType<sql_types::Binary> for Fb {
-    fn metadata(_: &Self::MetadataLookup) -> Self::TypeMetadata {
+    fn metadata(_: &mut Self::MetadataLookup) -> Self::TypeMetadata {
         SupportedType::Blob
     }
 }
 
 impl HasSqlType<sql_types::Date> for Fb {
-    fn metadata(_: &Self::MetadataLookup) -> Self::TypeMetadata {
+    fn metadata(_: &mut Self::MetadataLookup) -> Self::TypeMetadata {
         SupportedType::Date
     }
 }
 
 impl HasSqlType<sql_types::Time> for Fb {
-    fn metadata(_: &Self::MetadataLookup) -> Self::TypeMetadata {
+    fn metadata(_: &mut Self::MetadataLookup) -> Self::TypeMetadata {
         SupportedType::Time
     }
 }
 
 impl HasSqlType<sql_types::Timestamp> for Fb {
-    fn metadata(_: &Self::MetadataLookup) -> Self::TypeMetadata {
+    fn metadata(_: &mut Self::MetadataLookup) -> Self::TypeMetadata {
         SupportedType::DateTime
     }
 }
 
 impl HasSqlType<sql_types::Bool> for Fb {
-    fn metadata(_: &Self::MetadataLookup) -> Self::TypeMetadata {
+    fn metadata(_: &mut Self::MetadataLookup) -> Self::TypeMetadata {
         SupportedType::Bool
     }
 }
 
 impl FromSql<sql_types::Integer, Fb> for i32 {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs =
-            value.raw.clone().to_val().map_err(|e| {
-                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
-            })?;
+        let rs = value
+            .raw
+            .clone()
+            .to_val()
+            .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))?;
 
         Ok(rs)
     }
@@ -146,10 +147,11 @@ impl FromSql<sql_types::Integer, Fb> for i32 {
 
 impl FromSql<sql_types::VarChar, Fb> for String {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs =
-            value.raw.clone().to_val().map_err(|e| {
-                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
-            })?;
+        let rs = value
+            .raw
+            .clone()
+            .to_val()
+            .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))?;
 
         Ok(rs)
     }
@@ -157,10 +159,11 @@ impl FromSql<sql_types::VarChar, Fb> for String {
 
 impl FromSql<sql_types::Float, Fb> for f32 {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs =
-            value.raw.clone().to_val().map_err(|e| {
-                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
-            })?;
+        let rs = value
+            .raw
+            .clone()
+            .to_val()
+            .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))?;
 
         Ok(rs)
     }
@@ -168,17 +171,18 @@ impl FromSql<sql_types::Float, Fb> for f32 {
 
 impl FromSql<sql_types::Date, Fb> for NaiveDate {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs =
-            value.raw.clone().to_val().map_err(|e| {
-                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
-            })?;
+        let rs = value
+            .raw
+            .clone()
+            .to_val()
+            .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))?;
 
         Ok(rs)
     }
 }
 
 impl ToSql<sql_types::Date, Fb> for NaiveDate {
-    fn to_sql<W: Write>(&self, out: &mut serialize::Output<W, Fb>) -> serialize::Result {
+    fn to_sql<'b>(&self, out: &mut serialize::Output<'b, '_, Fb>) -> serialize::Result {
         let days = self.num_days_from_ce().to_be_bytes();
         out.write_all(&days)
             .map(|_| IsNull::No)
@@ -188,17 +192,18 @@ impl ToSql<sql_types::Date, Fb> for NaiveDate {
 
 impl FromSql<sql_types::Timestamp, Fb> for NaiveDateTime {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs =
-            value.raw.clone().to_val().map_err(|e| {
-                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
-            })?;
+        let rs = value
+            .raw
+            .clone()
+            .to_val()
+            .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))?;
 
         Ok(rs)
     }
 }
 
 impl ToSql<sql_types::Timestamp, Fb> for NaiveDateTime {
-    fn to_sql<W: Write>(&self, out: &mut serialize::Output<W, Fb>) -> serialize::Result {
+    fn to_sql<'b>(&self, out: &mut serialize::Output<'b, '_, Fb>) -> serialize::Result {
         let tms = self.timestamp().to_be_bytes();
         out.write_all(&tms)
             .map(|_| IsNull::No)
@@ -208,17 +213,18 @@ impl ToSql<sql_types::Timestamp, Fb> for NaiveDateTime {
 
 impl FromSql<sql_types::Time, Fb> for NaiveTime {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs =
-            value.raw.clone().to_val().map_err(|e| {
-                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
-            })?;
+        let rs = value
+            .raw
+            .clone()
+            .to_val()
+            .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))?;
 
         Ok(rs)
     }
 }
 
 impl ToSql<sql_types::Time, Fb> for NaiveTime {
-    fn to_sql<W: Write>(&self, out: &mut serialize::Output<W, Fb>) -> serialize::Result {
+    fn to_sql<'b>(&self, out: &mut serialize::Output<'b, '_, Fb>) -> serialize::Result {
         let secs = self.num_seconds_from_midnight().to_be_bytes();
         out.write_all(&secs)
             .map(|_| IsNull::No)
@@ -228,17 +234,18 @@ impl ToSql<sql_types::Time, Fb> for NaiveTime {
 
 impl FromSql<sql_types::Bool, Fb> for bool {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs =
-            value.raw.clone().to_val().map_err(|e| {
-                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
-            })?;
+        let rs = value
+            .raw
+            .clone()
+            .to_val()
+            .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))?;
 
         Ok(rs)
     }
 }
 
 impl ToSql<sql_types::Bool, Fb> for bool {
-    fn to_sql<W: Write>(&self, out: &mut serialize::Output<W, Fb>) -> serialize::Result {
+    fn to_sql<'b>(&self, out: &mut serialize::Output<'b, '_, Fb>) -> serialize::Result {
         let bo = (*self as i8).to_be_bytes();
         out.write_all(&bo)
             .map(|_| IsNull::No)
@@ -248,10 +255,11 @@ impl ToSql<sql_types::Bool, Fb> for bool {
 
 impl FromSql<sql_types::Binary, Fb> for Vec<u8> {
     fn from_sql(value: FbValue) -> deserialize::Result<Self> {
-        let rs =
-            value.raw.clone().to_val().map_err(|e| {
-                DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string()))
-            })?;
+        let rs = value
+            .raw
+            .clone()
+            .to_val()
+            .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))?;
 
         Ok(rs)
     }

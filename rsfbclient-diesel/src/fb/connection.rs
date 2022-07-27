@@ -5,30 +5,32 @@ use super::query_builder::FbQueryBuilder;
 use super::transaction::FbTransactionManager;
 use super::value::FbRow;
 use diesel::connection::*;
-use diesel::deserialize::*;
-use diesel::expression::QueryMetadata;
 use diesel::query_builder::bind_collector::RawBytesBindCollector;
 use diesel::query_builder::*;
 use diesel::result::Error::DatabaseError;
-use diesel::result::Error::DeserializationError;
 use diesel::result::*;
-use rsfbclient::SimpleConnection as FbRawConnection;
-use rsfbclient::{Execute, Queryable, Row, SqlType};
-use std::cell::RefCell;
+use rsfbclient::{Execute, SqlType};
+use rsfbclient::{Queryable, Row, SimpleConnection as FbRawConnection};
 
 pub struct FbConnection {
-    pub raw: RefCell<FbRawConnection>,
+    pub raw: FbRawConnection,
     tr_manager: FbTransactionManager,
 }
 
 impl SimpleConnection for FbConnection {
-    fn batch_execute(&self, query: &str) -> QueryResult<()> {
+    fn batch_execute(&mut self, query: &str) -> QueryResult<()> {
         self.raw
-            .borrow_mut()
             .execute(query, ())
-            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))
+            .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))
             .map(|_| ())
     }
+}
+
+impl<'conn, 'query> ConnectionGatWorkaround<'conn, 'query, Fb, DefaultLoadingMode>
+    for FbConnection
+{
+    type Cursor = Box<dyn Iterator<Item = QueryResult<Self::Row>>>;
+    type Row = FbRow;
 }
 
 impl Connection for FbConnection {
@@ -51,31 +53,69 @@ impl Connection for FbConnection {
             .map_err(|e| ConnectionError::BadConnection(e.to_string()))?;
 
         Ok(FbConnection {
-            raw: RefCell::new(raw.into()),
+            raw: raw.into(),
             tr_manager: FbTransactionManager::new(),
         })
     }
 
-    fn execute(&self, query: &str) -> QueryResult<usize> {
+    fn execute_returning_count<T>(&mut self, source: &T) -> QueryResult<usize>
+    where
+        T: QueryFragment<Self::Backend> + QueryId,
+    {
+        let mut bc = RawBytesBindCollector::<Fb>::new();
+        source.collect_binds(&mut bc, &mut (), &Fb)?;
+
+        let mut qb = FbQueryBuilder::new();
+        source.to_sql(&mut qb, &Fb)?;
+        let sql = qb.finish();
+
+        let params: Vec<SqlType> = bc
+            .metadata
+            .into_iter()
+            .zip(bc.binds)
+            .map(|(tp, val)| tp.into_param(val))
+            .collect();
+
         self.raw
-            .borrow_mut()
-            .execute(query, ())
-            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))
+            .execute(&sql, params)
+            .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))
     }
 
-    fn load<T, U>(&self, source: T) -> QueryResult<Vec<U>>
+    fn transaction_state(
+        &mut self,
+    ) -> &mut <Self::TransactionManager as TransactionManager<Self>>::TransactionStateData {
+        &mut self.tr_manager
+    }
+}
+
+trait Helper {
+    fn load<'conn, 'query, T>(
+        conn: &'conn mut FbConnection,
+        source: T,
+    ) -> QueryResult<Box<dyn Iterator<Item = QueryResult<FbRow>>>>
     where
-        T: AsQuery,
-        T::Query: QueryFragment<Self::Backend> + QueryId,
-        U: FromSqlRow<T::SqlType, Self::Backend>,
-        Self::Backend: QueryMetadata<T::SqlType>,
+        T: Query + QueryFragment<Fb> + QueryId + 'query,
+        Fb: diesel::expression::QueryMetadata<T::SqlType>;
+}
+
+impl Helper for ()
+where
+    for<'b> Fb: diesel::backend::HasBindCollector<'b, BindCollector = RawBytesBindCollector<Fb>>,
+{
+    fn load<'conn, 'query, T>(
+        conn: &'conn mut FbConnection,
+        source: T,
+    ) -> QueryResult<Box<dyn Iterator<Item = QueryResult<FbRow>>>>
+    where
+        T: Query + QueryFragment<Fb> + QueryId + 'query,
+        Fb: diesel::expression::QueryMetadata<T::SqlType>,
     {
         let source = &source.as_query();
         let mut bc = RawBytesBindCollector::<Fb>::new();
-        source.collect_binds(&mut bc, &())?;
+        source.collect_binds(&mut bc, &mut (), &Fb)?;
 
         let mut qb = FbQueryBuilder::new();
-        source.to_sql(&mut qb)?;
+        source.to_sql(&mut qb, &Fb)?;
         let has_cursor = qb.has_cursor;
         let sql = qb.finish();
 
@@ -87,13 +127,10 @@ impl Connection for FbConnection {
             .collect();
 
         let results = if has_cursor {
-            self.raw
-                .borrow_mut()
-                .query::<Vec<SqlType>, Row>(&sql, params)
+            conn.raw.query::<Vec<SqlType>, Row>(&sql, params)
         } else {
-            match self
+            match conn
                 .raw
-                .borrow_mut()
                 .execute_returnable::<Vec<SqlType>, Row>(&sql, params)
             {
                 Ok(result) => Ok(vec![result]),
@@ -101,39 +138,31 @@ impl Connection for FbConnection {
             }
         };
 
-        results
-            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))?
-            .iter()
-            .map(|row| U::build_from_row(&FbRow::new(row)).map_err(DeserializationError))
-            .collect()
+        Ok(Box::new(
+            results
+                .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))?
+                .into_iter()
+                .map(FbRow::new)
+                .map(Ok),
+        ))
     }
+}
 
-    fn execute_returning_count<T>(&self, source: &T) -> QueryResult<usize>
+impl LoadConnection<DefaultLoadingMode> for FbConnection
+where
+    // this additional trait is somehow required
+    // because rustc fails to understand the bound here
+    (): Helper,
+{
+    fn load<'conn, 'query, T>(
+        &'conn mut self,
+        source: T,
+    ) -> QueryResult<LoadRowIter<'conn, 'query, Self, Self::Backend, DefaultLoadingMode>>
     where
-        T: QueryFragment<Self::Backend> + QueryId,
+        T: Query + QueryFragment<Self::Backend> + QueryId + 'query,
+        Self::Backend: diesel::expression::QueryMetadata<T::SqlType>,
     {
-        let mut bc = RawBytesBindCollector::<Fb>::new();
-        source.collect_binds(&mut bc, &())?;
-
-        let mut qb = FbQueryBuilder::new();
-        source.to_sql(&mut qb)?;
-        let sql = qb.finish();
-
-        let params: Vec<SqlType> = bc
-            .metadata
-            .into_iter()
-            .zip(bc.binds)
-            .map(|(tp, val)| tp.into_param(val))
-            .collect();
-
-        self.raw
-            .borrow_mut()
-            .execute(&sql, params)
-            .map_err(|e| DatabaseError(DatabaseErrorKind::__Unknown, Box::new(e.to_string())))
-    }
-
-    fn transaction_manager(&self) -> &Self::TransactionManager {
-        &self.tr_manager
+        <() as Helper>::load(self, source)
     }
 }
 
@@ -155,14 +184,16 @@ mod tests {
 
     #[test]
     fn execute() -> Result<(), Error> {
-        let conn =
+        let mut conn =
             FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb").unwrap();
 
         conn.batch_execute("drop table conn_exec").ok();
 
         conn.batch_execute("create table conn_exec(id int, name varchar(50))")?;
 
-        let affected_rows = conn.execute("insert into conn_exec(id, name) values (10, 'café')")?;
+        let affected_rows =
+            diesel::sql_query("insert into conn_exec(id, name) values (10, 'café')")
+                .execute(&mut conn)?;
         assert_eq!(1, affected_rows);
 
         Ok(())

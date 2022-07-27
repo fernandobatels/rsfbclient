@@ -2,7 +2,7 @@
 
 use super::backend::Fb;
 use diesel::backend::RawValue;
-use diesel::row::{Field, PartialRow, Row as DsRow, RowIndex};
+use diesel::row::{Field, FieldRet, PartialRow, Row as DsRow, RowGatWorkaround, RowIndex};
 use rsfbclient::Column;
 use rsfbclient::Row as RsRow;
 use std::ops::Range;
@@ -29,22 +29,26 @@ impl<'a> Field<'a, Fb> for FbField<'a> {
     }
 }
 
-pub struct FbRow<'a> {
-    raw: &'a RsRow,
+pub struct FbRow {
+    raw: RsRow,
 }
 
-impl<'a> FbRow<'a> {
-    pub fn new(row: &'a RsRow) -> Self {
+impl FbRow {
+    pub fn new(row: RsRow) -> Self {
         Self { raw: row }
     }
 }
 
-impl<'a> DsRow<'a, Fb> for FbRow<'a> {
-    type Field = FbField<'a>;
+impl<'b> RowGatWorkaround<'b, Fb> for FbRow {
+    type Field = FbField<'b>;
+}
+
+impl<'a> DsRow<'a, Fb> for FbRow {
     type InnerPartialRow = Self;
 
-    fn get<I>(&self, idx: I) -> Option<Self::Field>
+    fn get<'b, I>(&'b self, idx: I) -> Option<FieldRet<'b, Self, Fb>>
     where
+        'a: 'b,
         Self: RowIndex<I>,
     {
         let idx = self.idx(idx)?;
@@ -64,7 +68,7 @@ impl<'a> DsRow<'a, Fb> for FbRow<'a> {
     }
 }
 
-impl<'a> RowIndex<usize> for FbRow<'a> {
+impl RowIndex<usize> for FbRow {
     fn idx(&self, idx: usize) -> Option<usize> {
         if idx < self.raw.cols.len() {
             Some(idx)
@@ -74,13 +78,11 @@ impl<'a> RowIndex<usize> for FbRow<'a> {
     }
 }
 
-impl<'a, 'b> RowIndex<&'a str> for FbRow<'b> {
+impl<'a> RowIndex<&'a str> for FbRow {
     fn idx(&self, field_name: &'a str) -> Option<usize> {
         self.raw
             .cols
             .iter()
-            .enumerate()
-            .find(|(_idx, col)| col.name.to_lowercase() == field_name.to_lowercase())
-            .map(|(idx, _col)| idx)
+            .position(|col| col.name.to_lowercase() == field_name.to_lowercase())
     }
 }
