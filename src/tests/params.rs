@@ -149,6 +149,43 @@ mk_tests_default! {
     }
 
     #[test]
+    fn multi_struct_namedparams() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        #[derive(Clone, IntoParams)]
+        struct ParamTest1 {
+            pub num: i32,
+        }
+
+        let ptest1 = ParamTest1 {
+            num: 10,
+        };
+
+        let res1: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where 10 = :num ",
+            ptest1.clone(),
+        )?;
+        assert!(res1.is_some());
+
+        #[derive(Clone, IntoParams)]
+        struct ParamTest2 {
+            pub num: i32,
+        }
+
+        let ptest2 = ParamTest2 {
+            num: 10,
+        };
+
+        let res2: Option<(i32,)> = conn.query_first(
+            "select 1 from rdb$database where 10 = :num ",
+            ptest2.clone(),
+        )?;
+        assert!(res2.is_some());
+
+        Ok(())
+    }
+
+    #[test]
     fn boolean() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
