@@ -38,11 +38,11 @@ pub fn into_params_derive(input: TokenStream) -> TokenStream {
         });
 
     let st_impl = quote! {
-        use rsfbclient::{IntoParams, IntoParam, ParamsType};
-        use std::collections::HashMap;
+        impl rsfbclient::IntoParams for #st_name {
+            fn to_params(self) -> rsfbclient::ParamsType {
+                use std::collections::HashMap;
+                use rsfbclient::{IntoParams, IntoParam, ParamsType};
 
-        impl IntoParams for #st_name {
-            fn to_params(self) -> ParamsType {
                 let mut params = HashMap::new();
 
                 #(params.insert(#st_fields_params));*;

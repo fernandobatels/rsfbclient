@@ -21,6 +21,12 @@ struct ParamTest {
     colc: String,
 }
 
+#[derive(Clone, IntoParams)]
+struct ParamTest2 {
+    colb: f32,
+    colc: String,
+}
+
 fn main() -> Result<(), FbError> {
     #[cfg(feature = "linking")]
     let mut conn = rsfbclient::builder_native()
@@ -58,11 +64,16 @@ fn main() -> Result<(), FbError> {
         colb: 132.0,
         colc: "Arroz".to_string(),
     };
+    let p3 = ParamTest2 {
+        colb: 150.0,
+        colc: "Feijão".to_string(),
+    };
 
     conn.with_transaction(|tr| {
         // First alternative (Recommended) (Prepares if needed and executes automatically)
         tr.execute(SQL_INSERT, (94, "Banana"))?; // with position params
         tr.execute(SQL_INSERT_NAMED, p1.clone())?; // with named params
+        tr.execute(SQL_INSERT_NAMED, p3.clone())?; // with named params, again
 
         // Second alternative
         tr.execute_immediate(SQL_INSERT_PURE)?;
@@ -76,10 +87,11 @@ fn main() -> Result<(), FbError> {
         }
         // Fourth alternative, with named params
         {
-            let mut stmt = tr.prepare(SQL_INSERT_NAMED, false)?;
+            let mut stmt = tr.prepare(SQL_INSERT_NAMED, true)?;
 
             stmt.execute(p1.clone())?;
             stmt.execute(p2.clone())?;
+            stmt.execute(p3.clone())?;
         }
 
         Ok(())
