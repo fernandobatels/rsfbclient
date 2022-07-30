@@ -98,7 +98,6 @@ where
         self.limit_offset.walk_ast(out.reborrow())?;
         self.distinct.walk_ast(out.reborrow())?;
         self.select.walk_ast(out.reborrow())?;
-        out.push_sql(" FROM ");
         self.from.walk_ast(out.reborrow())?;
         self.where_clause.walk_ast(out.reborrow())?;
         self.group_by.walk_ast(out.reborrow())?;
@@ -120,7 +119,6 @@ where
         self.limit_offset.walk_ast(out.reborrow())?;
         self.distinct.walk_ast(out.reborrow())?;
         self.select.walk_ast(out.reborrow())?;
-        out.push_sql(" FROM ");
         self.from.walk_ast(out.reborrow())?;
         self.where_clause.walk_ast(out.reborrow())?;
         self.group_by.walk_ast(out.reborrow())?;
