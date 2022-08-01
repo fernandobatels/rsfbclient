@@ -1,6 +1,12 @@
 //! The Firebird query builder
 
 use super::backend::Fb;
+use diesel::AppearsOnTable;
+use diesel::Column;
+use diesel::Expression;
+use diesel::insertable::ColumnInsertValue;
+use diesel::insertable::DefaultableColumnInsertValue;
+use diesel::insertable::InsertValues;
 use diesel::query_builder::*;
 use diesel::QueryResult;
 
@@ -124,6 +130,37 @@ where
         self.group_by.walk_ast(out.reborrow())?;
         self.having.walk_ast(out.reborrow())?;
         self.order.walk_ast(out.reborrow())?;
+        Ok(())
+    }
+}
+
+impl<Col, Expr> InsertValues<Col::Table, Fb>
+    for DefaultableColumnInsertValue<ColumnInsertValue<Col, Expr>>
+where
+    Col: Column,
+    Expr: Expression<SqlType = Col::SqlType> + AppearsOnTable<NoFromClause>,
+    Self: QueryFragment<Fb>,
+{
+    fn column_names(&self, mut out: AstPass<'_, '_, Fb>) -> QueryResult<()> {
+        if let Self::Expression(..) = *self {
+            out.push_identifier(Col::NAME)?;
+        }
+        Ok(())
+    }
+}
+
+impl<Col, Expr>
+    QueryFragment<
+        Fb,
+        crate::backend::sql_dialect::default_keyword_for_insert::DoesNotSupportDefaultKeyword,
+    > for DefaultableColumnInsertValue<ColumnInsertValue<Col, Expr>>
+where
+    Expr: QueryFragment<Fb>,
+{
+    fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, Fb>) -> QueryResult<()> {
+        if let Self::Expression(ref inner) = *self {
+            inner.walk_ast(out.reborrow())?;
+        }
         Ok(())
     }
 }
