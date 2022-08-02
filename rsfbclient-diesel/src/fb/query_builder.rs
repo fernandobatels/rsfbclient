@@ -1,6 +1,6 @@
 //! The Firebird query builder
 
-use super::backend::Fb;
+use super::backend::{Fb,FbReturningClause};
 use diesel::AppearsOnTable;
 use diesel::Column;
 use diesel::Expression;
@@ -161,6 +161,17 @@ where
         if let Self::Expression(ref inner) = *self {
             inner.walk_ast(out.reborrow())?;
         }
+        Ok(())
+    }
+}
+
+impl<Expr> QueryFragment<Fb, FbReturningClause> for ReturningClause<Expr>
+where
+    Expr: QueryFragment<Fb>,
+{
+    fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, Fb>) -> QueryResult<()> {
+        out.push_sql(" RETURNING ");
+        self.0.walk_ast(out.reborrow())?;
         Ok(())
     }
 }

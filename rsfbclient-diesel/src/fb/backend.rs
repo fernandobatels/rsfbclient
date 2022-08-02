@@ -33,8 +33,11 @@ impl TypeMetadata for Fb {
 
 pub struct FbSelectStatementSyntax;
 
+#[derive(Debug, Copy, Clone)]
+pub struct FbReturningClause;
+
 impl SqlDialect for Fb {
-    type ReturningClause = sql_dialect::returning_clause::DoesNotSupportReturningClause;
+    type ReturningClause = FbReturningClause;
 
     type OnConflictClause = sql_dialect::on_conflict_clause::DoesNotSupportOnConflictClause;
 

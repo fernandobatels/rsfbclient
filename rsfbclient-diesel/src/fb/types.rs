@@ -264,3 +264,25 @@ impl FromSql<sql_types::Binary, Fb> for Vec<u8> {
         Ok(rs)
     }
 }
+
+impl ToSql<sql_types::Integer, Fb> for i32 {
+    fn to_sql<'b>(&'b self, out: &mut serialize::Output<'b, '_, Fb>) -> serialize::Result {
+        let i = self.to_be_bytes();
+
+        out.write_all(&i)
+            .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))?;
+
+        Ok(IsNull::No)
+    }
+}
+
+impl ToSql<sql_types::BigInt, Fb> for i64 {
+    fn to_sql<'b>(&'b self, out: &mut serialize::Output<'b, '_, Fb>) -> serialize::Result {
+        let i = self.to_be_bytes();
+
+        out.write_all(&i)
+            .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))?;
+
+        Ok(IsNull::No)
+    }
+}
