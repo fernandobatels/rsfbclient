@@ -286,3 +286,14 @@ impl ToSql<sql_types::BigInt, Fb> for i64 {
         Ok(IsNull::No)
     }
 }
+
+impl ToSql<sql_types::Float, Fb> for f32 {
+    fn to_sql<'b>(&'b self, out: &mut serialize::Output<'b, '_, Fb>) -> serialize::Result {
+        let i = self.to_be_bytes();
+
+        out.write_all(&i)
+            .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))?;
+
+        Ok(IsNull::No)
+    }
+}
