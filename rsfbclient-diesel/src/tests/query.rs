@@ -2,26 +2,27 @@
 
 use super::schema;
 use crate::fb::FbConnection;
+use crate::connection::SimpleConnection;
 use crate::prelude::*;
 
 #[test]
 fn filter() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
 
-    schema::setup(&conn)?;
+    schema::setup(&mut conn)?;
 
-    conn.execute("insert into users (id, name) values (1, 'Luis A')")
+    conn.batch_execute("insert into users (id, name) values (1, 'Luis A')")
         .ok();
-    conn.execute("insert into users (id, name) values (2, 'Luis B')")
+    conn.batch_execute("insert into users (id, name) values (2, 'Luis B')")
         .ok();
-    conn.execute("insert into users (id, name) values (3, 'Luis C')")
+    conn.batch_execute("insert into users (id, name) values (3, 'Luis C')")
         .ok();
 
     let users = schema::users::table
         .filter(schema::users::columns::id.eq(1))
         .or_filter(schema::users::columns::id.eq(3))
-        .load::<schema::User>(&conn)
+        .load::<schema::User>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     assert_eq!(2, users.len());
@@ -40,22 +41,22 @@ fn filter() -> Result<(), String> {
 
 #[test]
 fn order() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
 
-    schema::setup(&conn)?;
+    schema::setup(&mut conn)?;
 
-    conn.execute("insert into users (id, name) values (1, 'aa')")
+    conn.batch_execute("insert into users (id, name) values (1, 'aa')")
         .ok();
-    conn.execute("insert into users (id, name) values (2, 'bb')")
+    conn.batch_execute("insert into users (id, name) values (2, 'bb')")
         .ok();
-    conn.execute("insert into users (id, name) values (3, 'cc')")
+    conn.batch_execute("insert into users (id, name) values (3, 'cc')")
         .ok();
 
     let users = schema::users::table
         .filter(schema::users::columns::id.ge(2))
         .order(schema::users::columns::name.desc())
-        .load::<schema::User>(&conn)
+        .load::<schema::User>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     assert_eq!(2, users.len());
@@ -74,21 +75,21 @@ fn order() -> Result<(), String> {
 
 #[test]
 fn limit_offset() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
 
-    schema::setup(&conn)?;
+    schema::setup(&mut conn)?;
 
-    conn.execute("insert into users (id, name) values (1, 'aa')")
+    conn.batch_execute("insert into users (id, name) values (1, 'aa')")
         .ok();
-    conn.execute("insert into users (id, name) values (2, 'bb')")
+    conn.batch_execute("insert into users (id, name) values (2, 'bb')")
         .ok();
-    conn.execute("insert into users (id, name) values (3, 'cc')")
+    conn.batch_execute("insert into users (id, name) values (3, 'cc')")
         .ok();
 
     let users = schema::users::table
         .limit(2)
-        .load::<schema::User>(&conn)
+        .load::<schema::User>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     assert_eq!(2, users.len());
@@ -105,7 +106,7 @@ fn limit_offset() -> Result<(), String> {
     let users = schema::users::table
         .limit(2)
         .offset(1)
-        .load::<schema::User>(&conn)
+        .load::<schema::User>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     assert_eq!(2, users.len());
@@ -124,21 +125,21 @@ fn limit_offset() -> Result<(), String> {
 
 #[test]
 fn find() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
 
-    schema::setup(&conn)?;
+    schema::setup(&mut conn)?;
 
-    conn.execute("insert into users (id, name) values (1, 'aa')")
+    conn.batch_execute("insert into users (id, name) values (1, 'aa')")
         .ok();
-    conn.execute("insert into users (id, name) values (2, 'bb')")
+    conn.batch_execute("insert into users (id, name) values (2, 'bb')")
         .ok();
-    conn.execute("insert into users (id, name) values (3, 'cc')")
+    conn.batch_execute("insert into users (id, name) values (3, 'cc')")
         .ok();
 
     let user = schema::users::table
         .find(3)
-        .get_result::<schema::User>(&conn)
+        .get_result::<schema::User>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     assert_eq!(user.id, 3);
@@ -146,7 +147,7 @@ fn find() -> Result<(), String> {
 
     let user = schema::users::table
         .find(4)
-        .get_result::<schema::User>(&conn)
+        .get_result::<schema::User>(&mut conn)
         .optional()
         .map_err(|e| e.to_string())?;
 
@@ -157,22 +158,22 @@ fn find() -> Result<(), String> {
 
 #[test]
 fn distinct() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
 
-    schema::setup(&conn)?;
+    schema::setup(&mut conn)?;
 
-    conn.execute("insert into users (id, name) values (1, 'cc')")
+    conn.batch_execute("insert into users (id, name) values (1, 'cc')")
         .ok();
-    conn.execute("insert into users (id, name) values (2, 'bb')")
+    conn.batch_execute("insert into users (id, name) values (2, 'bb')")
         .ok();
-    conn.execute("insert into users (id, name) values (3, 'cc')")
+    conn.batch_execute("insert into users (id, name) values (3, 'cc')")
         .ok();
 
     let names = schema::users::table
         .select(schema::users::columns::name)
         .distinct()
-        .load::<String>(&conn)
+        .load::<String>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     assert_eq!(2, names.len());
