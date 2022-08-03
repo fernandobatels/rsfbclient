@@ -1,13 +1,13 @@
 //! The Firebird query builder
 
-use super::backend::{Fb,FbReturningClause};
-use diesel::AppearsOnTable;
-use diesel::Column;
-use diesel::Expression;
+use super::backend::{Fb, FbReturningClause};
 use diesel::insertable::ColumnInsertValue;
 use diesel::insertable::DefaultableColumnInsertValue;
 use diesel::insertable::InsertValues;
 use diesel::query_builder::*;
+use diesel::AppearsOnTable;
+use diesel::Column;
+use diesel::Expression;
 use diesel::QueryResult;
 
 pub struct FbQueryBuilder {

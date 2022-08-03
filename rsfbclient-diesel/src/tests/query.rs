@@ -1,8 +1,8 @@
 //! Query tests
 
 use super::schema;
-use crate::fb::FbConnection;
 use crate::connection::SimpleConnection;
+use crate::fb::FbConnection;
 use crate::prelude::*;
 
 #[test]

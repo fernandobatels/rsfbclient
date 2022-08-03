@@ -1,6 +1,6 @@
+use crate::connection::SimpleConnection;
 use crate::fb::FbConnection;
 use crate::prelude::*;
-use crate::connection::SimpleConnection;
 use chrono::*;
 use rsfbclient::{EngineVersion, SystemInfos};
 
@@ -147,13 +147,12 @@ pub fn setup(conn: &mut FbConnection) -> Result<(), String> {
         .ok();
 
     conn.batch_execute("drop table types3").ok();
-    conn.batch_execute("create table types3(id int, a smallint, b bigint, c float, d double precision)")
-        .ok();
+    conn.batch_execute(
+        "create table types3(id int, a smallint, b bigint, c float, d double precision)",
+    )
+    .ok();
 
-    let se = conn
-        .raw
-        .server_engine()
-        .map_err(|e| e.to_string())?;
+    let se = conn.raw.server_engine().map_err(|e| e.to_string())?;
     if se >= EngineVersion::V3 {
         conn.batch_execute("drop table bool_type").ok();
         conn.batch_execute("create table bool_type(id int, a boolean, b boolean, c boolean)")

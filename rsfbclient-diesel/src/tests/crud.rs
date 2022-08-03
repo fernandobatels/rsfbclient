@@ -33,7 +33,10 @@ fn insert_alt() -> Result<(), String> {
     schema::setup(&mut conn)?;
 
     diesel::insert_into(schema::users::table)
-        .values((schema::users::columns::id.eq(10), schema::users::columns::name.eq("Pedro alt")))
+        .values((
+            schema::users::columns::id.eq(10),
+            schema::users::columns::name.eq("Pedro alt"),
+        ))
         .execute(&mut conn)
         .map_err(|e| e.to_string())?;
 

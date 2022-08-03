@@ -135,9 +135,7 @@ fn boolean() -> Result<(), String> {
     let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
 
-    let se = conn.raw
-        .server_engine()
-        .map_err(|e| e.to_string())?;
+    let se = conn.raw.server_engine().map_err(|e| e.to_string())?;
     if se <= EngineVersion::V2 {
         return Ok(());
     }

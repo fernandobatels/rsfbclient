@@ -41,7 +41,8 @@ impl SqlDialect for Fb {
 
     type OnConflictClause = sql_dialect::on_conflict_clause::DoesNotSupportOnConflictClause;
 
-    type InsertWithDefaultKeyword = sql_dialect::default_keyword_for_insert::DoesNotSupportDefaultKeyword;
+    type InsertWithDefaultKeyword =
+        sql_dialect::default_keyword_for_insert::DoesNotSupportDefaultKeyword;
 
     type BatchInsertSupport = sql_dialect::batch_insert_support::DoesNotSupportBatchInsert;
 

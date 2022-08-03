@@ -2,10 +2,10 @@
 
 use super::connection::FbConnection;
 use diesel::connection::TransactionManagerStatus;
-use diesel::{connection::*, RunQueryDsl};
 use diesel::result::DatabaseErrorKind;
 use diesel::result::Error::DatabaseError;
 use diesel::QueryResult;
+use diesel::{connection::*, RunQueryDsl};
 
 /// Firebird transaction manager
 pub struct FbTransactionManager {
@@ -24,7 +24,9 @@ impl FbTransactionManager {
     ) -> QueryResult<&mut ValidTransactionManagerStatus> {
         match FbTransactionManager::transaction_manager_status_mut(conn) {
             TransactionManagerStatus::Valid(v) => Ok(v),
-            TransactionManagerStatus::InError => Err(diesel::result::Error::BrokenTransactionManager),
+            TransactionManagerStatus::InError => {
+                Err(diesel::result::Error::BrokenTransactionManager)
+            }
         }
     }
 }
@@ -105,7 +107,8 @@ impl TransactionManager<FbConnection> for FbTransactionManager {
                 Ok(())
             }
             Err(commit_error) => {
-                if let TransactionManagerStatus::Valid(ref mut s) = conn.transaction_state().status {
+                if let TransactionManagerStatus::Valid(ref mut s) = conn.transaction_state().status
+                {
                     match s.transaction_depth().map(|p| p.get()) {
                         Some(1) => match Self::rollback_transaction(conn) {
                             Ok(()) => {}
