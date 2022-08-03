@@ -109,6 +109,26 @@ table! {
     }
 }
 
+#[derive(Insertable, Queryable)]
+#[diesel(table_name = types3)]
+pub struct Types3 {
+    pub id: i32,
+    pub a: i16,
+    pub b: i64,
+    pub c: f32,
+    pub d: f64,
+}
+
+table! {
+    types3(id) {
+        id -> Int4,
+        a -> SmallInt,
+        b -> BigInt,
+        c -> Float,
+        d -> Double,
+    }
+}
+
 pub fn setup(conn: &mut FbConnection) -> Result<(), String> {
     conn.batch_execute("drop table users").ok();
     conn.batch_execute("create table users(id int, name varchar(50))")
@@ -124,6 +144,10 @@ pub fn setup(conn: &mut FbConnection) -> Result<(), String> {
 
     conn.batch_execute("drop table types2").ok();
     conn.batch_execute("create table types2(id int, a date, b time, c timestamp)")
+        .ok();
+
+    conn.batch_execute("drop table types3").ok();
+    conn.batch_execute("create table types3(id int, a smallint, b bigint, c float, d double precision)")
         .ok();
 
     let se = conn

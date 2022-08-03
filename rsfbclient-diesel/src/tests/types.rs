@@ -201,3 +201,36 @@ fn blob() -> Result<(), String> {
 
     Ok(())
 }
+
+#[test]
+#[allow(clippy::float_cmp)]
+fn types3() -> Result<(), String> {
+    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+        .map_err(|e| e.to_string())?;
+
+    schema::setup(&mut conn)?;
+
+    let types3 = schema::Types3 {
+        id: 1,
+        a: i16::MAX,
+        b: i64::MAX,
+        c: 3.402E38,
+        d: f64::MAX,
+    };
+
+    diesel::insert_into(schema::types3::table)
+        .values(&types3)
+        .execute(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    let types3 = schema::types3::table
+        .first::<schema::Types3>(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    assert_eq!(types3.a, i16::MAX);
+    assert_eq!(types3.b, i64::MAX);
+    assert_eq!(types3.c, 3.402E38);
+    assert_eq!(types3.d, f64::MAX);
+
+    Ok(())
+}
