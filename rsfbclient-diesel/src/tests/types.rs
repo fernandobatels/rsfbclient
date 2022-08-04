@@ -1,8 +1,8 @@
 //! Params tests
 
 use super::schema;
-use crate::fb::FbConnection;
-use crate::prelude::*;
+use crate::FbConnection;
+use diesel::*;
 use rsfbclient::{EngineVersion, SystemInfos};
 use std::str;
 

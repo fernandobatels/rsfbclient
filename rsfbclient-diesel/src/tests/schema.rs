@@ -1,7 +1,7 @@
-use crate::connection::SimpleConnection;
-use crate::fb::FbConnection;
-use crate::prelude::*;
+use crate::FbConnection;
 use chrono::*;
+use diesel::connection::SimpleConnection;
+use diesel::*;
 use rsfbclient::{EngineVersion, SystemInfos};
 
 #[derive(Insertable, Queryable, QueryableByName)]

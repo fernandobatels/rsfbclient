@@ -1,10 +1,10 @@
 //! Connection and transaction tests
 
 use super::schema;
-use crate::connection::SimpleConnection;
-use crate::fb::FbConnection;
-use crate::prelude::*;
-use crate::result::Error;
+use crate::FbConnection;
+use diesel::connection::SimpleConnection;
+use diesel::result::Error;
+use diesel::*;
 
 #[test]
 fn transaction() -> Result<(), String> {

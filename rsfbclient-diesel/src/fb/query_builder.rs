@@ -1,6 +1,7 @@
 //! The Firebird query builder
 
 use super::backend::{Fb, FbReturningClause};
+use diesel::backend::sql_dialect::default_keyword_for_insert::DoesNotSupportDefaultKeyword;
 use diesel::insertable::ColumnInsertValue;
 use diesel::insertable::DefaultableColumnInsertValue;
 use diesel::insertable::InsertValues;
@@ -149,11 +150,8 @@ where
     }
 }
 
-impl<Col, Expr>
-    QueryFragment<
-        Fb,
-        crate::backend::sql_dialect::default_keyword_for_insert::DoesNotSupportDefaultKeyword,
-    > for DefaultableColumnInsertValue<ColumnInsertValue<Col, Expr>>
+impl<Col, Expr> QueryFragment<Fb, DoesNotSupportDefaultKeyword>
+    for DefaultableColumnInsertValue<ColumnInsertValue<Col, Expr>>
 where
     Expr: QueryFragment<Fb>,
 {

@@ -1,9 +1,9 @@
 //! Basic crud tests
 
 use super::schema;
-use crate::connection::SimpleConnection;
-use crate::fb::FbConnection;
-use crate::prelude::*;
+use crate::FbConnection;
+use diesel::connection::SimpleConnection;
+use diesel::*;
 
 #[test]
 fn insert() -> Result<(), String> {

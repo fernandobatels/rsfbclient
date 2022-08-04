@@ -170,10 +170,10 @@ where
 #[cfg(test)]
 mod tests {
 
-    use crate::connection::SimpleConnection;
-    use crate::fb::FbConnection;
-    use crate::prelude::*;
-    use crate::result::Error;
+    use crate::FbConnection;
+    use diesel::connection::SimpleConnection;
+    use diesel::prelude::*;
+    use diesel::result::Error;
 
     #[test]
     fn establish() -> Result<(), ConnectionError> {
