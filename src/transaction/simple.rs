@@ -14,6 +14,12 @@ use rsfbclient_native::NativeFbClient;
 #[cfg(feature = "pure_rust")]
 use rsfbclient_rust::RustFbClient;
 use std::convert::{From, TryFrom};
+#[cfg(all(
+    not(feature = "pure_rust"),
+    not(feature = "linking"),
+    not(feature = "dynamic_loading")
+))]
+use std::marker::PhantomData;
 
 /// A transaction API without client types
 pub struct SimpleTransaction<'c> {
@@ -27,6 +33,12 @@ enum TypeTransactionContainer<'c> {
     NativeDynLoad(Transaction<'c, NativeFbClient<DynLoad>>),
     #[cfg(feature = "pure_rust")]
     PureRust(Transaction<'c, RustFbClient>),
+    #[cfg(all(
+        not(feature = "pure_rust"),
+        not(feature = "linking"),
+        not(feature = "dynamic_loading")
+    ))]
+    Phantom(PhantomData<&'c i32>),
 }
 
 #[cfg(feature = "linking")]
@@ -105,6 +117,12 @@ impl<'c> SimpleTransaction<'c> {
             TypeConnectionContainer::NativeDynLoad(tr) => Ok(Transaction::new(tr)?.into()),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(tr) => Ok(Transaction::new(tr)?.into()),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeConnectionContainer::Phantom => panic!("Choose a connection type feature"),
         }
     }
 
@@ -117,6 +135,12 @@ impl<'c> SimpleTransaction<'c> {
             TypeTransactionContainer::NativeDynLoad(tr) => tr.commit(),
             #[cfg(feature = "pure_rust")]
             TypeTransactionContainer::PureRust(tr) => tr.commit(),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeTransactionContainer::Phantom(_) => panic!("Choose a connection type feature"),
         }
     }
 
@@ -129,6 +153,12 @@ impl<'c> SimpleTransaction<'c> {
             TypeTransactionContainer::NativeDynLoad(tr) => tr.commit_retaining(),
             #[cfg(feature = "pure_rust")]
             TypeTransactionContainer::PureRust(tr) => tr.commit_retaining(),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeTransactionContainer::Phantom(_) => panic!("Choose a connection type feature"),
         }
     }
 
@@ -141,6 +171,12 @@ impl<'c> SimpleTransaction<'c> {
             TypeTransactionContainer::NativeDynLoad(tr) => tr.rollback_retaining(),
             #[cfg(feature = "pure_rust")]
             TypeTransactionContainer::PureRust(tr) => tr.rollback_retaining(),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeTransactionContainer::Phantom(_) => panic!("Choose a connection type feature"),
         }
     }
 
@@ -153,6 +189,12 @@ impl<'c> SimpleTransaction<'c> {
             TypeTransactionContainer::NativeDynLoad(tr) => tr.rollback(),
             #[cfg(feature = "pure_rust")]
             TypeTransactionContainer::PureRust(tr) => tr.rollback(),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeTransactionContainer::Phantom(_) => panic!("Choose a connection type feature"),
         }
     }
 
@@ -165,6 +207,12 @@ impl<'c> SimpleTransaction<'c> {
             TypeTransactionContainer::NativeDynLoad(tr) => tr.execute_immediate(sql),
             #[cfg(feature = "pure_rust")]
             TypeTransactionContainer::PureRust(tr) => tr.execute_immediate(sql),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeTransactionContainer::Phantom(_) => panic!("Choose a connection type feature"),
         }
     }
 
@@ -183,6 +231,12 @@ impl<'c> Execute for SimpleTransaction<'c> {
             TypeTransactionContainer::NativeDynLoad(tr) => tr.execute(sql, params),
             #[cfg(feature = "pure_rust")]
             TypeTransactionContainer::PureRust(tr) => tr.execute(sql, params),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeTransactionContainer::Phantom(_) => panic!("Choose a connection type feature"),
         }
     }
 
@@ -198,6 +252,12 @@ impl<'c> Execute for SimpleTransaction<'c> {
             TypeTransactionContainer::NativeDynLoad(tr) => tr.execute_returnable(sql, params),
             #[cfg(feature = "pure_rust")]
             TypeTransactionContainer::PureRust(tr) => tr.execute_returnable(sql, params),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeTransactionContainer::Phantom(_) => panic!("Choose a connection type feature"),
         }
     }
 }
@@ -219,6 +279,12 @@ impl<'c> Queryable for SimpleTransaction<'c> {
             TypeTransactionContainer::NativeDynLoad(tr) => tr.query_iter(sql, params),
             #[cfg(feature = "pure_rust")]
             TypeTransactionContainer::PureRust(tr) => tr.query_iter(sql, params),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeTransactionContainer::Phantom(_) => panic!("Choose a connection type feature"),
         }
     }
 }

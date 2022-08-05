@@ -27,6 +27,12 @@ pub(crate) enum TypeConnectionContainer {
     NativeDynLoad(Connection<NativeFbClient<DynLoad>>),
     #[cfg(feature = "pure_rust")]
     PureRust(Connection<RustFbClient>),
+    #[cfg(all(
+        not(feature = "pure_rust"),
+        not(feature = "linking"),
+        not(feature = "dynamic_loading")
+    ))]
+    Phantom,
 }
 
 #[cfg(feature = "linking")]
@@ -105,6 +111,12 @@ impl SimpleConnection {
             TypeConnectionContainer::NativeDynLoad(c) => c.drop_database(),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.drop_database(),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeConnectionContainer::Phantom => panic!("Choose a connection type feature"),
         }
     }
 
@@ -117,6 +129,12 @@ impl SimpleConnection {
             TypeConnectionContainer::NativeDynLoad(c) => c.close(),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.close(),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeConnectionContainer::Phantom => panic!("Choose a connection type feature"),
         }
     }
 
@@ -150,6 +168,12 @@ impl SimpleConnection {
             TypeConnectionContainer::NativeDynLoad(c) => c.begin_transaction(),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.begin_transaction(),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeConnectionContainer::Phantom => panic!("Choose a connection type feature"),
         }
     }
 
@@ -162,6 +186,12 @@ impl SimpleConnection {
             TypeConnectionContainer::NativeDynLoad(c) => c.commit(),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.commit(),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeConnectionContainer::Phantom => panic!("Choose a connection type feature"),
         }
     }
 
@@ -174,6 +204,12 @@ impl SimpleConnection {
             TypeConnectionContainer::NativeDynLoad(c) => c.rollback(),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.rollback(),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeConnectionContainer::Phantom => panic!("Choose a connection type feature"),
         }
     }
 }
@@ -190,6 +226,12 @@ impl Execute for SimpleConnection {
             TypeConnectionContainer::NativeDynLoad(c) => c.execute(sql, params),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.execute(sql, params),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeConnectionContainer::Phantom => panic!("Choose a connection type feature"),
         }
     }
 
@@ -205,6 +247,12 @@ impl Execute for SimpleConnection {
             TypeConnectionContainer::NativeDynLoad(c) => c.execute_returnable(sql, params),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.execute_returnable(sql, params),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeConnectionContainer::Phantom => panic!("Choose a connection type feature"),
         }
     }
 }
@@ -226,6 +274,12 @@ impl Queryable for SimpleConnection {
             TypeConnectionContainer::NativeDynLoad(c) => c.query_iter(sql, params),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.query_iter(sql, params),
+            #[cfg(all(
+                not(feature = "pure_rust"),
+                not(feature = "linking"),
+                not(feature = "dynamic_loading")
+            ))]
+            TypeConnectionContainer::Phantom => panic!("Choose a connection type feature"),
         }
     }
 }
