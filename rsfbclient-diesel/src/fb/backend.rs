@@ -39,6 +39,8 @@ pub struct FbReturningClause;
 impl SqlDialect for Fb {
     type ReturningClause = FbReturningClause;
 
+    type ConcatClause = sql_dialect::concat_clause::ConcatWithPipesClause;
+
     type OnConflictClause = sql_dialect::on_conflict_clause::DoesNotSupportOnConflictClause;
 
     type InsertWithDefaultKeyword =

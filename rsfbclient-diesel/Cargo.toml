@@ -13,11 +13,11 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-diesel = { git = " https://github.com/weiznich/diesel", branch = "make_selectstatement_query_fragment_impl_customizable", default-features = false, features = ["chrono", "i-implement-a-third-party-backend-and-opt-into-breaking-changes"]}
+diesel = { git = "https://github.com/diesel-rs/diesel", rev = "596cdd21cc4aa4cefeccdcb3988c14f9a01ed6de", default-features = false, features = ["chrono", "i-implement-a-third-party-backend-and-opt-into-breaking-changes"]}
 rsfbclient = { version = "0.19.0", path = "../", default-features = false }
 byteorder = "1.4.3"
 bytes = "1.0.1"
-chrono = { version = "0.4.19", features = ["clock", "std"], default-features = false }
+chrono = { version = "0.4.22", features = ["clock", "std"], default-features = false }
 
 [features]
 default = ["linking"]
