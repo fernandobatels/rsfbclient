@@ -1,7 +1,7 @@
 [package]
 name = "rsfbclient-diesel"
-version = "0.14.0"
-description = "The Firebird Diesel implementation"
+version = "0.20.0"
+description = "The Diesel implementation for Firebird"
 authors = ["Luis Fernando Batels <luisfbatels@gmail.com>"]
 edition = "2021"
 repository = "https://github.com/fernandobatels/rsfbclient"
@@ -14,7 +14,7 @@ license = "MIT"
 
 [dependencies]
 diesel = { git = "https://github.com/diesel-rs/diesel", rev = "596cdd21cc4aa4cefeccdcb3988c14f9a01ed6de", default-features = false, features = ["chrono", "i-implement-a-third-party-backend-and-opt-into-breaking-changes"]}
-rsfbclient = { version = "0.19.0", path = "../", default-features = false }
+rsfbclient = { version = "0.20.0", path = "../", default-features = false }
 byteorder = "1.4.3"
 bytes = "1.0.1"
 chrono = { version = "0.4.22", features = ["clock", "std"], default-features = false }
