@@ -1,9 +1,15 @@
 //! The Firebird query builder
 
-use super::backend::Fb;
-use diesel::insertable::*;
+use super::backend::{Fb, FbReturningClause};
+use diesel::backend::sql_dialect::default_keyword_for_insert::DoesNotSupportDefaultKeyword;
+use diesel::insertable::ColumnInsertValue;
+use diesel::insertable::DefaultableColumnInsertValue;
+use diesel::insertable::InsertValues;
 use diesel::query_builder::*;
-use diesel::{AppearsOnTable, Column, Expression, QueryResult, QuerySource};
+use diesel::AppearsOnTable;
+use diesel::Column;
+use diesel::Expression;
+use diesel::QueryResult;
 
 pub struct FbQueryBuilder {
     query: String,
@@ -59,7 +65,7 @@ impl<L> QueryFragment<Fb> for LimitOffsetClause<LimitClause<L>, NoOffsetClause>
 where
     L: QueryFragment<Fb>,
 {
-    fn walk_ast(&self, mut out: AstPass<Fb>) -> QueryResult<()> {
+    fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, Fb>) -> QueryResult<()> {
         out.push_sql(" FIRST ");
         self.limit_clause.0.walk_ast(out.reborrow())?;
         out.push_sql(" ");
@@ -71,7 +77,7 @@ impl<L> QueryFragment<Fb> for LimitOffsetClause<LimitClause<L>, OffsetClause<L>>
 where
     L: QueryFragment<Fb>,
 {
-    fn walk_ast(&self, mut out: AstPass<Fb>) -> QueryResult<()> {
+    fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, Fb>) -> QueryResult<()> {
         out.push_sql(" FIRST ");
         self.limit_clause.0.walk_ast(out.reborrow())?;
         out.push_sql(" SKIP ");
@@ -81,55 +87,89 @@ where
     }
 }
 
-impl<F, S, D, W, O, LOf, G, LC> QueryFragment<Fb> for SelectStatement<F, S, D, W, O, LOf, G, LC>
+impl<F, S, D, W, O, LOf, G, H, LC> QueryFragment<Fb, crate::fb::backend::FbSelectStatementSyntax>
+    for SelectStatement<F, S, D, W, O, LOf, G, H, LC>
 where
-    S: SelectClauseQueryFragment<F, Fb>,
-    F: QuerySource,
-    F::FromClause: QueryFragment<Fb>,
+    S: QueryFragment<Fb>,
+    F: QueryFragment<Fb>,
     D: QueryFragment<Fb>,
     W: QueryFragment<Fb>,
     O: QueryFragment<Fb>,
     LOf: QueryFragment<Fb>,
     G: QueryFragment<Fb>,
+    H: QueryFragment<Fb>,
     LC: QueryFragment<Fb>,
 {
-    fn walk_ast(&self, mut out: AstPass<Fb>) -> QueryResult<()> {
+    fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, Fb>) -> QueryResult<()> {
         out.push_sql("SELECT ");
         self.limit_offset.walk_ast(out.reborrow())?;
         self.distinct.walk_ast(out.reborrow())?;
-        self.select.walk_ast(&self.from, out.reborrow())?;
-        out.push_sql(" FROM ");
-        self.from.from_clause().walk_ast(out.reborrow())?;
+        self.select.walk_ast(out.reborrow())?;
+        self.from.walk_ast(out.reborrow())?;
         self.where_clause.walk_ast(out.reborrow())?;
         self.group_by.walk_ast(out.reborrow())?;
+        self.having.walk_ast(out.reborrow())?;
         self.order.walk_ast(out.reborrow())?;
         self.locking.walk_ast(out.reborrow())?;
         Ok(())
     }
 }
 
-impl<Col, Expr> InsertValues<Col::Table, Fb> for ColumnInsertValue<Col, Expr>
+impl<'a, ST, QS, GB> QueryFragment<Fb, crate::fb::backend::FbSelectStatementSyntax>
+    for BoxedSelectStatement<'a, ST, QS, Fb, GB>
+where
+    QS: QueryFragment<Fb>,
+    BoxedLimitOffsetClause<'a, Fb>: QueryFragment<Fb>,
+{
+    fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, Fb>) -> QueryResult<()> {
+        out.push_sql("SELECT ");
+        self.limit_offset.walk_ast(out.reborrow())?;
+        self.distinct.walk_ast(out.reborrow())?;
+        self.select.walk_ast(out.reborrow())?;
+        self.from.walk_ast(out.reborrow())?;
+        self.where_clause.walk_ast(out.reborrow())?;
+        self.group_by.walk_ast(out.reborrow())?;
+        self.having.walk_ast(out.reborrow())?;
+        self.order.walk_ast(out.reborrow())?;
+        Ok(())
+    }
+}
+
+impl<Col, Expr> InsertValues<Col::Table, Fb>
+    for DefaultableColumnInsertValue<ColumnInsertValue<Col, Expr>>
 where
     Col: Column,
-    Expr: Expression<SqlType = Col::SqlType> + AppearsOnTable<()>,
+    Expr: Expression<SqlType = Col::SqlType> + AppearsOnTable<NoFromClause>,
     Self: QueryFragment<Fb>,
 {
-    fn column_names(&self, mut out: AstPass<Fb>) -> QueryResult<()> {
-        if let ColumnInsertValue::Expression(..) = *self {
+    fn column_names(&self, mut out: AstPass<'_, '_, Fb>) -> QueryResult<()> {
+        if let Self::Expression(..) = *self {
             out.push_identifier(Col::NAME)?;
         }
         Ok(())
     }
 }
 
-impl<Col, Expr> QueryFragment<Fb> for ColumnInsertValue<Col, Expr>
+impl<Col, Expr> QueryFragment<Fb, DoesNotSupportDefaultKeyword>
+    for DefaultableColumnInsertValue<ColumnInsertValue<Col, Expr>>
 where
     Expr: QueryFragment<Fb>,
 {
-    fn walk_ast(&self, mut out: AstPass<Fb>) -> QueryResult<()> {
-        if let ColumnInsertValue::Expression(_, ref value) = *self {
-            value.walk_ast(out.reborrow())?;
+    fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, Fb>) -> QueryResult<()> {
+        if let Self::Expression(ref inner) = *self {
+            inner.walk_ast(out.reborrow())?;
         }
+        Ok(())
+    }
+}
+
+impl<Expr> QueryFragment<Fb, FbReturningClause> for ReturningClause<Expr>
+where
+    Expr: QueryFragment<Fb>,
+{
+    fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, Fb>) -> QueryResult<()> {
+        out.push_sql(" RETURNING ");
+        self.0.walk_ast(out.reborrow())?;
         Ok(())
     }
 }

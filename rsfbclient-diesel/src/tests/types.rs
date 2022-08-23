@@ -1,18 +1,18 @@
 //! Params tests
 
 use super::schema;
-use crate::fb::FbConnection;
-use crate::prelude::*;
+use crate::FbConnection;
+use diesel::*;
 use rsfbclient::{EngineVersion, SystemInfos};
 use std::str;
 
 #[test]
 #[allow(clippy::float_cmp)]
 fn types1() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
 
-    schema::setup(&conn)?;
+    schema::setup(&mut conn)?;
 
     let types1 = schema::Types1 {
         id: 1,
@@ -24,11 +24,11 @@ fn types1() -> Result<(), String> {
 
     diesel::insert_into(schema::types1::table)
         .values(&types1)
-        .execute(&conn)
+        .execute(&mut conn)
         .map_err(|e| e.to_string())?;
 
     let types1 = schema::types1::table
-        .first::<schema::Types1>(&conn)
+        .first::<schema::Types1>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     assert_eq!(types1.a, "ab çç dd".to_string());
@@ -41,10 +41,10 @@ fn types1() -> Result<(), String> {
 
 #[test]
 fn null() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
 
-    schema::setup(&conn)?;
+    schema::setup(&mut conn)?;
 
     let types1 = schema::Types1Null {
         id: 2,
@@ -56,11 +56,11 @@ fn null() -> Result<(), String> {
 
     diesel::insert_into(schema::types1null::table)
         .values(&types1)
-        .execute(&conn)
+        .execute(&mut conn)
         .map_err(|e| e.to_string())?;
 
     let types1 = schema::types1null::table
-        .first::<schema::Types1Null>(&conn)
+        .first::<schema::Types1Null>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     assert_eq!(types1.a, Some("ab çç dd".to_string()));
@@ -78,12 +78,12 @@ fn null() -> Result<(), String> {
 
     diesel::insert_into(schema::types1null::table)
         .values(&types1)
-        .execute(&conn)
+        .execute(&mut conn)
         .map_err(|e| e.to_string())?;
 
     let types1 = schema::types1null::table
         .order(schema::types1null::columns::id.desc())
-        .first::<schema::Types1Null>(&conn)
+        .first::<schema::Types1Null>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     assert_eq!(types1.a, None);
@@ -98,10 +98,10 @@ fn null() -> Result<(), String> {
 fn types2() -> Result<(), String> {
     use chrono::*;
 
-    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
 
-    schema::setup(&conn)?;
+    schema::setup(&mut conn)?;
 
     let types2 = schema::Types2 {
         id: 2,
@@ -112,11 +112,11 @@ fn types2() -> Result<(), String> {
 
     diesel::insert_into(schema::types2::table)
         .values(&types2)
-        .execute(&conn)
+        .execute(&mut conn)
         .map_err(|e| e.to_string())?;
 
     let types2 = schema::types2::table
-        .first::<schema::Types2>(&conn)
+        .first::<schema::Types2>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     assert_eq!(types2.a, NaiveDate::from_ymd(2020, 12, 15));
@@ -132,19 +132,15 @@ fn types2() -> Result<(), String> {
 #[test]
 #[allow(clippy::bool_assert_comparison)]
 fn boolean() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
 
-    let se = conn
-        .raw
-        .borrow_mut()
-        .server_engine()
-        .map_err(|e| e.to_string())?;
+    let se = conn.raw.server_engine().map_err(|e| e.to_string())?;
     if se <= EngineVersion::V2 {
         return Ok(());
     }
 
-    schema::setup(&conn)?;
+    schema::setup(&mut conn)?;
 
     let bool_type = schema::BoolType {
         id: 2,
@@ -155,11 +151,11 @@ fn boolean() -> Result<(), String> {
 
     diesel::insert_into(schema::bool_type::table)
         .values(&bool_type)
-        .execute(&conn)
+        .execute(&mut conn)
         .map_err(|e| e.to_string())?;
 
     let bool_type = schema::bool_type::table
-        .first::<schema::BoolType>(&conn)
+        .first::<schema::BoolType>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     assert_eq!(bool_type.a, true);
@@ -171,10 +167,10 @@ fn boolean() -> Result<(), String> {
 
 #[test]
 fn blob() -> Result<(), String> {
-    let conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
 
-    schema::setup(&conn)?;
+    schema::setup(&mut conn)?;
 
     let text_test = "ab çç dd 123".to_string();
     let blob_test = text_test.as_bytes().to_vec();
@@ -187,11 +183,11 @@ fn blob() -> Result<(), String> {
 
     diesel::insert_into(schema::blob_type::table)
         .values(&types1)
-        .execute(&conn)
+        .execute(&mut conn)
         .map_err(|e| e.to_string())?;
 
     let types1 = schema::blob_type::table
-        .first::<schema::BlobType>(&conn)
+        .first::<schema::BlobType>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     assert_eq!(types1.a, blob_test);
@@ -200,6 +196,39 @@ fn blob() -> Result<(), String> {
         str::from_utf8(&types1.a).expect("Invalid UTF-8 sequence"),
         text_test
     );
+
+    Ok(())
+}
+
+#[test]
+#[allow(clippy::float_cmp)]
+fn types3() -> Result<(), String> {
+    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
+        .map_err(|e| e.to_string())?;
+
+    schema::setup(&mut conn)?;
+
+    let types3 = schema::Types3 {
+        id: 1,
+        a: i16::MAX,
+        b: i64::MAX,
+        c: 3.402E38,
+        d: f64::MAX,
+    };
+
+    diesel::insert_into(schema::types3::table)
+        .values(&types3)
+        .execute(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    let types3 = schema::types3::table
+        .first::<schema::Types3>(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    assert_eq!(types3.a, i16::MAX);
+    assert_eq!(types3.b, i64::MAX);
+    assert_eq!(types3.c, 3.402E38);
+    assert_eq!(types3.d, f64::MAX);
 
     Ok(())
 }

@@ -1,10 +1,11 @@
-use crate::fb::FbConnection;
-use crate::prelude::*;
+use crate::FbConnection;
 use chrono::*;
+use diesel::connection::SimpleConnection;
+use diesel::*;
 use rsfbclient::{EngineVersion, SystemInfos};
 
 #[derive(Insertable, Queryable, QueryableByName)]
-#[table_name = "users"]
+#[diesel(table_name = users)]
 pub struct User {
     pub id: i32,
     pub name: String,
@@ -18,7 +19,7 @@ table! {
 }
 
 #[derive(Insertable, Queryable)]
-#[table_name = "types1"]
+#[diesel(table_name = types1)]
 pub struct Types1 {
     pub id: i32,
     pub a: String,
@@ -38,7 +39,7 @@ table! {
 }
 
 #[derive(Insertable, Queryable)]
-#[table_name = "types1null"]
+#[diesel(table_name = types1null)]
 pub struct Types1Null {
     pub id: i32,
     pub a: Option<String>,
@@ -58,7 +59,7 @@ table! {
 }
 
 #[derive(Insertable, Queryable)]
-#[table_name = "types2"]
+#[diesel(table_name = types2)]
 pub struct Types2 {
     pub id: i32,
     pub a: NaiveDate,
@@ -75,7 +76,7 @@ table! {
 }
 
 #[derive(Insertable, Queryable)]
-#[table_name = "bool_type"]
+#[diesel(table_name = bool_type)]
 pub struct BoolType {
     pub id: i32,
     pub a: bool,
@@ -93,7 +94,7 @@ table! {
 }
 
 #[derive(Insertable, Queryable)]
-#[table_name = "blob_type"]
+#[diesel(table_name = blob_type)]
 pub struct BlobType {
     pub id: i32,
     pub a: Vec<u8>,
@@ -108,36 +109,58 @@ table! {
     }
 }
 
-pub fn setup(conn: &FbConnection) -> Result<(), String> {
-    conn.execute("drop table users").ok();
-    conn.execute("create table users(id int, name varchar(50))")
+#[derive(Insertable, Queryable)]
+#[diesel(table_name = types3)]
+pub struct Types3 {
+    pub id: i32,
+    pub a: i16,
+    pub b: i64,
+    pub c: f32,
+    pub d: f64,
+}
+
+table! {
+    types3(id) {
+        id -> Int4,
+        a -> SmallInt,
+        b -> BigInt,
+        c -> Float,
+        d -> Double,
+    }
+}
+
+pub fn setup(conn: &mut FbConnection) -> Result<(), String> {
+    conn.batch_execute("drop table users").ok();
+    conn.batch_execute("create table users(id int, name varchar(50))")
         .ok();
 
-    conn.execute("drop table types1").ok();
-    conn.execute("create table types1(id int, a varchar(50), b int, c float, d char(2))")
+    conn.batch_execute("drop table types1").ok();
+    conn.batch_execute("create table types1(id int, a varchar(50), b int, c float, d char(2))")
         .ok();
 
-    conn.execute("drop table types1null").ok();
-    conn.execute("create table types1null(id int, a varchar(50), b int, c float, d char(2))")
+    conn.batch_execute("drop table types1null").ok();
+    conn.batch_execute("create table types1null(id int, a varchar(50), b int, c float, d char(2))")
         .ok();
 
-    conn.execute("drop table types2").ok();
-    conn.execute("create table types2(id int, a date, b time, c timestamp)")
+    conn.batch_execute("drop table types2").ok();
+    conn.batch_execute("create table types2(id int, a date, b time, c timestamp)")
         .ok();
 
-    let se = conn
-        .raw
-        .borrow_mut()
-        .server_engine()
-        .map_err(|e| e.to_string())?;
+    conn.batch_execute("drop table types3").ok();
+    conn.batch_execute(
+        "create table types3(id int, a smallint, b bigint, c float, d double precision)",
+    )
+    .ok();
+
+    let se = conn.raw.server_engine().map_err(|e| e.to_string())?;
     if se >= EngineVersion::V3 {
-        conn.execute("drop table bool_type").ok();
-        conn.execute("create table bool_type(id int, a boolean, b boolean, c boolean)")
+        conn.batch_execute("drop table bool_type").ok();
+        conn.batch_execute("create table bool_type(id int, a boolean, b boolean, c boolean)")
             .ok();
     }
 
-    conn.execute("drop table blob_type").ok();
-    conn.execute("create table blob_type(id int, a blob sub_type 0, b blob sub_type 0)")
+    conn.batch_execute("drop table blob_type").ok();
+    conn.batch_execute("create table blob_type(id int, a blob sub_type 0, b blob sub_type 0)")
         .ok();
 
     Ok(())
