@@ -1,7 +1,8 @@
 
 use diesel::*;
+use tabled::Tabled;
 
-#[derive(Queryable)]
+#[derive(Queryable, Tabled)]
 #[diesel(table_name = job)]
 pub struct Job {
     #[diesel(column_name = job_code)]

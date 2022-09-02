@@ -1,10 +1,17 @@
 use diesel::prelude::*;
 use rsfbclient_diesel::FbConnection;
+use argopt::{subcmd, cmd_group};
+use tabled::Table;
 
 mod schema;
 
+#[cmd_group(commands = [list])]
 fn main() {
+}
 
+/// List all avaliable jobs
+#[subcmd]
+fn list() {
     let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/employee.fdb")
         .expect("Connection error");
 
@@ -12,7 +19,5 @@ fn main() {
         .load::<schema::Job>(&mut conn)
         .expect("Job select error");
 
-    for job in jobs {
-        println!("{} {} {}", job.code, job.title, job.country);
-    }
+    println!("{}", Table::new(jobs));
 }
