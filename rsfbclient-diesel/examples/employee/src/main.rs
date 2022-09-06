@@ -2,17 +2,20 @@ use diesel::prelude::*;
 use rsfbclient_diesel::FbConnection;
 use argopt::{subcmd, cmd_group};
 use tabled::Table;
+use std::env;
 
 mod schema;
 
-#[cmd_group(commands = [list, add, update])]
+#[cmd_group(commands = [list, add, update, remove])]
 fn main() {
 }
 
 /// List all avaliable jobs
 #[subcmd]
 fn list() {
-    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/employee.fdb")
+    let str_conn = env::var("DIESELFDB_CONN")
+        .expect("DIESELFDB_CONN env not found");
+    let mut conn = FbConnection::establish(&str_conn)
         .expect("Connection error");
 
     let jobs = schema::job::table
@@ -44,7 +47,9 @@ fn add(
     #[opt(long)]
     max_salary: f32
 ) {
-    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/employee.fdb")
+    let str_conn = env::var("DIESELFDB_CONN")
+        .expect("DIESELFDB_CONN env not found");
+    let mut conn = FbConnection::establish(&str_conn)
         .expect("Connection error");
 
     let new_job = schema::Job {
@@ -77,7 +82,9 @@ fn update(
     #[opt(long)]
     max_salary: Option<f32>
 ) {
-    let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/employee.fdb")
+    let str_conn = env::var("DIESELFDB_CONN")
+        .expect("DIESELFDB_CONN env not found");
+    let mut conn = FbConnection::establish(&str_conn)
         .expect("Connection error");
 
     let update_job = schema::JobUpdate {
@@ -91,4 +98,21 @@ fn update(
         .set(&update_job)
         .execute(&mut conn)
         .expect("Job update error");
+}
+
+/// Remove a job by code
+#[subcmd]
+fn remove(
+    /// Job code
+    code: String,
+) {
+    let str_conn = env::var("DIESELFDB_CONN")
+        .expect("DIESELFDB_CONN env not found");
+    let mut conn = FbConnection::establish(&str_conn)
+        .expect("Connection error");
+
+    diesel::delete(schema::job::table)
+        .filter(schema::job::columns::job_code.eq(code))
+        .execute(&mut conn)
+        .expect("Job delete error");
 }
