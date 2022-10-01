@@ -6,6 +6,7 @@
 use crate::*;
 
 /// Transaction isolation level
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum TrIsolationLevel {
     /// Transactions can't see alterations commited after they started
     Concurrency,
@@ -41,13 +42,14 @@ pub enum TrOp {
 }
 
 /// Lock resolution modes
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum TrLockResolution {
     /// In the NO WAIT mode, a transaction will immediately throw a database exception if a conflict occurs
     NoWait,
     /// In the WAIT model, transaction will wait till the other transaction has finished.
     ///
     /// If a TIMEOUT is specified for the WAIT transaction, waiting will continue only for the number of seconds specified
-    Wait(Option<i64>)
+    Wait(Option<u32>)
 }
 
 impl Default for TrLockResolution {
@@ -67,6 +69,7 @@ impl From<TrLockResolution> for u8 {
 
 /// Data access mode
 #[repr(u8)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum TrDataAccessMode {
     /// Operations in the context of this transaction can be both read operations and data update operations
     ReadWrite = ibase::isc_tpb_write as u8,
@@ -82,6 +85,7 @@ impl Default for TrDataAccessMode {
 
 /// Record version isolation
 #[repr(u8)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum TrRecordVersion {
     /// Is a kind of two-phase locking mechanism: it will make the transaction unable to write to any row that has an update pending from another transaction
     RecordVersion = ibase::isc_tpb_rec_version as u8,
@@ -96,6 +100,7 @@ impl Default for TrRecordVersion {
 }
 
 /// Parameters of a new transaction
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct TransactionConfiguration {
     pub data_access: TrDataAccessMode,
     pub isolation: TrIsolationLevel,

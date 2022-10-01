@@ -203,7 +203,12 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         let mut handle = 0;
 
         // Transaction parameter buffer
-        let tpb = [ibase::isc_tpb_version3 as u8, confs.isolation.into(), confs.data_access as u8, confs.lock_resolution.into()];
+        let mut tpb = vec![ibase::isc_tpb_version3 as u8, confs.isolation.into(), confs.data_access as u8, confs.lock_resolution.into()];
+        if let TrLockResolution::Wait(Some(time)) = confs.lock_resolution {
+            tpb.push(ibase::isc_tpb_lock_timeout as u8);
+            tpb.push(4 as u8);
+            tpb.extend_from_slice(&time.to_le_bytes());
+        }
 
         #[repr(C)]
         struct IscTeb {

@@ -127,4 +127,31 @@ mk_tests_default! {
         teardown(conn, TABLE_NAME)
     }
 
+    #[test]
+    fn select_readcommited_with_wait_for_some_seconds() -> Result<(), FbError> {
+        const TABLE_NAME: &str = "RSFBCLIENT_TEST_TRANS5";
+
+        let mut conn = cbuilder().connect()?;
+        setup(&mut conn, TABLE_NAME)?;
+
+        let mut transaction1 = Transaction::new(&mut conn, TransactionConfiguration::default())?;
+        let _ = transaction1.execute_immediate(format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str())?;
+
+        let mut conn2 = cbuilder().connect()?;
+        let mut transaction2 = Transaction::new(&mut conn2, TransactionConfiguration {
+            lock_resolution: TrLockResolution::Wait(Some(2)),
+            ..Default::default()
+        })?;
+        let qr: Result<Vec<(i32,)>, FbError> = transaction2.query(format!(select_stmt_fmtstring!(), TABLE_NAME).as_str(), ());
+
+        assert!(qr.is_err());
+        let mut e = qr.err().unwrap().to_string();
+        e.truncate(95);
+        assert_eq!("sql error -913: deadlock\nread conflicts with concurrent update\nconcurrent transaction number is", e);
+
+        drop(transaction2);
+        drop(transaction1);
+        conn2.close()?;
+        teardown(conn, TABLE_NAME)
+    }
 }
