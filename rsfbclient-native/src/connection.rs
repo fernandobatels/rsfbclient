@@ -198,12 +198,12 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
     fn begin_transaction(
         &mut self,
         db_handle: &mut Self::DbHandle,
-        isolation_level: TrIsolationLevel,
+        confs: TransactionConfiguration,
     ) -> Result<Self::TrHandle, FbError> {
         let mut handle = 0;
 
         // Transaction parameter buffer
-        let tpb = [ibase::isc_tpb_version3 as u8, isolation_level as u8];
+        let tpb = [ibase::isc_tpb_version3 as u8, confs.isolation.into(), confs.data_access as u8, confs.lock_resolution.into()];
 
         #[repr(C)]
         struct IscTeb {

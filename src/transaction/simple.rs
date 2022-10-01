@@ -5,6 +5,7 @@
 
 use crate::connection::simple::TypeConnectionContainer;
 use crate::{Execute, FbError, FromRow, IntoParams, Queryable, SimpleConnection, Transaction};
+use rsfbclient_core::TransactionConfiguration;
 #[cfg(feature = "linking")]
 use rsfbclient_native::DynLink;
 #[cfg(feature = "dynamic_loading")]
@@ -97,14 +98,14 @@ impl<'c> TryFrom<SimpleTransaction<'c>> for Transaction<'c, RustFbClient> {
 
 impl<'c> SimpleTransaction<'c> {
     /// Start a new transaction
-    pub fn new(conn: &'c mut SimpleConnection) -> Result<Self, FbError> {
+    pub fn new(conn: &'c mut SimpleConnection, confs: TransactionConfiguration) -> Result<Self, FbError> {
         match &mut conn.inner {
             #[cfg(feature = "linking")]
-            TypeConnectionContainer::NativeDynLink(tr) => Ok(Transaction::new(tr)?.into()),
+            TypeConnectionContainer::NativeDynLink(tr) => Ok(Transaction::new(tr, confs)?.into()),
             #[cfg(feature = "dynamic_loading")]
-            TypeConnectionContainer::NativeDynLoad(tr) => Ok(Transaction::new(tr)?.into()),
+            TypeConnectionContainer::NativeDynLoad(tr) => Ok(Transaction::new(tr, confs)?.into()),
             #[cfg(feature = "pure_rust")]
-            TypeConnectionContainer::PureRust(tr) => Ok(Transaction::new(tr)?.into()),
+            TypeConnectionContainer::PureRust(tr) => Ok(Transaction::new(tr, confs)?.into()),
         }
     }
 
@@ -226,6 +227,7 @@ impl<'c> Queryable for SimpleTransaction<'c> {
 #[cfg(test)]
 mk_tests_default! {
     use crate::*;
+    use rsfbclient_core::TransactionConfiguration;
 
     #[test]
     fn new() -> Result<(), FbError> {
@@ -233,7 +235,7 @@ mk_tests_default! {
             .connect()?
             .into();
 
-        SimpleTransaction::new(&mut conn)?;
+        SimpleTransaction::new(&mut conn, TransactionConfiguration::default())?;
 
         conn.close()?;
 
@@ -246,7 +248,7 @@ mk_tests_default! {
             .connect()?
             .into();
 
-        let mut tr = SimpleTransaction::new(&mut conn)?;
+        let mut tr = SimpleTransaction::new(&mut conn, TransactionConfiguration::default())?;
 
         tr.execute("DROP TABLE SIMPLE_TR_EXEC_TEST", ()).ok();
         tr.execute("CREATE TABLE SIMPLE_TR_EXEC_TEST (id int)", ())?;
@@ -264,7 +266,7 @@ mk_tests_default! {
             .connect()?
             .into();
 
-        let mut tr = SimpleTransaction::new(&mut conn)?;
+        let mut tr = SimpleTransaction::new(&mut conn, TransactionConfiguration::default())?;
 
         let (a,): (i32,) = tr.query_first(
                 "select cast(100 as int) from rdb$database",

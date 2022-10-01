@@ -4,6 +4,7 @@
 //!
 
 use crate::{Connection, Execute, FbError, FromRow, IntoParams, Queryable, SimpleTransaction};
+use rsfbclient_core::TransactionConfiguration;
 
 #[cfg(feature = "linking")]
 use rsfbclient_native::DynLink;
@@ -126,7 +127,7 @@ impl SimpleConnection {
     where
         F: FnOnce(&mut SimpleTransaction) -> Result<T, FbError>,
     {
-        let mut tr = SimpleTransaction::new(self)?;
+        let mut tr = SimpleTransaction::new(self, TransactionConfiguration::default())?;
 
         let res = closure(&mut tr);
 

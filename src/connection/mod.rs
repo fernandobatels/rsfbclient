@@ -3,7 +3,7 @@
 //!
 //! Connection functions
 //!
-use rsfbclient_core::{Dialect, FbError, FirebirdClient, FirebirdClientDbOps, FromRow, IntoParams};
+use rsfbclient_core::{Dialect, FbError, FirebirdClient, FirebirdClientDbOps, FromRow, IntoParams, TransactionConfiguration};
 use std::{marker, mem};
 
 use crate::{
@@ -170,7 +170,7 @@ impl<C: FirebirdClient> Connection<C> {
         let mut tr = if let Some(tr) = self.def_tr.take() {
             tr.into_transaction(self)
         } else {
-            Transaction::new(self)?
+            Transaction::new(self, TransactionConfiguration::default())?
         };
 
         let res = closure(&mut tr);
@@ -203,7 +203,7 @@ impl<C: FirebirdClient> Connection<C> {
         let mut tr = if let Some(tr) = self.def_tr.take() {
             tr.into_transaction(self)
         } else {
-            Transaction::new(self)?
+            Transaction::new(self, TransactionConfiguration::default())?
         };
 
         let res = closure(&mut tr);
@@ -225,7 +225,7 @@ impl<C: FirebirdClient> Connection<C> {
         let tr = if let Some(tr) = self.def_tr.take() {
             tr.into_transaction(self)
         } else {
-            Transaction::new(self)?
+            Transaction::new(self, TransactionConfiguration::default())?
         };
 
         let tr = TransactionData::from_transaction(tr);
