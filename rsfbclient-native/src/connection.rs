@@ -210,6 +210,10 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
             tpb.extend_from_slice(&time.to_le_bytes());
         }
 
+        if let TrIsolationLevel::ReadCommited(rec) = confs.isolation {
+            tpb.push(rec as u8);
+        }
+
         #[repr(C)]
         struct IscTeb {
             db_handle: *mut ibase::isc_db_handle,

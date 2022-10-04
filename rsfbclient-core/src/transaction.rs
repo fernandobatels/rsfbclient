@@ -95,7 +95,7 @@ pub enum TrRecordVersion {
 
 impl Default for TrRecordVersion {
     fn default() -> Self {
-        Self::RecordVersion
+        Self::NoRecordVersion
     }
 }
 

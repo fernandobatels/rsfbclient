@@ -154,4 +154,111 @@ mk_tests_default! {
         conn2.close()?;
         teardown(conn, TABLE_NAME)
     }
+
+    #[test]
+    fn insert_with_readonly_transaction() -> Result<(), FbError> {
+        const TABLE_NAME: &str = "RSFBCLIENT_TEST_TRANS5";
+
+        let mut conn = cbuilder().connect()?;
+        setup(&mut conn, TABLE_NAME)?;
+
+        let mut transaction1 = Transaction::new(&mut conn, TransactionConfiguration {
+            data_access: TrDataAccessMode::ReadOnly,
+            ..Default::default()
+        })?;
+        let qr = transaction1.execute_immediate(format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str());
+
+        assert!(qr.is_err());
+        assert_eq!("sql error -817: attempted update during read-only transaction", qr.err().unwrap().to_string());
+
+        drop(transaction1);
+        teardown(conn, TABLE_NAME)
+    }
+
+    #[test]
+    fn select_concurrency_isolation() -> Result<(), FbError> {
+        const TABLE_NAME: &str = "RSFBCLIENT_TEST_TRANS6";
+
+        let mut conn = cbuilder().connect()?;
+        setup(&mut conn, TABLE_NAME)?;
+
+        let mut conn2 = cbuilder().connect()?;
+        let mut transaction2 = Transaction::new(&mut conn2, TransactionConfiguration {
+            isolation: TrIsolationLevel::Concurrency,
+            ..Default::default()
+        })?;
+
+        let mut transaction1 = Transaction::new(&mut conn, TransactionConfiguration::default())?;
+        let _ = transaction1.execute_immediate(format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str())?;
+
+        let rows: Vec<(i32,)> = transaction2.query(format!(select_stmt_fmtstring!(), TABLE_NAME).as_str(), ())?;
+        assert_eq!(0, rows.len());
+
+        drop(transaction2);
+        drop(transaction1);
+        conn2.close()?;
+        teardown(conn, TABLE_NAME)
+    }
+
+    #[test]
+    fn select_consistency_isolation() -> Result<(), FbError> {
+        const TABLE_NAME: &str = "RSFBCLIENT_TEST_TRANS7";
+
+        let mut conn = cbuilder().connect()?;
+        setup(&mut conn, TABLE_NAME)?;
+
+        let mut transaction1 = Transaction::new(&mut conn, TransactionConfiguration {
+            isolation: TrIsolationLevel::Consistency,
+            lock_resolution: TrLockResolution::NoWait,
+            ..Default::default()
+        })?;
+
+        let _ = transaction1.execute_immediate(format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str())?;
+
+        let mut conn2 = cbuilder().connect()?;
+        let mut transaction2 = Transaction::new(&mut conn2, TransactionConfiguration {
+            isolation: TrIsolationLevel::Concurrency,
+            lock_resolution: TrLockResolution::NoWait,
+            ..Default::default()
+        })?;
+
+        let rows: Vec<(i32,)> = transaction2.query(format!(select_stmt_fmtstring!(), TABLE_NAME).as_str(), ())?;
+        assert_eq!(0, rows.len());
+
+        let qr = transaction2.execute_immediate(format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str());
+        assert!(qr.is_err());
+        let mut e = qr.err().unwrap().to_string();
+        e.truncate(52);
+        assert_eq!("sql error -901: lock conflict on no wait transaction", e);
+
+        drop(transaction2);
+        drop(transaction1);
+        conn2.close()?;
+        teardown(conn, TABLE_NAME)
+    }
+
+    #[test]
+    fn select_readcommited_with_record_version() -> Result<(), FbError> {
+        const TABLE_NAME: &str = "RSFBCLIENT_TEST_TRANS8";
+
+        let mut conn = cbuilder().connect()?;
+        setup(&mut conn, TABLE_NAME)?;
+
+        let mut transaction1 = Transaction::new(&mut conn, TransactionConfiguration::default())?;
+        let _ = transaction1.execute_immediate(format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str())?;
+
+        let mut conn2 = cbuilder().connect()?;
+        let mut transaction2 = Transaction::new(&mut conn2, TransactionConfiguration {
+            isolation: TrIsolationLevel::ReadCommited(TrRecordVersion::RecordVersion),
+            lock_resolution: TrLockResolution::NoWait,
+            ..Default::default()
+        })?;
+        let rows: Vec<(i32,)> = transaction2.query(format!(select_stmt_fmtstring!(), TABLE_NAME).as_str(), ())?;
+        assert_eq!(0, rows.len());
+
+        drop(transaction2);
+        drop(transaction1);
+        conn2.close()?;
+        teardown(conn, TABLE_NAME)
+    }
 }
