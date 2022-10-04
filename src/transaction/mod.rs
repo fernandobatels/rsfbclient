@@ -4,7 +4,9 @@
 //! Transaction functions
 //!
 
-use rsfbclient_core::{FbError, FirebirdClient, FromRow, IntoParams, TransactionConfiguration, TrOp};
+use rsfbclient_core::{
+    FbError, FirebirdClient, FromRow, IntoParams, TrOp, TransactionConfiguration,
+};
 use std::marker;
 use std::mem;
 
@@ -27,7 +29,10 @@ where
 
 impl<'c, C: FirebirdClient> Transaction<'c, C> {
     /// Start a new transaction
-    pub fn new(conn: &'c mut Connection<C>, confs: TransactionConfiguration) -> Result<Self, FbError> {
+    pub fn new(
+        conn: &'c mut Connection<C>,
+        confs: TransactionConfiguration,
+    ) -> Result<Self, FbError> {
         let data = TransactionData::new(conn, confs)?;
 
         Ok(Transaction { data, conn })
@@ -229,9 +234,7 @@ where
 {
     /// Start a new transaction
     fn new(conn: &mut Connection<C>, confs: TransactionConfiguration) -> Result<Self, FbError> {
-        let handle = conn
-            .cli
-            .begin_transaction(&mut conn.handle, confs)?;
+        let handle = conn.cli.begin_transaction(&mut conn.handle, confs)?;
 
         Ok(Self { handle })
     }

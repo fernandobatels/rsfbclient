@@ -49,7 +49,7 @@ pub enum TrLockResolution {
     /// In the WAIT model, transaction will wait till the other transaction has finished.
     ///
     /// If a TIMEOUT is specified for the WAIT transaction, waiting will continue only for the number of seconds specified
-    Wait(Option<u32>)
+    Wait(Option<u32>),
 }
 
 impl Default for TrLockResolution {

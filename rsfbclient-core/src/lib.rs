@@ -12,10 +12,10 @@ mod transaction;
 
 pub use charset::Charset;
 pub use connection::*;
-pub use transaction::*;
 pub use error::FbError;
 pub use params::*;
 pub use row::*;
+pub use transaction::*;
 
 #[derive(Debug, Clone)]
 /// Sql parameter / column data

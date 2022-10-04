@@ -3,7 +3,10 @@
 //!
 //! Connection functions
 //!
-use rsfbclient_core::{Dialect, FbError, FirebirdClient, FirebirdClientDbOps, FromRow, IntoParams, TransactionConfiguration};
+use rsfbclient_core::{
+    Dialect, FbError, FirebirdClient, FirebirdClientDbOps, FromRow, IntoParams,
+    TransactionConfiguration,
+};
 use std::{marker, mem};
 
 use crate::{

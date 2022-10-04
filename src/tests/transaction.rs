@@ -119,7 +119,7 @@ mk_tests_default! {
         assert!(qr.is_err());
         let mut e = qr.err().unwrap().to_string();
         e.truncate(95);
-        assert_eq!("sql error -913: deadlock\nread conflicts with concurrent update\nconcurrent transaction number is", e);
+        assert!(e.contains("deadlock\nread conflicts with concurrent update\nconcurrent transaction number is"));
 
         drop(transaction2);
         drop(transaction1);
@@ -147,7 +147,7 @@ mk_tests_default! {
         assert!(qr.is_err());
         let mut e = qr.err().unwrap().to_string();
         e.truncate(95);
-        assert_eq!("sql error -913: deadlock\nread conflicts with concurrent update\nconcurrent transaction number is", e);
+        assert!(e.contains("deadlock\nread conflicts with concurrent update\nconcurrent transaction number is"));
 
         drop(transaction2);
         drop(transaction1);
@@ -169,7 +169,7 @@ mk_tests_default! {
         let qr = transaction1.execute_immediate(format!(insert_stmt_fmtstring!(), TABLE_NAME).as_str());
 
         assert!(qr.is_err());
-        assert_eq!("sql error -817: attempted update during read-only transaction", qr.err().unwrap().to_string());
+        assert!(qr.err().unwrap().to_string().contains("attempted update during read-only transaction"));
 
         drop(transaction1);
         teardown(conn, TABLE_NAME)
@@ -229,7 +229,7 @@ mk_tests_default! {
         assert!(qr.is_err());
         let mut e = qr.err().unwrap().to_string();
         e.truncate(52);
-        assert_eq!("sql error -901: lock conflict on no wait transaction", e);
+        assert!(e.contains("lock conflict on no wait transaction"));
 
         drop(transaction2);
         drop(transaction1);

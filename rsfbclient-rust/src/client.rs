@@ -16,10 +16,7 @@ use crate::{
     wire::*,
     xsqlda::{parse_xsqlda, xsqlda_to_blr, PrepareInfo, XSqlVar, XSQLDA_DESCRIBE_VARS},
 };
-use rsfbclient_core::{
-    ibase, Charset, Column, Dialect, FbError, FirebirdClientDbOps, FirebirdClientSqlOps,
-    FreeStmtOp, SqlType, StmtType, TrIsolationLevel, TrOp,
-};
+use rsfbclient_core::*;
 
 type RustDbHandle = DbHandle;
 type RustTrHandle = TrHandle;
@@ -170,11 +167,11 @@ impl FirebirdClientSqlOps for RustFbClient {
     fn begin_transaction(
         &mut self,
         db_handle: &mut Self::DbHandle,
-        isolation_level: TrIsolationLevel,
+        confs: TransactionConfiguration,
     ) -> Result<Self::TrHandle, FbError> {
         self.conn
             .as_mut()
-            .map(|conn| conn.begin_transaction(db_handle, isolation_level))
+            .map(|conn| conn.begin_transaction(db_handle, confs))
             .unwrap_or_else(err_client_not_connected)
     }
 
@@ -445,9 +442,23 @@ impl FirebirdWireConnection {
     pub fn begin_transaction(
         &mut self,
         db_handle: &mut DbHandle,
-        isolation_level: TrIsolationLevel,
+        confs: TransactionConfiguration,
     ) -> Result<TrHandle, FbError> {
-        let tpb = [ibase::isc_tpb_version3 as u8, isolation_level as u8];
+        let mut tpb = vec![
+            ibase::isc_tpb_version3 as u8,
+            confs.isolation.into(),
+            confs.data_access as u8,
+            confs.lock_resolution.into(),
+        ];
+        if let TrLockResolution::Wait(Some(time)) = confs.lock_resolution {
+            tpb.push(ibase::isc_tpb_lock_timeout as u8);
+            tpb.push(4 as u8);
+            tpb.extend_from_slice(&time.to_le_bytes());
+        }
+
+        if let TrIsolationLevel::ReadCommited(rec) = confs.isolation {
+            tpb.push(rec as u8);
+        }
 
         self.socket.write_all(&transaction(db_handle.0, &tpb))?;
         self.socket.flush()?;
@@ -1021,7 +1032,7 @@ fn connection_test() {
     let mut db_handle = conn.attach_database(db_name, user, pass).unwrap();
 
     let mut tr_handle = conn
-        .begin_transaction(&mut db_handle, TrIsolationLevel::Concurrency)
+        .begin_transaction(&mut db_handle, TransactionConfiguration::default())
         .unwrap();
 
     let (stmt_type, mut stmt_handle) = conn

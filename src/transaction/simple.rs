@@ -98,7 +98,10 @@ impl<'c> TryFrom<SimpleTransaction<'c>> for Transaction<'c, RustFbClient> {
 
 impl<'c> SimpleTransaction<'c> {
     /// Start a new transaction
-    pub fn new(conn: &'c mut SimpleConnection, confs: TransactionConfiguration) -> Result<Self, FbError> {
+    pub fn new(
+        conn: &'c mut SimpleConnection,
+        confs: TransactionConfiguration,
+    ) -> Result<Self, FbError> {
         match &mut conn.inner {
             #[cfg(feature = "linking")]
             TypeConnectionContainer::NativeDynLink(tr) => Ok(Transaction::new(tr, confs)?.into()),
