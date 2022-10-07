@@ -61,6 +61,7 @@ pub struct ConnectionConfiguration<A> {
     attachment_conf: A,
     dialect: Dialect,
     stmt_cache_size: usize,
+    transaction_conf: TransactionConfiguration,
 }
 
 impl<A: Default> Default for ConnectionConfiguration<A> {
@@ -69,6 +70,7 @@ impl<A: Default> Default for ConnectionConfiguration<A> {
             attachment_conf: Default::default(),
             dialect: Dialect::D3,
             stmt_cache_size: 20,
+            transaction_conf: TransactionConfiguration::default(),
         }
     }
 }
@@ -94,6 +96,9 @@ pub struct Connection<C: FirebirdClient> {
 
     /// Firebird client
     pub(crate) cli: C,
+
+    /// Default configuration for new transactions
+    pub(crate) def_confs_tr: TransactionConfiguration,
 }
 
 impl<C: FirebirdClient> Connection<C> {
@@ -112,6 +117,7 @@ impl<C: FirebirdClient> Connection<C> {
             def_tr: None,
             in_transaction: false,
             cli,
+            def_confs_tr: conf.transaction_conf,
         })
     }
 
@@ -131,6 +137,7 @@ impl<C: FirebirdClient> Connection<C> {
             def_tr: None,
             in_transaction: false,
             cli,
+            def_confs_tr: conf.transaction_conf,
         })
     }
 
@@ -164,7 +171,11 @@ impl<C: FirebirdClient> Connection<C> {
 
     /// Run a closure with a transaction, if the closure returns an error
     /// and the default transaction is not active, the transaction will rollback, else it will be committed
-    pub fn with_transaction<T, F>(&mut self, closure: F) -> Result<T, FbError>
+    pub fn with_transaction<T, F>(
+        &mut self,
+        custom_confs: Option<TransactionConfiguration>,
+        closure: F,
+    ) -> Result<T, FbError>
     where
         F: FnOnce(&mut Transaction<C>) -> Result<T, FbError>,
     {
@@ -173,7 +184,11 @@ impl<C: FirebirdClient> Connection<C> {
         let mut tr = if let Some(tr) = self.def_tr.take() {
             tr.into_transaction(self)
         } else {
-            Transaction::new(self, TransactionConfiguration::default())?
+            let confs = match custom_confs {
+                Some(c) => c,
+                None => self.def_confs_tr,
+            };
+            Transaction::new(self, confs)?
         };
 
         let res = closure(&mut tr);
@@ -199,14 +214,22 @@ impl<C: FirebirdClient> Connection<C> {
     /// Run a closure with the default transaction, no rollback or commit will be automatically performed
     /// after the closure returns. The next call to this function will use the same transaction
     /// if it was not closed with `commit_retaining` or `rollback_retaining`
-    fn use_transaction<T, F>(&mut self, closure: F) -> Result<T, FbError>
+    fn use_transaction<T, F>(
+        &mut self,
+        custom_confs: Option<TransactionConfiguration>,
+        closure: F,
+    ) -> Result<T, FbError>
     where
         F: FnOnce(&mut Transaction<C>) -> Result<T, FbError>,
     {
         let mut tr = if let Some(tr) = self.def_tr.take() {
             tr.into_transaction(self)
         } else {
-            Transaction::new(self, TransactionConfiguration::default())?
+            let confs = match custom_confs {
+                Some(c) => c,
+                None => self.def_confs_tr,
+            };
+            Transaction::new(self, confs)?
         };
 
         let res = closure(&mut tr);
@@ -224,19 +247,11 @@ impl<C: FirebirdClient> Connection<C> {
     /// Begins a new transaction, and instructs all the `query` and `execute` methods
     /// performed in the [`Connection`] type to not automatically commit and rollback
     /// until [`commit`][`Connection::commit`] or [`rollback`][`Connection::rollback`] are called
-    pub fn begin_transaction(&mut self) -> Result<(), FbError> {
-        let tr = if let Some(tr) = self.def_tr.take() {
-            tr.into_transaction(self)
-        } else {
-            Transaction::new(self, TransactionConfiguration::default())?
-        };
-
-        let tr = TransactionData::from_transaction(tr);
-
-        if let Some(mut tr) = self.def_tr.replace(tr) {
-            // Should never happen, but just to be sure
-            tr.rollback(self).ok();
-        }
+    pub fn begin_transaction(
+        &mut self,
+        custom_confs: Option<TransactionConfiguration>,
+    ) -> Result<(), FbError> {
+        self.use_transaction(custom_confs, |_| Ok(()))?;
 
         self.in_transaction = true;
 
@@ -247,14 +262,14 @@ impl<C: FirebirdClient> Connection<C> {
     pub fn commit(&mut self) -> Result<(), FbError> {
         self.in_transaction = false;
 
-        self.use_transaction(|tr| tr.commit_retaining())
+        self.use_transaction(None, |tr| tr.commit_retaining())
     }
 
     /// Rollback the default transaction
     pub fn rollback(&mut self) -> Result<(), FbError> {
         self.in_transaction = false;
 
-        self.use_transaction(|tr| tr.rollback_retaining())
+        self.use_transaction(None, |tr| tr.rollback_retaining())
     }
 }
 
@@ -309,7 +324,7 @@ where
         let stmt_cache_data = self.stmt_cache_data.as_mut().unwrap();
 
         self.conn
-            .use_transaction(move |tr| {
+            .use_transaction(None, move |tr| {
                 Ok(stmt_cache_data
                     .stmt
                     .fetch(tr.conn, &mut tr.data)
@@ -333,7 +348,7 @@ where
         P: IntoParams,
         R: FromRow + 'static,
     {
-        let stmt_cache_data = self.use_transaction(|tr| {
+        let stmt_cache_data = self.use_transaction(None, |tr| {
             let params = params.to_params();
 
             // Get a statement from the cache
@@ -374,7 +389,7 @@ where
     {
         let params = params.to_params();
 
-        self.with_transaction(|tr| {
+        self.with_transaction(None, |tr| {
             // Get a statement from the cache
             let mut stmt_cache_data = StmtCache::get_or_prepare(tr, sql, params.named())?;
 
@@ -395,7 +410,7 @@ where
     {
         let params = params.to_params();
 
-        self.with_transaction(|tr| {
+        self.with_transaction(None, |tr| {
             // Get a statement from the cache
             let mut stmt_cache_data = StmtCache::get_or_prepare(tr, sql, params.named())?;
 

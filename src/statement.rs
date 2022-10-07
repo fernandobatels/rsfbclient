@@ -259,7 +259,7 @@ mk_tests_default! {
             (None, "fail coffee".to_string()),
         ];
 
-        conn.with_transaction(|tr| {
+        conn.with_transaction(None, |tr| {
             for val in &vals {
                 tr.execute(&format!("insert into {} (id, name) values (?, ?)", table), val.clone())
                     .expect("Error on insert");
@@ -287,7 +287,7 @@ mk_tests_default! {
             (None, "fail coffee".to_string()),
         ];
 
-        conn.with_transaction(|tr| {
+        conn.with_transaction(None, |tr| {
             let mut stmt = tr
                 .prepare(&format!("insert into {} (id, name) values (?, ?)", table), false)
                 .expect("Error preparing the insert statement");
@@ -300,7 +300,7 @@ mk_tests_default! {
         })
         .expect("Error commiting the transaction");
 
-        conn.with_transaction(|tr| {
+        conn.with_transaction(None, |tr| {
             let mut stmt = tr
                 .prepare(&format!("select id, name from {}", table), false)
                 .expect("Error on prepare the select");
@@ -389,7 +389,7 @@ mk_tests_default! {
 
         let vals = vec![(Some(9), "apple"), (Some(12), "jack"), (None, "coffee")];
 
-        conn.with_transaction(|tr| {
+        conn.with_transaction(None, |tr| {
             for val in vals.into_iter() {
                 tr.execute(&format!("insert into {} (id, name) values (?, ?)", table), val)
                     .expect("Error on insert");
@@ -427,7 +427,7 @@ mk_tests_default! {
         let table_num = super::TABLE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let table = format!("product{}", table_num);
 
-        conn.with_transaction(|tr| {
+        conn.with_transaction(None, |tr| {
             tr.execute_immediate(&format!("DROP TABLE {}", table)).ok();
 
             tr.execute_immediate(&format!("CREATE TABLE {} (id int, name varchar(60), quantity int)", table))

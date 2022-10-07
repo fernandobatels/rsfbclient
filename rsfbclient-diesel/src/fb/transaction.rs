@@ -50,7 +50,7 @@ impl TransactionManager<FbConnection> for FbTransactionManager {
                 .execute(conn)?;
         } else {
             conn.raw
-                .begin_transaction()
+                .begin_transaction(None)
                 .map_err(|e| DatabaseError(DatabaseErrorKind::Unknown, Box::new(e.to_string())))?;
         }
         if let TransactionManagerStatus::Valid(s) = Self::transaction_manager_status_mut(conn) {

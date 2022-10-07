@@ -69,7 +69,7 @@ fn main() -> Result<(), FbError> {
         colc: "Feijão".to_string(),
     };
 
-    conn.with_transaction(|tr| {
+    conn.with_transaction(None, |tr| {
         // First alternative (Recommended) (Prepares if needed and executes automatically)
         tr.execute(SQL_INSERT, (94, "Banana"))?; // with position params
         tr.execute(SQL_INSERT_NAMED, p1.clone())?; // with named params

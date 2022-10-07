@@ -23,6 +23,10 @@ fn main() -> Result<(), FbError> {
         .db_name("examples.fdb")
         .user("SYSDBA")
         .pass("masterkey")
+        .transaction(TransactionConfiguration {
+            lock_resolution: TrLockResolution::NoWait,
+            ..TransactionConfiguration::default()
+        })
         .connect()?;
 
     #[cfg(feature = "dynamic_loading")]
@@ -33,6 +37,10 @@ fn main() -> Result<(), FbError> {
         .db_name("examples.fdb")
         .user("SYSDBA")
         .pass("masterkey")
+        .transaction(TransactionConfiguration {
+            lock_resolution: TrLockResolution::NoWait,
+            ..TransactionConfiguration::default()
+        })
         .connect()?;
 
     #[cfg(feature = "pure_rust")]
@@ -41,6 +49,10 @@ fn main() -> Result<(), FbError> {
         .db_name("examples.fdb")
         .user("SYSDBA")
         .pass("masterkey")
+        .transaction(TransactionConfiguration {
+            lock_resolution: TrLockResolution::NoWait,
+            ..TransactionConfiguration::default()
+        })
         .connect()?;
 
     // `query_iter` for large quantities of rows, will allocate space for one row at a time

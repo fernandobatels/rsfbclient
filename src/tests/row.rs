@@ -98,7 +98,7 @@ mk_tests_default! {
 
         assert_eq!((10, "abc 132".to_string(),), returning);
 
-        conn.with_transaction(|tr| {
+        conn.with_transaction(None, |tr| {
             let id: (i32,) = tr.execute_returnable("insert into rinsert_returning (id) values (11) returning id", ())?;
 
             assert_eq!((11,), id);

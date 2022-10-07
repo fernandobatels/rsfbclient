@@ -1,5 +1,5 @@
 use super::*;
-use crate::connection::conn_string;
+use crate::connection::{conn_string, TransactionConfiguration};
 use crate::{charset, Charset};
 use rsfbclient_rust::{RustFbClient, RustFbClientAttachmentConfig};
 
@@ -95,6 +95,12 @@ impl PureRustConnectionBuilder {
     /// Database page size. Used on db creation. Default: depends on firebird version
     pub fn page_size(&mut self, size: u32) -> &mut Self {
         self.2 = Some(size);
+        self
+    }
+
+    /// Default transaction configuration
+    pub fn transaction(&mut self, conf: TransactionConfiguration) -> &mut Self {
+        self.0.transaction_conf = conf;
         self
     }
 
