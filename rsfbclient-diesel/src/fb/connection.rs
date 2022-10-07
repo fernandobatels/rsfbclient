@@ -52,10 +52,7 @@ impl Connection for FbConnection {
             .connect()
             .map_err(|e| ConnectionError::BadConnection(e.to_string()))?;
 
-        Ok(FbConnection {
-            raw: raw.into(),
-            tr_manager: FbTransactionManager::new(),
-        })
+        FbConnection::init(raw.into())
     }
 
     fn execute_returning_count<T>(&mut self, source: &T) -> QueryResult<usize>
@@ -166,6 +163,16 @@ where
     }
 }
 
+impl FbConnection {
+    /// Create a disel instance from a active firebird connection
+    pub fn init(conn: FbRawConnection) -> ConnectionResult<Self> {
+        Ok(FbConnection {
+            raw: conn,
+            tr_manager: FbTransactionManager::new(),
+        })
+    }
+}
+
 #[cfg(not(any(feature = "dynamic_loading", feature = "embedded_tests")))]
 #[cfg(test)]
 mod tests {
@@ -174,6 +181,7 @@ mod tests {
     use diesel::connection::SimpleConnection;
     use diesel::prelude::*;
     use diesel::result::Error;
+    use rsfbclient::prelude::*;
 
     #[test]
     fn establish() -> Result<(), ConnectionError> {
@@ -195,6 +203,29 @@ mod tests {
             diesel::sql_query("insert into conn_exec(id, name) values (10, 'café')")
                 .execute(&mut conn)?;
         assert_eq!(1, affected_rows);
+
+        Ok(())
+    }
+
+    #[test]
+    fn establish_from_lib_conn() -> Result<(), String> {
+        #[cfg(all(feature = "pure_rust", not(feature = "linking")))]
+        let mut raw_builder = rsfbclient::builder_pure_rust();
+        #[cfg(feature = "linking")]
+        let raw_builder = rsfbclient::builder_native();
+
+        let conn = raw_builder
+            .from_string("firebird://SYSDBA:masterkey@localhost/test.fdb")
+            .map_err(|e| e.to_string())?
+            .transaction(TransactionConfiguration {
+                lock_resolution: TrLockResolution::NoWait,
+                ..TransactionConfiguration::default()
+            })
+            .connect()
+            .map_err(|e| e.to_string())?
+            .into();
+
+        let _ = FbConnection::init(conn).map_err(|e| e.to_string())?;
 
         Ok(())
     }
