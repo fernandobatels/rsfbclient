@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 #[doc(hidden)]
 pub use rsfbclient_native::{DynLink, DynLoad};
 
+use crate::transaction::{transaction_builder, TransactionConfigurationBuilder};
 use rsfbclient_native::{LinkageMarker, NativeFbAttachmentConfig, NativeFbClient, RemoteConfig};
 
 //used as markers
@@ -196,6 +197,15 @@ where
     /// Default transaction configuration
     pub fn transaction(&mut self, conf: TransactionConfiguration) -> &mut Self {
         self.conn_conf.transaction_conf = conf;
+        self
+    }
+
+    /// Default transaction configuration builder
+    pub fn with_transaction<F>(&mut self, builder: F) -> &mut Self
+    where
+        F: FnOnce(&mut TransactionConfigurationBuilder) -> &mut TransactionConfigurationBuilder,
+    {
+        self.conn_conf.transaction_conf = builder(&mut transaction_builder()).build();
         self
     }
 }

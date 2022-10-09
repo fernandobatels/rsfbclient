@@ -19,6 +19,9 @@ use crate::{
 mod simple;
 pub use simple::SimpleTransaction;
 
+mod builder;
+pub use builder::{transaction_builder, TransactionConfigurationBuilder};
+
 pub struct Transaction<'c, C>
 where
     C: FirebirdClient,

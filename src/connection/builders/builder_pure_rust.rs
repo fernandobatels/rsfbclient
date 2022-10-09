@@ -1,5 +1,6 @@
 use super::*;
 use crate::connection::{conn_string, TransactionConfiguration};
+use crate::transaction::{transaction_builder, TransactionConfigurationBuilder};
 use crate::{charset, Charset};
 use rsfbclient_rust::{RustFbClient, RustFbClientAttachmentConfig};
 
@@ -18,6 +19,7 @@ impl FirebirdClientFactory for PureRustConnectionBuilder {
 /// Does not currently support embedded connections.
 ///
 /// Use `builder_pure_rust()` to obtain a new instance.
+#[derive(Clone)]
 pub struct PureRustConnectionBuilder(
     ConnectionConfiguration<RustFbClientAttachmentConfig>,
     Charset,
@@ -101,6 +103,15 @@ impl PureRustConnectionBuilder {
     /// Default transaction configuration
     pub fn transaction(&mut self, conf: TransactionConfiguration) -> &mut Self {
         self.0.transaction_conf = conf;
+        self
+    }
+
+    /// Default transaction configuration builder
+    pub fn with_transaction<F>(&mut self, builder: F) -> &mut Self
+    where
+        F: FnOnce(&mut TransactionConfigurationBuilder) -> &mut TransactionConfigurationBuilder,
+    {
+        self.0.transaction_conf = builder(&mut transaction_builder()).build();
         self
     }
 

@@ -164,7 +164,7 @@ where
 }
 
 impl FbConnection {
-    /// Create a disel instance from a active firebird connection
+    /// Create a diesel instance from a active firebird connection
     pub fn init(conn: FbRawConnection) -> ConnectionResult<Self> {
         Ok(FbConnection {
             raw: conn,
