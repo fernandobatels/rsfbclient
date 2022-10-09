@@ -1,7 +1,7 @@
 //! Firebird transaction types
 //!
 //! More info about transactions in firebird:
-//! https://firebirdsql.org/file/documentation/html/en/refdocs/fblangref30/firebird-30-language-reference.html#fblangref30-transacs
+//! <https://firebirdsql.org/file/documentation/html/en/refdocs/fblangref30/firebird-30-language-reference.html#fblangref30-transacs>
 
 use crate::*;
 

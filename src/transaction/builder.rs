@@ -1,4 +1,7 @@
 //! Transaction configuration builder
+//!
+//! More info about transactions in firebird:
+//! <https://firebirdsql.org/file/documentation/html/en/refdocs/fblangref30/firebird-30-language-reference.html#fblangref30-transacs>
 
 use rsfbclient_core::*;
 
@@ -14,14 +17,20 @@ impl TransactionConfigurationBuilder {
         }
     }
 
-    /// Disable the wait mode on lock resolution
+    /// Disable the wait mode on lock resolution.
+    ///
+    /// In the NO WAIT mode, a transaction will immediately throw a database exception if a conflict occurs
     pub fn no_wait(&mut self) -> &mut Self {
         self.inner.lock_resolution = TrLockResolution::NoWait;
 
         self
     }
 
-    /// Enable wait mode with a specific time on lock resolution
+    /// Enable wait mode with a specific time on lock resolution.
+    ///
+    /// In the WAIT model, transaction will wait till the other transaction has finished.
+    ///
+    /// Waiting will continue only for the number of seconds specified
     pub fn wait(&mut self, until: u32) -> &mut Self {
         self.inner.lock_resolution = TrLockResolution::Wait(Some(until));
 
@@ -29,6 +38,8 @@ impl TransactionConfigurationBuilder {
     }
 
     /// Enable wait forever on lock resolution
+    ///
+    /// In the WAIT model, transaction will wait till the other transaction has finished.
     pub fn wait_infinitely(&mut self) -> &mut Self {
         self.inner.lock_resolution = TrLockResolution::Wait(None);
 
@@ -36,6 +47,8 @@ impl TransactionConfigurationBuilder {
     }
 
     /// Enable read only data access
+    ///
+    /// Only SELECT operations can be executed in the context of this transaction
     pub fn read_only(&mut self) -> &mut Self {
         self.inner.data_access = TrDataAccessMode::ReadOnly;
 
@@ -43,6 +56,8 @@ impl TransactionConfigurationBuilder {
     }
 
     /// Enable read write data access
+    ///
+    /// Operations in the context of this transaction can be both read operations and data update operations
     pub fn read_write(&mut self) -> &mut Self {
         self.inner.data_access = TrDataAccessMode::ReadWrite;
 
@@ -56,16 +71,18 @@ impl TransactionConfigurationBuilder {
         self
     }
 
-    /// Enable concurrency(Transactions can't see alterations
-    /// commited after they started) isolation level
+    /// Enable concurrency isolation level
+    ///
+    /// Transactions can't see alterations commited after they started
     pub fn with_concurrency(&mut self) -> &mut Self {
         self.inner.isolation = TrIsolationLevel::Concurrency;
 
         self
     }
 
-    /// Enable read commited(Transactions can see alterations
-    /// commited after they started) isolation level
+    /// Enable read commited isolation level
+    ///
+    /// Transactions can see alterations commited after they started
     pub fn with_read_commited(&mut self, rec: TrRecordVersion) -> &mut Self {
         self.inner.isolation = TrIsolationLevel::ReadCommited(rec);
 
