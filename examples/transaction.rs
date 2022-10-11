@@ -50,7 +50,7 @@ fn main() -> Result<(), FbError> {
     conn.rollback()?;
 
     // New scoped transaction
-    conn.with_transaction(None, |tr| {
+    conn.with_transaction(|tr| {
         let _: Vec<(String, String)> = tr.query(
             "select mon$attachment_name, mon$user from mon$attachments",
             (),
@@ -60,7 +60,7 @@ fn main() -> Result<(), FbError> {
     })?;
 
     // New scoped transaction, but with a diferent transaction conf
-    conn.with_transaction(Some(transaction_builder().no_wait().build()), |tr| {
+    conn.with_transaction_config(transaction_builder().no_wait().build(), |tr| {
         let _: Vec<(String, String)> = tr.query(
             "select mon$attachment_name, mon$user from mon$attachments",
             (),
@@ -70,7 +70,7 @@ fn main() -> Result<(), FbError> {
     })?;
 
     // New default transaction, but with a diferent transaction conf too
-    conn.begin_transaction(Some(transaction_builder().read_only().build()))?;
+    conn.begin_transaction_config(transaction_builder().read_only().build())?;
 
     Ok(())
 }

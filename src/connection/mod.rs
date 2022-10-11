@@ -171,9 +171,18 @@ impl<C: FirebirdClient> Connection<C> {
 
     /// Run a closure with a transaction, if the closure returns an error
     /// and the default transaction is not active, the transaction will rollback, else it will be committed
-    pub fn with_transaction<T, F>(
+    pub fn with_transaction<T, F>(&mut self, closure: F) -> Result<T, FbError>
+    where
+        F: FnOnce(&mut Transaction<C>) -> Result<T, FbError>,
+    {
+        self.with_transaction_config(self.def_confs_tr, closure)
+    }
+
+    /// Run a closure with a transaction, if the closure returns an error
+    /// and the default transaction is not active, the transaction will rollback, else it will be committed
+    pub fn with_transaction_config<T, F>(
         &mut self,
-        custom_confs: Option<TransactionConfiguration>,
+        confs: TransactionConfiguration,
         closure: F,
     ) -> Result<T, FbError>
     where
@@ -184,10 +193,6 @@ impl<C: FirebirdClient> Connection<C> {
         let mut tr = if let Some(tr) = self.def_tr.take() {
             tr.into_transaction(self)
         } else {
-            let confs = match custom_confs {
-                Some(c) => c,
-                None => self.def_confs_tr,
-            };
             Transaction::new(self, confs)?
         };
 
@@ -216,7 +221,7 @@ impl<C: FirebirdClient> Connection<C> {
     /// if it was not closed with `commit_retaining` or `rollback_retaining`
     fn use_transaction<T, F>(
         &mut self,
-        custom_confs: Option<TransactionConfiguration>,
+        confs: TransactionConfiguration,
         closure: F,
     ) -> Result<T, FbError>
     where
@@ -225,10 +230,6 @@ impl<C: FirebirdClient> Connection<C> {
         let mut tr = if let Some(tr) = self.def_tr.take() {
             tr.into_transaction(self)
         } else {
-            let confs = match custom_confs {
-                Some(c) => c,
-                None => self.def_confs_tr,
-            };
             Transaction::new(self, confs)?
         };
 
@@ -247,9 +248,17 @@ impl<C: FirebirdClient> Connection<C> {
     /// Begins a new transaction, and instructs all the `query` and `execute` methods
     /// performed in the [`Connection`] type to not automatically commit and rollback
     /// until [`commit`][`Connection::commit`] or [`rollback`][`Connection::rollback`] are called
-    pub fn begin_transaction(
+    pub fn begin_transaction(&mut self) -> Result<(), FbError> {
+        self.begin_transaction_config(self.def_confs_tr)
+    }
+
+    /// Begins a new transaction with a new transaction configuration, and instructs
+    /// all the `query` and `execute` methods performed in the [`Connection`] type to
+    /// not automatically commit and rollback until [`commit`][`Connection::commit`]
+    /// or [`rollback`][`Connection::rollback`] are called
+    pub fn begin_transaction_config(
         &mut self,
-        custom_confs: Option<TransactionConfiguration>,
+        custom_confs: TransactionConfiguration,
     ) -> Result<(), FbError> {
         self.use_transaction(custom_confs, |_| Ok(()))?;
 
@@ -262,14 +271,14 @@ impl<C: FirebirdClient> Connection<C> {
     pub fn commit(&mut self) -> Result<(), FbError> {
         self.in_transaction = false;
 
-        self.use_transaction(None, |tr| tr.commit_retaining())
+        self.use_transaction(self.def_confs_tr, |tr| tr.commit_retaining())
     }
 
     /// Rollback the default transaction
     pub fn rollback(&mut self) -> Result<(), FbError> {
         self.in_transaction = false;
 
-        self.use_transaction(None, |tr| tr.rollback_retaining())
+        self.use_transaction(self.def_confs_tr, |tr| tr.rollback_retaining())
     }
 }
 
@@ -324,7 +333,7 @@ where
         let stmt_cache_data = self.stmt_cache_data.as_mut().unwrap();
 
         self.conn
-            .use_transaction(None, move |tr| {
+            .use_transaction(self.conn.def_confs_tr, move |tr| {
                 Ok(stmt_cache_data
                     .stmt
                     .fetch(tr.conn, &mut tr.data)
@@ -348,7 +357,7 @@ where
         P: IntoParams,
         R: FromRow + 'static,
     {
-        let stmt_cache_data = self.use_transaction(None, |tr| {
+        let stmt_cache_data = self.use_transaction(self.def_confs_tr, |tr| {
             let params = params.to_params();
 
             // Get a statement from the cache
@@ -389,7 +398,7 @@ where
     {
         let params = params.to_params();
 
-        self.with_transaction(None, |tr| {
+        self.with_transaction(|tr| {
             // Get a statement from the cache
             let mut stmt_cache_data = StmtCache::get_or_prepare(tr, sql, params.named())?;
 
@@ -410,7 +419,7 @@ where
     {
         let params = params.to_params();
 
-        self.with_transaction(None, |tr| {
+        self.with_transaction(|tr| {
             // Get a statement from the cache
             let mut stmt_cache_data = StmtCache::get_or_prepare(tr, sql, params.named())?;
 

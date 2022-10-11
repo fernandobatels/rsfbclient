@@ -124,17 +124,32 @@ impl SimpleConnection {
     /// Begins a new transaction, and instructs all the `query` and `execute` methods
     /// performed in the [`SimpleConnection`] type to not automatically commit and rollback
     /// until [`commit`][`SimpleConnection::commit`] or [`rollback`][`SimpleConnection::rollback`] are called
-    pub fn begin_transaction(
+    pub fn begin_transaction(&mut self) -> Result<(), FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.begin_transaction(),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.begin_transaction(),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.begin_transaction(),
+        }
+    }
+
+    /// Begins a new transaction with a custom transaction configuration, and instructs
+    /// all the `query` and `execute` methods performed in the [`SimpleConnection`] type
+    /// to not automatically commit and rollback until [`commit`][`SimpleConnection::commit`]
+    /// or [`rollback`][`SimpleConnection::rollback`] are called
+    pub fn begin_transaction_config(
         &mut self,
-        custom_confs: Option<TransactionConfiguration>,
+        confs: TransactionConfiguration,
     ) -> Result<(), FbError> {
         match &mut self.inner {
             #[cfg(feature = "linking")]
-            TypeConnectionContainer::NativeDynLink(c) => c.begin_transaction(custom_confs),
+            TypeConnectionContainer::NativeDynLink(c) => c.begin_transaction_config(confs),
             #[cfg(feature = "dynamic_loading")]
-            TypeConnectionContainer::NativeDynLoad(c) => c.begin_transaction(custom_confs),
+            TypeConnectionContainer::NativeDynLoad(c) => c.begin_transaction_config(confs),
             #[cfg(feature = "pure_rust")]
-            TypeConnectionContainer::PureRust(c) => c.begin_transaction(custom_confs),
+            TypeConnectionContainer::PureRust(c) => c.begin_transaction_config(confs),
         }
     }
 
