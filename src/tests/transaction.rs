@@ -117,9 +117,8 @@ mk_tests_default! {
         let qr: Result<Vec<(i32,)>, FbError> = transaction2.query(format!(select_stmt_fmtstring!(), TABLE_NAME).as_str(), ());
 
         assert!(qr.is_err());
-        let mut e = qr.err().unwrap().to_string();
-        e.truncate(95);
-        assert!(e.contains("deadlock\nread conflicts with concurrent update\nconcurrent transaction number is"));
+        let e = qr.err().unwrap().to_string();
+        assert!(e.contains("deadlock") && e.contains("read conflicts with concurrent update"), "received: {}", e);
 
         drop(transaction2);
         drop(transaction1);
@@ -145,9 +144,8 @@ mk_tests_default! {
         let qr: Result<Vec<(i32,)>, FbError> = transaction2.query(format!(select_stmt_fmtstring!(), TABLE_NAME).as_str(), ());
 
         assert!(qr.is_err());
-        let mut e = qr.err().unwrap().to_string();
-        e.truncate(95);
-        assert!(e.contains("deadlock\nread conflicts with concurrent update\nconcurrent transaction number is"));
+        let e = qr.err().unwrap().to_string();
+        assert!(e.contains("deadlock") && e.contains("read conflicts with concurrent update"), "received: {}", e);
 
         drop(transaction2);
         drop(transaction1);
