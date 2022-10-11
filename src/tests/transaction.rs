@@ -5,7 +5,7 @@
 //!
 
 mk_tests_default! {
-    use crate::{FbError, Connection, Transaction, query::Queryable};
+    use crate::{FbError, Connection, Transaction, query::Queryable, EngineVersion, SystemInfos};
     use rsfbclient_core::*;
 
     macro_rules! recreate_tbl_fmtstring{
@@ -104,6 +104,9 @@ mk_tests_default! {
         const TABLE_NAME: &str = "RSFBCLIENT_TEST_TRANS4";
 
         let mut conn = cbuilder().connect()?;
+        if conn.server_engine()? != EngineVersion::V3 {
+            return Ok(());
+        }
         setup(&mut conn, TABLE_NAME)?;
 
         let mut transaction1 = Transaction::new(&mut conn, TransactionConfiguration::default())?;
@@ -127,10 +130,14 @@ mk_tests_default! {
     }
 
     #[test]
+    #[ignore]
     fn select_readcommited_with_wait_for_some_seconds() -> Result<(), FbError> {
         const TABLE_NAME: &str = "RSFBCLIENT_TEST_TRANS5";
 
         let mut conn = cbuilder().connect()?;
+        if conn.server_engine()? != EngineVersion::V3 {
+            return Ok(());
+        }
         setup(&mut conn, TABLE_NAME)?;
 
         let mut transaction1 = Transaction::new(&mut conn, TransactionConfiguration::default())?;
