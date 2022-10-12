@@ -66,7 +66,7 @@ pub trait FirebirdClientSqlOps {
     fn begin_transaction(
         &mut self,
         db_handle: &mut Self::DbHandle,
-        isolation_level: TrIsolationLevel,
+        confs: TransactionConfiguration,
     ) -> Result<Self::TrHandle, FbError>;
 
     /// Commit / Rollback a transaction
@@ -158,32 +158,6 @@ impl FromStr for Dialect {
             ))),
         }
     }
-}
-
-#[repr(u8)]
-/// Transaction isolation level
-pub enum TrIsolationLevel {
-    /// Transactions can't see alterations commited after they started
-    Concurrency = ibase::isc_tpb_concurrency as u8,
-    /// Table locking
-    Concistency = ibase::isc_tpb_consistency as u8,
-    /// Transactions can see alterations commited after they started
-    ReadCommited = ibase::isc_tpb_read_committed as u8,
-}
-
-impl Default for TrIsolationLevel {
-    fn default() -> Self {
-        Self::ReadCommited
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
-/// Commit / Rollback operations
-pub enum TrOp {
-    Commit,
-    CommitRetaining,
-    Rollback,
-    RollbackRetaining,
 }
 
 #[repr(u8)]

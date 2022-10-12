@@ -3,7 +3,8 @@
 //! multiple connection types/variations.
 //!
 
-use crate::{Connection, Execute, FbError, FromRow, IntoParams, Queryable, SimpleTransaction};
+use crate::{Connection, Execute, FbError, FromRow, IntoParams, Queryable};
+use rsfbclient_core::TransactionConfiguration;
 
 #[cfg(feature = "linking")]
 use rsfbclient_native::DynLink;
@@ -120,25 +121,6 @@ impl SimpleConnection {
         }
     }
 
-    /// Run a closure with a transaction, if the closure returns an error
-    /// the transaction will rollback, else it will be committed
-    pub fn with_transaction<T, F>(&mut self, closure: F) -> Result<T, FbError>
-    where
-        F: FnOnce(&mut SimpleTransaction) -> Result<T, FbError>,
-    {
-        let mut tr = SimpleTransaction::new(self)?;
-
-        let res = closure(&mut tr);
-
-        if res.is_ok() {
-            tr.commit_retaining()?;
-        } else {
-            tr.rollback_retaining()?;
-        };
-
-        res
-    }
-
     /// Begins a new transaction, and instructs all the `query` and `execute` methods
     /// performed in the [`SimpleConnection`] type to not automatically commit and rollback
     /// until [`commit`][`SimpleConnection::commit`] or [`rollback`][`SimpleConnection::rollback`] are called
@@ -150,6 +132,24 @@ impl SimpleConnection {
             TypeConnectionContainer::NativeDynLoad(c) => c.begin_transaction(),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.begin_transaction(),
+        }
+    }
+
+    /// Begins a new transaction with a custom transaction configuration, and instructs
+    /// all the `query` and `execute` methods performed in the [`SimpleConnection`] type
+    /// to not automatically commit and rollback until [`commit`][`SimpleConnection::commit`]
+    /// or [`rollback`][`SimpleConnection::rollback`] are called
+    pub fn begin_transaction_config(
+        &mut self,
+        confs: TransactionConfiguration,
+    ) -> Result<(), FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.begin_transaction_config(confs),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.begin_transaction_config(confs),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.begin_transaction_config(confs),
         }
     }
 
@@ -271,26 +271,6 @@ mk_tests_default! {
                 (),
             )?.unwrap();
         assert_eq!(100, a);
-
-        Ok(())
-    }
-
-    #[test]
-    fn with_transaction() -> Result<(), FbError> {
-        let mut conn: SimpleConnection = cbuilder()
-            .connect()?
-            .into();
-
-        conn.with_transaction(|tr| {
-
-            let (a,): (i32,) = tr.query_first(
-                "select cast(100 as int) from rdb$database",
-                (),
-            )?.unwrap();
-            assert_eq!(100, a);
-
-            Ok(())
-        })?;
 
         Ok(())
     }

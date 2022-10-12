@@ -78,6 +78,11 @@ pub(crate) mod tests;
 
 pub mod prelude {
     pub use crate::query::{Execute, Queryable};
+    pub use crate::transaction::{transaction_builder, TransactionConfigurationBuilder};
+    pub use rsfbclient_core::{
+        TrDataAccessMode, TrIsolationLevel, TrLockResolution, TrRecordVersion,
+        TransactionConfiguration,
+    };
     pub use rsfbclient_derive::IntoParams;
 }
 

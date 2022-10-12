@@ -1,10 +1,11 @@
 use super::*;
-use crate::connection::conn_string;
+use crate::connection::{conn_string, TransactionConfiguration};
 use std::marker::PhantomData;
 
 #[doc(hidden)]
 pub use rsfbclient_native::{DynLink, DynLoad};
 
+use crate::transaction::{transaction_builder, TransactionConfigurationBuilder};
 use rsfbclient_native::{LinkageMarker, NativeFbAttachmentConfig, NativeFbClient, RemoteConfig};
 
 //used as markers
@@ -190,6 +191,21 @@ where
     /// Database page size. Used on db creation. Default: depends on firebird version
     pub fn page_size(&mut self, size: u32) -> &mut Self {
         self.page_size = Some(size);
+        self
+    }
+
+    /// Default transaction configuration
+    pub fn transaction(&mut self, conf: TransactionConfiguration) -> &mut Self {
+        self.conn_conf.transaction_conf = conf;
+        self
+    }
+
+    /// Default transaction configuration builder
+    pub fn with_transaction<F>(&mut self, builder: F) -> &mut Self
+    where
+        F: FnOnce(&mut TransactionConfigurationBuilder) -> &mut TransactionConfigurationBuilder,
+    {
+        self.conn_conf.transaction_conf = builder(&mut transaction_builder()).build();
         self
     }
 }
