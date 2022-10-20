@@ -87,6 +87,7 @@ pub mod prelude {
 }
 
 mod connection;
+mod events;
 mod query;
 mod statement;
 mod transaction;
@@ -94,6 +95,7 @@ mod utils;
 
 pub use crate::{
     connection::{Connection, ConnectionConfiguration, FirebirdClientFactory, SimpleConnection},
+    events::RemoteEventsManager,
     query::{Execute, Queryable},
     statement::Statement,
     transaction::{SimpleTransaction, Transaction},
