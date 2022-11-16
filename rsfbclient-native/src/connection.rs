@@ -586,6 +586,50 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
 
         Ok(rcol)
     }
+
+    /// Register a listner for some events
+    fn que_events(
+        &mut self,
+        db_handle: &mut Self::DbHandle,
+        names: Vec<String>
+    ) -> Result<(), FbError> {
+
+        let mut event_buffer: Vec<u8> = Vec::with_capacity(256);
+        let mut result_buffer: Vec<u8> = Vec::with_capacity(256);
+        let mut len = 0;
+
+        unsafe {
+            len = self.ibase.isc_event_block()(
+                event_buffer.as_mut_ptr() as *mut _,
+                result_buffer.as_mut_ptr() as *mut _,
+                names.len() as u16,
+                names[0].as_ptr()
+            );
+            event_buffer.set_len(len as usize);
+            result_buffer.set_len(len as usize);
+        }
+
+        println!("{:?} {:?}", len, names);
+        println!("{:?} {:?}", event_buffer, result_buffer);
+        println!("{:x?} {:x?}", event_buffer, result_buffer);
+        println!("{:?} {:?}", std::str::from_utf8(&event_buffer.clone()), std::str::from_utf8(&result_buffer.clone()));
+        println!("{:?} {:?}", event_buffer.iter().map(|s| *s as char), result_buffer.iter().map(|s| *s as char));
+
+        unsafe {
+            if self.ibase.isc_wait_for_event()(
+                &mut self.status[0],
+                db_handle,
+                len as i16,
+                event_buffer.as_mut_ptr() as *mut _,
+                result_buffer.as_mut_ptr() as *mut _
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<T: LinkageMarker> NativeFbClient<T> {

@@ -443,14 +443,14 @@ parse_functions! {
     // extern "C" {
     //     pub fn isc_encode_timestamp(arg1: *const ::std::os::raw::c_void, arg2: *mut ISC_TIMESTAMP);
     // }
-    // extern "C" {
-    //     pub fn isc_event_block(
-    //         arg1: *mut *mut ISC_UCHAR,
-    //         arg2: *mut *mut ISC_UCHAR,
-    //         arg3: ISC_USHORT,
-    //         ...
-    //     ) -> ISC_LONG;
-    // }
+    extern "C" {
+        pub fn isc_event_block(
+            arg1: *mut *mut ISC_UCHAR,
+            arg2: *mut *mut ISC_UCHAR,
+            arg3: ISC_USHORT,
+            ...
+        ) -> ISC_LONG;
+    }
     // extern "C" {
     //     pub fn isc_event_block_a(
     //         arg1: *mut *mut ISC_SCHAR,
@@ -781,15 +781,15 @@ parse_functions! {
     //         arg3: ::std::os::raw::c_short,
     //     ) -> ISC_STATUS;
     // }
-    // extern "C" {
-    //     pub fn isc_wait_for_event(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_db_handle,
-    //         arg3: ::std::os::raw::c_short,
-    //         arg4: *const ISC_UCHAR,
-    //         arg5: *mut ISC_UCHAR,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "C" {
+        pub fn isc_wait_for_event(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_db_handle,
+            arg3: ::std::os::raw::c_short,
+            arg4: *const ISC_UCHAR,
+            arg5: *mut ISC_UCHAR,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_close(arg1: *mut ISC_STATUS, arg2: *const ISC_SCHAR) -> ISC_STATUS;
     // }

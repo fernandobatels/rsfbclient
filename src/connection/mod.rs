@@ -280,6 +280,11 @@ impl<C: FirebirdClient> Connection<C> {
 
         self.use_transaction(self.def_confs_tr, |tr| tr.rollback_retaining())
     }
+
+    /// Register a listner for some events
+    pub fn que_events(&mut self, names: Vec<String>) -> Result<(), FbError> {
+        self.cli.que_events(&mut self.handle, names)
+    }
 }
 
 impl<C: FirebirdClient> Drop for Connection<C> {

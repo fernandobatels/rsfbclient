@@ -42,8 +42,15 @@ where
 
     /// Start the events listners
     pub fn start(&mut self) -> Result<JoinHandle<()>, FbError> {
-        let th = thread::spawn(move || {
-            // some work here
+
+        let names = self.events.iter()
+            .map(|e| e.name.to_string())
+            .collect();
+
+        self.conn.que_events(names)?;
+
+        let th = thread::spawn(|| {
+            //loop {}
         });
 
         Ok(th)

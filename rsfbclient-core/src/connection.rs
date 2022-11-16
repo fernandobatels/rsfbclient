@@ -133,6 +133,13 @@ pub trait FirebirdClientSqlOps {
         tr_handle: &mut Self::TrHandle,
         stmt_handle: &mut Self::StmtHandle,
     ) -> Result<Option<Vec<Column>>, FbError>;
+
+    /// Register a listner for some events
+    fn que_events(
+        &mut self,
+        db_handle: &mut Self::DbHandle,
+        names: Vec<String>
+    ) -> Result<(), FbError>;
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
