@@ -2,9 +2,9 @@
 
 use crate::Connection;
 use rsfbclient_core::{FbError, FirebirdClient};
-use std::ops::Fn;
 use std::marker::PhantomData;
-use std::thread::{self,JoinHandle};
+use std::ops::Fn;
+use std::thread::{self, JoinHandle};
 
 /// Firebird remote events manager
 pub struct RemoteEventsManager<'a, C, F>
@@ -13,7 +13,7 @@ where
     F: FnMut(&mut Connection<C>) -> Result<(), FbError>,
 {
     conn: &'a mut Connection<C>,
-    events: Vec<RegisteredEvent<'a, F, C>>
+    events: Vec<RegisteredEvent<'a, F, C>>,
 }
 
 impl<'a, C, F> RemoteEventsManager<'a, C, F>
@@ -24,17 +24,16 @@ where
     pub fn init(conn: &'a mut Connection<C>) -> Result<Self, FbError> {
         Ok(Self {
             conn,
-            events: vec![]
+            events: vec![],
         })
     }
 
     /// Register a event with a callback
-    pub fn listen(&mut self, name: &'a str, closure: F) -> Result<(), FbError>
-    {
+    pub fn listen(&mut self, name: &'a str, closure: F) -> Result<(), FbError> {
         self.events.push(RegisteredEvent {
             name,
             phantom: PhantomData,
-            closure
+            closure,
         });
 
         Ok(())
@@ -42,10 +41,7 @@ where
 
     /// Start the events listners
     pub fn start(&mut self) -> Result<JoinHandle<()>, FbError> {
-
-        let names = self.events.iter()
-            .map(|e| e.name.to_string())
-            .collect();
+        let names = self.events.iter().map(|e| e.name.to_string()).collect();
 
         self.conn.que_events(names)?;
 
@@ -58,12 +54,12 @@ where
 }
 
 struct RegisteredEvent<'a, F, C>
-    where
-        F: FnMut(&mut Connection<C>) -> Result<(), FbError>,
+where
+    F: FnMut(&mut Connection<C>) -> Result<(), FbError>,
 {
     name: &'a str,
     phantom: PhantomData<&'a C>,
-    closure: F
+    closure: F,
 }
 
 #[cfg(test)]

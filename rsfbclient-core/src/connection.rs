@@ -138,7 +138,7 @@ pub trait FirebirdClientSqlOps {
     fn que_events(
         &mut self,
         db_handle: &mut Self::DbHandle,
-        names: Vec<String>
+        names: Vec<String>,
     ) -> Result<(), FbError>;
 }
 

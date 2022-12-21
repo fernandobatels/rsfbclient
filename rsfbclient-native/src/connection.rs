@@ -9,7 +9,9 @@ use crate::{
 };
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use rsfbclient_core::*;
-use std::{convert::TryFrom, io::Cursor, ptr};
+use std::ffi::CString;
+use std::os::raw::c_char;
+use std::{convert::TryFrom, io::Cursor, ptr, str};
 
 type NativeDbHandle = ibase::isc_db_handle;
 type NativeTrHandle = ibase::isc_tr_handle;
@@ -591,37 +593,58 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
     fn que_events(
         &mut self,
         db_handle: &mut Self::DbHandle,
-        names: Vec<String>
+        names: Vec<String>,
     ) -> Result<(), FbError> {
+        let mut event_buffer = ptr::null_mut();
+        let mut result_buffer = ptr::null_mut();
 
-        let mut event_buffer: Vec<u8> = Vec::with_capacity(256);
-        let mut result_buffer: Vec<u8> = Vec::with_capacity(256);
-        let mut len = 0;
+        // TODO: support multiple names
+        let name = CString::new(names[0].clone()).unwrap();
+        let len = unsafe {
+            self.ibase.isc_event_block()(
+                &mut event_buffer,
+                &mut result_buffer,
+                1,
+                name.as_ptr() as *mut c_char,
+            )
+        };
+        debug_assert!(!event_buffer.is_null() && !result_buffer.is_null());
 
-        unsafe {
-            len = self.ibase.isc_event_block()(
-                event_buffer.as_mut_ptr() as *mut _,
-                result_buffer.as_mut_ptr() as *mut _,
-                names.len() as u16,
-                names[0].as_ptr()
-            );
-            event_buffer.set_len(len as usize);
-            result_buffer.set_len(len as usize);
+        // Preparing the event_buffer. Yes, I need call the isc_wait_for_event
+        // before call isc_wait_for_event.
+        //
+        // PHP example: https://github.com/FirebirdSQL/php-firebird/blob/b6c288326678f7b8613f5a7d0648ad010c67674c/ibase_events.c#L126
+        {
+            unsafe {
+                if self.ibase.isc_wait_for_event()(
+                    &mut self.status[0],
+                    db_handle,
+                    len as i16,
+                    event_buffer,
+                    result_buffer,
+                ) != 0
+                {
+                    return Err(self.status.as_error(&self.ibase));
+                }
+            }
+
+            unsafe {
+                self.ibase.isc_event_counts()(
+                    &mut self.status[0],
+                    len as i16,
+                    event_buffer,
+                    result_buffer,
+                );
+            }
         }
-
-        println!("{:?} {:?}", len, names);
-        println!("{:?} {:?}", event_buffer, result_buffer);
-        println!("{:x?} {:x?}", event_buffer, result_buffer);
-        println!("{:?} {:?}", std::str::from_utf8(&event_buffer.clone()), std::str::from_utf8(&result_buffer.clone()));
-        println!("{:?} {:?}", event_buffer.iter().map(|s| *s as char), result_buffer.iter().map(|s| *s as char));
 
         unsafe {
             if self.ibase.isc_wait_for_event()(
                 &mut self.status[0],
                 db_handle,
                 len as i16,
-                event_buffer.as_mut_ptr() as *mut _,
-                result_buffer.as_mut_ptr() as *mut _
+                event_buffer,
+                result_buffer,
             ) != 0
             {
                 return Err(self.status.as_error(&self.ibase));

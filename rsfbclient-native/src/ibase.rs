@@ -468,14 +468,14 @@ parse_functions! {
     //         arg5: *mut ISC_USHORT,
     //     );
     // }
-    // extern "C" {
-    //     pub fn isc_event_counts(
-    //         arg1: *mut ISC_ULONG,
-    //         arg2: ::std::os::raw::c_short,
-    //         arg3: *mut ISC_UCHAR,
-    //         arg4: *const ISC_UCHAR,
-    //     );
-    // }
+    extern "C" {
+        pub fn isc_event_counts(
+            arg1: *mut ISC_STATUS,
+            arg2: ::std::os::raw::c_short,
+            arg3: *mut ISC_UCHAR,
+            arg4: *const ISC_UCHAR,
+        ) -> ::std::os::raw::c_void;
+    }
     // extern "C" {
     //     pub fn isc_expand_dpb(arg1: *mut *mut ISC_SCHAR, arg2: *mut ::std::os::raw::c_short, ...);
     // }
