@@ -36,6 +36,7 @@ pub struct RustFbClientAttachmentConfig {
     pub db_name: String,
     pub user: String,
     pub pass: String,
+    pub role_name: Option<String>,
 }
 
 /// A Connection to a firebird server
@@ -90,6 +91,10 @@ impl FirebirdClientDbOps for RustFbClient {
         let db_name = config.db_name.as_str();
         let user = config.user.as_str();
         let pass = config.pass.as_str();
+        let role = match &config.role_name {
+            Some(ro) => Some(ro.as_str()),
+            None => None,
+        };
 
         // Take the existing connection, or connects
         let mut conn = match self.conn.take() {
@@ -104,7 +109,7 @@ impl FirebirdClientDbOps for RustFbClient {
             )?,
         };
 
-        let attach_result = conn.attach_database(db_name, user, pass);
+        let attach_result = conn.attach_database(db_name, user, pass, role);
 
         // Put the connection back
         self.conn.replace(conn);
@@ -136,6 +141,10 @@ impl FirebirdClientDbOps for RustFbClient {
         let db_name = config.db_name.as_str();
         let user = config.user.as_str();
         let pass = config.pass.as_str();
+        let role = match &config.role_name {
+            Some(ro) => Some(ro.as_str()),
+            None => None,
+        };
 
         // Take the existing connection, or connects
         let mut conn = match self.conn.take() {
@@ -150,7 +159,7 @@ impl FirebirdClientDbOps for RustFbClient {
             )?,
         };
 
-        let attach_result = conn.create_database(db_name, user, pass, page_size);
+        let attach_result = conn.create_database(db_name, user, pass, page_size, role);
 
         // Put the connection back
         self.conn.replace(conn);
@@ -381,6 +390,7 @@ impl FirebirdWireConnection {
         user: &str,
         pass: &str,
         page_size: Option<u32>,
+        role_name: Option<&str>,
     ) -> Result<DbHandle, FbError> {
         self.socket.write_all(&create(
             db_name,
@@ -389,6 +399,7 @@ impl FirebirdWireConnection {
             self.version,
             self.charset.clone(),
             page_size,
+            role_name.clone(),
         ))?;
         self.socket.flush()?;
 
@@ -403,6 +414,7 @@ impl FirebirdWireConnection {
         db_name: &str,
         user: &str,
         pass: &str,
+        role_name: Option<&str>,
     ) -> Result<DbHandle, FbError> {
         self.socket.write_all(&attach(
             db_name,
@@ -410,6 +422,7 @@ impl FirebirdWireConnection {
             pass,
             self.version,
             self.charset.clone(),
+            role_name.clone(),
         ))?;
         self.socket.flush()?;
 
@@ -1029,7 +1042,7 @@ fn connection_test() {
     let mut conn =
         FirebirdWireConnection::connect("127.0.0.1", 3050, db_name, user, pass, UTF_8).unwrap();
 
-    let mut db_handle = conn.attach_database(db_name, user, pass).unwrap();
+    let mut db_handle = conn.attach_database(db_name, user, pass, None).unwrap();
 
     let mut tr_handle = conn
         .begin_transaction(&mut db_handle, TransactionConfiguration::default())

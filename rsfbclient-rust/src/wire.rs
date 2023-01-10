@@ -138,8 +138,9 @@ pub fn attach(
     pass: &str,
     protocol: ProtocolVersion,
     charset: Charset,
+    role_name: Option<&str>,
 ) -> Bytes {
-    let dpb = build_dpb(user, pass, protocol, charset, None);
+    let dpb = build_dpb(user, pass, protocol, charset, None, role_name);
 
     let mut attach = BytesMut::with_capacity(16 + db_name.len() + dpb.len());
 
@@ -161,8 +162,9 @@ pub fn create(
     protocol: ProtocolVersion,
     charset: Charset,
     page_size: Option<u32>,
+    role_name: Option<&str>,
 ) -> Bytes {
-    let dpb = build_dpb(user, pass, protocol, charset, page_size);
+    let dpb = build_dpb(user, pass, protocol, charset, page_size, role_name);
 
     let mut create = BytesMut::with_capacity(16 + db_name.len() + dpb.len());
 
@@ -183,6 +185,7 @@ fn build_dpb(
     protocol: ProtocolVersion,
     charset: Charset,
     page_size: Option<u32>,
+    role_name: Option<&str>,
 ) -> Bytes {
     let mut dpb = BytesMut::with_capacity(64);
 
@@ -200,6 +203,11 @@ fn build_dpb(
 
     dpb.put_slice(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
     dpb.put_slice(user.as_bytes());
+
+    if let Some(role) = role_name {
+        dpb.extend(&[ibase::isc_dpb_sql_role_name as u8, role.len() as u8]);
+        dpb.extend(role.bytes());
+    }
 
     match protocol {
         // Plaintext password
