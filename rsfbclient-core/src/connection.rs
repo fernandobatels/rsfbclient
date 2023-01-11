@@ -172,18 +172,18 @@ pub enum FreeStmtOp {
 #[derive(Debug, Eq, PartialEq, Copy, Clone, TryFromPrimitive)]
 /// Statement type
 pub enum StmtType {
-    Select = ibase::isc_info_sql_stmt_select as u8,
-    Insert = ibase::isc_info_sql_stmt_insert as u8,
-    Update = ibase::isc_info_sql_stmt_update as u8,
-    Delete = ibase::isc_info_sql_stmt_delete as u8,
-    Ddl = ibase::isc_info_sql_stmt_ddl as u8,
-    GetSegment = ibase::isc_info_sql_stmt_get_segment as u8,
-    PutSegment = ibase::isc_info_sql_stmt_put_segment as u8,
-    ExecProcedure = ibase::isc_info_sql_stmt_exec_procedure as u8,
-    StartTrans = ibase::isc_info_sql_stmt_start_trans as u8,
-    Commit = ibase::isc_info_sql_stmt_commit as u8,
-    Rollback = ibase::isc_info_sql_stmt_rollback as u8,
-    SelectForUpd = ibase::isc_info_sql_stmt_select_for_upd as u8,
-    SetGenerator = ibase::isc_info_sql_stmt_set_generator as u8,
-    Savepoint = ibase::isc_info_sql_stmt_savepoint as u8,
+    Select = 1,        // isc_info_sql_stmt_select
+    Insert = 2,        // isc_info_sql_stmt_insert
+    Update = 3,        // isc_info_sql_stmt_update
+    Delete = 4,        // isc_info_sql_stmt_delete
+    Ddl = 5,           // isc_info_sql_stmt_ddl
+    GetSegment = 6,    // isc_info_sql_stmt_get_segment
+    PutSegment = 7,    // isc_info_sql_stmt_put_segment
+    ExecProcedure = 8, // isc_info_sql_stmt_exec_procedure
+    StartTrans = 9,    // isc_info_sql_stmt_start_trans
+    Commit = 10,       // isc_info_sql_stmt_commit
+    Rollback = 11,     // isc_info_sql_stmt_rollback
+    SelectForUpd = 12, // isc_info_sql_stmt_select_for_upd
+    SetGenerator = 13, // isc_info_sql_stmt_set_generator
+    Savepoint = 14,    // isc_info_sql_stmt_savepoint
 }

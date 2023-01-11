@@ -100,6 +100,12 @@ impl PureRustConnectionBuilder {
         self
     }
 
+    /// User role name. Default: empty
+    pub fn role<S: Into<String>>(&mut self, name: S) -> &mut Self {
+        self.0.attachment_conf.role_name = Some(name.into());
+        self
+    }
+
     /// Default transaction configuration
     pub fn transaction(&mut self, conf: TransactionConfiguration) -> &mut Self {
         self.0.transaction_conf = conf;
@@ -154,6 +160,10 @@ impl PureRustConnectionBuilder {
 
         if let Some(stmt_cache_size) = settings.stmt_cache_size {
             self.stmt_cache_size(stmt_cache_size);
+        }
+
+        if let Some(role) = settings.role_name {
+            self.role(role);
         }
 
         Ok(self)

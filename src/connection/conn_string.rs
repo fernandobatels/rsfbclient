@@ -15,6 +15,7 @@ pub struct ConnStringSettings {
     pub dialect: Option<Dialect>,
     pub lib_path: Option<String>,
     pub stmt_cache_size: Option<usize>,
+    pub role_name: Option<String>,
 }
 
 /// Parse the connection string.
@@ -98,6 +99,7 @@ pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
     let mut dialect = None;
     let mut charset = None;
     let mut stmt_cache_size = None;
+    let mut role_name = None;
 
     for (param, val) in url.query_pairs() {
         match param.to_string().as_str() {
@@ -122,6 +124,11 @@ pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
                     _ => None,
                 };
             }
+            "role_name" => {
+                if val != "" {
+                    role_name = Some(val.to_string());
+                }
+            }
             _ => {}
         }
     }
@@ -136,6 +143,7 @@ pub fn parse(sconn: &str) -> Result<ConnStringSettings, FbError> {
         dialect,
         lib_path,
         stmt_cache_size,
+        role_name,
     })
 }
 
@@ -510,6 +518,20 @@ mod test {
         assert_eq!(Some("localhost".to_string()), conn.host);
         assert_eq!(Some(3050), conn.port);
         assert_eq!("database_name.fdb".to_string(), conn.db_name);
+
+        Ok(())
+    }
+
+    #[test]
+    fn role_name() -> Result<(), FbError> {
+        let conn = parse("firebird:///srv/db/database_name.fdb?lib=/tmp/fbclient.lib")?;
+        assert_eq!(None, conn.role_name);
+
+        let conn = parse("firebird:///srv/db/database_name.fdb?role_name=")?;
+        assert_eq!(None, conn.role_name);
+
+        let conn = parse("firebird:///srv/db/database_name.fdb?role_name=app")?;
+        assert_eq!(Some("app".to_string()), conn.role_name);
 
         Ok(())
     }

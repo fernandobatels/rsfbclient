@@ -45,6 +45,7 @@ pub struct StmtHandleData {
 pub struct NativeFbAttachmentConfig {
     pub db_name: String,
     pub user: String,
+    pub role_name: Option<String>,
     pub remote: Option<RemoteConfig>,
 }
 
@@ -626,6 +627,11 @@ impl<T: LinkageMarker> NativeFbClient<T> {
 
             dpb.extend(&[ibase::isc_dpb_lc_ctype as u8, charset.len() as u8]);
             dpb.extend(charset);
+
+            if let Some(role) = &config.role_name {
+                dpb.extend(&[ibase::isc_dpb_sql_role_name as u8, role.len() as u8]);
+                dpb.extend(role.bytes());
+            }
 
             dpb
         };

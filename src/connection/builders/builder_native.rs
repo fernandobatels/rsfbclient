@@ -194,6 +194,12 @@ where
         self
     }
 
+    /// User role name. Default: empty
+    pub fn role<S: Into<String>>(&mut self, name: S) -> &mut Self {
+        self.conn_conf.attachment_conf.role_name = Some(name.into());
+        self
+    }
+
     /// Default transaction configuration
     pub fn transaction(&mut self, conf: TransactionConfiguration) -> &mut Self {
         self.conn_conf.transaction_conf = conf;
@@ -240,6 +246,7 @@ impl Default for NativeConnectionBuilder<LinkageNotConfigured, ConnTypeNotConfig
         self_result.conn_conf.attachment_conf.remote = None;
         self_result.conn_conf.attachment_conf.user = "SYSDBA".to_string();
         self_result.conn_conf.attachment_conf.db_name = "test.fdb".to_string();
+        self_result.conn_conf.attachment_conf.role_name = None;
 
         self_result
     }
@@ -408,6 +415,10 @@ impl<A> NativeConnectionBuilder<LinkageNotConfigured, A> {
 
         if let Some(stmt_cache_size) = settings.stmt_cache_size {
             cb.stmt_cache_size(stmt_cache_size);
+        }
+
+        if let Some(role_name) = settings.role_name {
+            cb.role(role_name);
         }
 
         Ok(cb.safe_transmute())
