@@ -1,6 +1,6 @@
 [package]
 name = "r2d2_firebird"
-version = "0.21.0"
+version = "0.22.0"
 description = "Firebird support for the r2d2 connection pool"
 authors = [
     "silvioprog <silvioprog@gmail.com>",
@@ -13,9 +13,9 @@ categories = ["database"]
 license = "MIT"
 
 [dependencies]
-rsfbclient = { version = "0.21", path = "../", default-features = false }
-rsfbclient-core = { version = "0.21", path = "../rsfbclient-core" }
+rsfbclient = { version = "0.22", path = "../", default-features = false }
+rsfbclient-core = { version = "0.22", path = "../rsfbclient-core" }
 r2d2 = "0.8.9"
 
 [dev-dependencies]
-rsfbclient = { version = "0.21", path = "../", features = ["pure_rust"], default-features = false }
+rsfbclient = { version = "0.22", path = "../", features = ["pure_rust"], default-features = false }
