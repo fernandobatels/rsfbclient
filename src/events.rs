@@ -1,35 +1,36 @@
 //! Firebird remote events API
 
-use crate::Connection;
+use crate::{Connection, FirebirdClientFactory};
 use rsfbclient_core::{FbError, FirebirdClient};
 use std::marker::PhantomData;
-use std::ops::Fn;
 use std::thread::{self, JoinHandle};
 
 /// Firebird remote events manager
-pub struct RemoteEventsManager<'a, C, F>
+pub struct RemoteEventsManager<C, F, FA>
 where
-    C: FirebirdClient,
-    F: FnMut(&mut Connection<C>) -> Result<(), FbError>,
+    C: FirebirdClient + Send + Sync,
+    F: FnMut(&mut Connection<C>) -> Result<(), FbError> + Send + Sync + 'static,
+    FA: FirebirdClientFactory<C = C> + Send + Sync + Clone + 'static,
 {
-    conn: &'a mut Connection<C>,
-    events: Vec<RegisteredEvent<'a, F, C>>,
+    events: Vec<RegisteredEvent<F, C>>,
+    conn_builder: FA,
 }
 
-impl<'a, C, F> RemoteEventsManager<'a, C, F>
+impl<C, F, FA> RemoteEventsManager<C, F, FA>
 where
-    C: FirebirdClient,
-    F: FnMut(&mut Connection<C>) -> Result<(), FbError>,
+    C: FirebirdClient + Send + Sync,
+    F: FnMut(&mut Connection<C>) -> Result<(), FbError> + Send + Sync + 'static,
+    FA: FirebirdClientFactory<C = C> + Send + Sync + Clone + 'static,
 {
-    pub fn init(conn: &'a mut Connection<C>) -> Result<Self, FbError> {
+    pub fn init(fac: FA) -> Result<Self, FbError> {
         Ok(Self {
-            conn,
             events: vec![],
+            conn_builder: fac,
         })
     }
 
     /// Register a event with a callback
-    pub fn listen(&mut self, name: &'a str, closure: F) -> Result<(), FbError> {
+    pub fn listen(&mut self, name: String, closure: F) -> Result<(), FbError> {
         self.events.push(RegisteredEvent {
             name,
             phantom: PhantomData,
@@ -40,59 +41,94 @@ where
     }
 
     /// Start the events listners
-    pub fn start(&mut self) -> Result<JoinHandle<()>, FbError> {
-        let names = self.events.iter().map(|e| e.name.to_string()).collect();
+    pub fn start(self) -> Result<JoinHandle<Result<(), FbError>>, FbError> {
+        let mut threads: Vec<JoinHandle<Result<(), FbError>>> = vec![];
 
-        self.conn.que_events(names)?;
+        for event in self.events {
+            let cb = self.conn_builder.clone();
 
-        let th = thread::spawn(|| {
-            //loop {}
+            let th = thread::spawn(move || {
+                let cli = cb.new_instance()?;
+                let mut conn = Connection::open(cli, cb.get_conn_conf())?;
+
+                let mut call = event.closure;
+                loop {
+                    conn.wait_for_event(event.name.clone())?;
+
+                    call(&mut conn)?;
+                }
+            });
+            threads.push(th);
+        }
+
+        let ctl = thread::spawn(|| {
+            for th in threads {
+                let _ = th
+                    .join()
+                    .map_err(|_| FbError::from("Join internal thread"))?;
+            }
+
+            Ok(())
         });
 
-        Ok(th)
+        Ok(ctl)
     }
 }
 
-struct RegisteredEvent<'a, F, C>
+struct RegisteredEvent<F, C>
 where
-    F: FnMut(&mut Connection<C>) -> Result<(), FbError>,
+    F: FnMut(&mut Connection<C>) -> Result<(), FbError> + Send + 'static,
 {
-    name: &'a str,
-    phantom: PhantomData<&'a C>,
+    name: String,
+    phantom: PhantomData<C>,
     closure: F,
 }
 
 #[cfg(test)]
 mk_tests_default! {
     use crate::*;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use std::thread;
 
     #[test]
-    fn remote_events() -> Result<(), FbError> {
-        let mut conn = cbuilder().connect()?;
+    #[cfg(all(feature = "linking", not(feature = "embedded_tests")))]
+    fn remote_events_native() -> Result<(), FbError> {
+        let cb = builder_native()
+            .with_dyn_link()
+            .with_remote();
 
-        let mut mn = RemoteEventsManager::init(&mut conn)?;
+        let mut mn = RemoteEventsManager::init(cb)?;
 
-        let mut counter = 0;
+        let counter = Arc::new(Mutex::new(0)).clone();
 
-        mn.listen("evento", |c| {
+        let acounter = Arc::clone(&counter);
+        mn.listen("evento".to_string(), move |c| {
 
             let (_,): (i32,) = c.query_first(
                 "select 1 from rdb$database",
                 (),
             )?.unwrap();
 
-            counter = 1;
+            let mut num = acounter.lock().unwrap();
+            *num += 1;
 
             Ok(())
         })?;
 
-        let th = mn.start()?;
+        let _ = mn.start()?;
+
+        thread::sleep(Duration::from_secs(5));
+
+        let mut conn = cbuilder().connect()?;
 
         conn.execute("execute block as begin POST_EVENT 'evento'; end", ())?;
+        thread::sleep(Duration::from_secs(2));
+        assert_eq!(1, *counter.lock().unwrap());
 
-        th.join().expect("Join thread fail");
-
-        assert_eq!(1, counter);
+        conn.execute("execute block as begin POST_EVENT 'evento'; end", ())?;
+        thread::sleep(Duration::from_secs(2));
+        assert_eq!(2, *counter.lock().unwrap());
 
         Ok(())
     }

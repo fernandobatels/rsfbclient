@@ -589,17 +589,16 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         Ok(rcol)
     }
 
-    /// Register a listner for some events
-    fn que_events(
+    /// Wait for an event to be posted on database
+    fn wait_for_event(
         &mut self,
         db_handle: &mut Self::DbHandle,
-        names: Vec<String>,
+        name: String,
     ) -> Result<(), FbError> {
         let mut event_buffer = ptr::null_mut();
         let mut result_buffer = ptr::null_mut();
 
-        // TODO: support multiple names
-        let name = CString::new(names[0].clone()).unwrap();
+        let name = CString::new(name.clone()).unwrap();
         let len = unsafe {
             self.ibase.isc_event_block()(
                 &mut event_buffer,

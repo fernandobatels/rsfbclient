@@ -134,11 +134,11 @@ pub trait FirebirdClientSqlOps {
         stmt_handle: &mut Self::StmtHandle,
     ) -> Result<Option<Vec<Column>>, FbError>;
 
-    /// Register a listner for some events
-    fn que_events(
+    /// Wait for an event to be posted on database
+    fn wait_for_event(
         &mut self,
         db_handle: &mut Self::DbHandle,
-        names: Vec<String>,
+        name: String,
     ) -> Result<(), FbError>;
 }
 
