@@ -20,7 +20,7 @@ where
 {
 }
 
-///Responsible for database administration and attachment/detachment
+/// Responsible for database administration and attachment/detachment
 pub trait FirebirdClientDbOps: Send {
     /// A database handle
     type DbHandle: Send;
@@ -133,7 +133,10 @@ pub trait FirebirdClientSqlOps {
         tr_handle: &mut Self::TrHandle,
         stmt_handle: &mut Self::StmtHandle,
     ) -> Result<Option<Vec<Column>>, FbError>;
+}
 
+/// Firebird base event API
+pub trait FirebirdClientDbEvents: FirebirdClientDbOps {
     /// Wait for an event to be posted on database
     fn wait_for_event(
         &mut self,

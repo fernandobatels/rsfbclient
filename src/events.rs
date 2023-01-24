@@ -1,14 +1,14 @@
 //! Firebird remote events API
 
 use crate::{Connection, SimpleConnection};
-use rsfbclient_core::{FbError, FirebirdClient};
+use rsfbclient_core::{FbError, FirebirdClient, FirebirdClientDbEvents};
 use std::thread::{self, JoinHandle};
 
 /// Firebird remote events manager
 pub trait RemoteEventsManager<F, C>
 where
     F: FnMut(&mut SimpleConnection) -> Result<bool, FbError> + Send + Sync + 'static,
-    C: FirebirdClient + 'static,
+    C: FirebirdClient + FirebirdClientDbEvents + 'static,
     SimpleConnection: From<Connection<C>>,
 {
     /// Start the event listener on a thread
@@ -26,7 +26,7 @@ where
 
 impl<F, C> RemoteEventsManager<F, C> for Connection<C>
 where
-    C: FirebirdClient + 'static,
+    C: FirebirdClient + FirebirdClientDbEvents + 'static,
     F: FnMut(&mut SimpleConnection) -> Result<bool, FbError> + Send + Sync + 'static,
     SimpleConnection: From<Connection<C>>,
 {
@@ -98,7 +98,7 @@ mk_tests_default! {
     }
 
     #[test]
-    #[cfg(not(feature = "embedded_tests"))]
+    #[cfg(all(feature = "linking", not(feature = "embedded_tests")))]
     fn wait_for_event() -> Result<(), FbError> {
 
         let mut conn1 = cbuilder().connect()?;

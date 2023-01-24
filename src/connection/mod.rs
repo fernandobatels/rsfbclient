@@ -4,8 +4,8 @@
 //! Connection functions
 //!
 use rsfbclient_core::{
-    Dialect, FbError, FirebirdClient, FirebirdClientDbOps, FromRow, IntoParams,
-    TransactionConfiguration,
+    Dialect, FbError, FirebirdClient, FirebirdClientDbEvents, FirebirdClientDbOps, FromRow,
+    IntoParams, TransactionConfiguration,
 };
 use std::{marker, mem};
 
@@ -280,10 +280,17 @@ impl<C: FirebirdClient> Connection<C> {
 
         self.use_transaction(self.def_confs_tr, |tr| tr.rollback_retaining())
     }
+}
 
+impl<C: FirebirdClient> Connection<C>
+where
+    C: FirebirdClientDbEvents,
+{
     /// Wait for an event to be posted on database
     pub fn wait_for_event(&mut self, name: String) -> Result<(), FbError> {
-        self.cli.wait_for_event(&mut self.handle, name)
+        self.cli.wait_for_event(&mut self.handle, name)?;
+
+        Ok(())
     }
 }
 

@@ -178,14 +178,16 @@ impl SimpleConnection {
     }
 
     /// Wait for an event to be posted on database
-    pub fn wait_for_event(&mut self, name: String) -> Result<(), FbError> {
+    pub(crate) fn wait_for_event(&mut self, name: String) -> Result<(), FbError> {
         match &mut self.inner {
             #[cfg(feature = "linking")]
             TypeConnectionContainer::NativeDynLink(c) => c.wait_for_event(name),
             #[cfg(feature = "dynamic_loading")]
             TypeConnectionContainer::NativeDynLoad(c) => c.wait_for_event(name),
             #[cfg(feature = "pure_rust")]
-            TypeConnectionContainer::PureRust(c) => c.wait_for_event(name),
+            TypeConnectionContainer::PureRust(c) => {
+                Err(FbError::from("Events only works with the native client"))
+            }
         }
     }
 }

@@ -588,8 +588,9 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
 
         Ok(rcol)
     }
+}
 
-    /// Wait for an event to be posted on database
+impl<T: LinkageMarker> FirebirdClientDbEvents for NativeFbClient<T> {
     fn wait_for_event(
         &mut self,
         db_handle: &mut Self::DbHandle,
