@@ -59,7 +59,8 @@ mk_tests_default! {
     use std::thread;
 
     #[test]
-    #[cfg(all(feature = "linking", not(feature = "embedded_tests")))]
+    #[ignore]
+    #[cfg(all(not(feature = "pure_rust"), not(feature = "embedded_tests")))]
     fn remote_events_native() -> Result<(), FbError> {
         let conn1 = cbuilder().connect()?;
         let mut conn2 = cbuilder().connect()?;
@@ -98,7 +99,8 @@ mk_tests_default! {
     }
 
     #[test]
-    #[cfg(all(feature = "linking", not(feature = "embedded_tests")))]
+    #[ignore]
+    #[cfg(all(not(feature = "pure_rust"), not(feature = "embedded_tests")))]
     fn wait_for_event() -> Result<(), FbError> {
 
         let mut conn1 = cbuilder().connect()?;

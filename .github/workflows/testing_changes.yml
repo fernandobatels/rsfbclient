@@ -250,7 +250,7 @@ jobs:
         if: matrix.plataform == 'linux'
         # TODO: #[error]The process 'C:\Rust\.cargo\bin\cargo.exe' failed with exit code 101: error: no such subcommand: `tarpaulin`
         with:
-          version: "latest"
+          version: "0.22.0"
           run-types: "AllTargets"
           out-type: "Lcov"
           args: -v --line --count --branch --no-default-features --features '${{ matrix.features }}' -- --test-threads 1
@@ -271,7 +271,7 @@ jobs:
         if: matrix.plataform == 'linux'
         # TODO: #[error]The process 'C:\Rust\.cargo\bin\cargo.exe' failed with exit code 101: error: no such subcommand: `tarpaulin`
         with:
-          version: "latest"
+          version: "0.22.0"
           run-types: "AllTargets"
           out-type: "Lcov"
           args: -v --line --count --branch -p rsfbclient-rust
@@ -292,7 +292,7 @@ jobs:
         if: matrix.plataform == 'linux'
         # TODO: #[error]The process 'C:\Rust\.cargo\bin\cargo.exe' failed with exit code 101: error: no such subcommand: `tarpaulin`
         with:
-          version: "latest"
+          version: "0.22.0"
           run-types: "AllTargets"
           out-type: "Lcov"
           args: -v --line --count --branch --manifest-path rsfbclient-diesel/Cargo.toml --no-default-features --features '${{ matrix.features_diesel }}' -- --test-threads 1
