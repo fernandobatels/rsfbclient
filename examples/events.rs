@@ -6,7 +6,7 @@
 
 #![allow(unused_variables, unused_mut)]
 
-use rsfbclient::{FbError, RemoteEventsManager, Queryable};
+use rsfbclient::{FbError, Queryable, RemoteEventsManager};
 
 fn main() -> Result<(), FbError> {
     #[cfg(feature = "linking")]
@@ -30,7 +30,6 @@ fn main() -> Result<(), FbError> {
         .connect()?;
 
     let wt = conn.listen_event("ping".to_string(), move |c| {
-
         println!("Pong! Some rows here:");
 
         let rows: Vec<(String, String)> = c.query(
