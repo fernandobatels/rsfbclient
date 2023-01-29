@@ -488,9 +488,9 @@ parse_functions! {
     //         arg5: ::std::os::raw::c_short,
     //     ) -> ::std::os::raw::c_int;
     // }
-    // extern "C" {
-    //     pub fn isc_free(arg1: *mut ISC_SCHAR) -> ISC_LONG;
-    // }
+    extern "C" {
+        pub fn isc_free(arg1: *mut ISC_UCHAR) -> ISC_LONG;
+    }
     extern "C" {
         pub fn isc_get_segment(
             arg1: *mut ISC_STATUS,

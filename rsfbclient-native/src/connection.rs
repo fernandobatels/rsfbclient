@@ -624,6 +624,9 @@ impl<T: LinkageMarker> FirebirdClientDbEvents for NativeFbClient<T> {
                     result_buffer,
                 ) != 0
                 {
+                    self.ibase.isc_free()(event_buffer);
+                    self.ibase.isc_free()(result_buffer);
+
                     return Err(self.status.as_error(&self.ibase));
                 }
             }
@@ -647,8 +650,14 @@ impl<T: LinkageMarker> FirebirdClientDbEvents for NativeFbClient<T> {
                 result_buffer,
             ) != 0
             {
+                self.ibase.isc_free()(event_buffer);
+                self.ibase.isc_free()(result_buffer);
+
                 return Err(self.status.as_error(&self.ibase));
             }
+
+            self.ibase.isc_free()(event_buffer);
+            self.ibase.isc_free()(result_buffer);
         }
 
         Ok(())
