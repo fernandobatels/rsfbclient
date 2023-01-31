@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 diesel = "2.0.0"
-rsfbclient-diesel = "0.22.0"
+rsfbclient-diesel = "0.23.0"
 argopt = "0.3.0"
 tabled = "0.8.0"
 
