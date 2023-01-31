@@ -5,7 +5,7 @@
 //!
 
 use rsfbclient::{Connection, FbError, FirebirdClientFactory, Transaction};
-use rsfbclient_core::FirebirdClientDbOps;
+use rsfbclient_core::{FirebirdClientDbOps, TransactionConfiguration};
 
 /// A manager for connection pools. Requires the `pool` feature.
 pub struct FirebirdConnectionManager<F>
@@ -39,7 +39,7 @@ where
 
     fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
         // If it can start a transaction, we are ok
-        Transaction::new(conn)?;
+        Transaction::new(conn, TransactionConfiguration::default())?;
         Ok(())
     }
 

@@ -443,14 +443,14 @@ parse_functions! {
     // extern "C" {
     //     pub fn isc_encode_timestamp(arg1: *const ::std::os::raw::c_void, arg2: *mut ISC_TIMESTAMP);
     // }
-    // extern "C" {
-    //     pub fn isc_event_block(
-    //         arg1: *mut *mut ISC_UCHAR,
-    //         arg2: *mut *mut ISC_UCHAR,
-    //         arg3: ISC_USHORT,
-    //         ...
-    //     ) -> ISC_LONG;
-    // }
+    extern "C" {
+        pub fn isc_event_block(
+            arg1: *mut *mut ISC_UCHAR,
+            arg2: *mut *mut ISC_UCHAR,
+            arg3: ISC_USHORT,
+            ...
+        ) -> ISC_LONG;
+    }
     // extern "C" {
     //     pub fn isc_event_block_a(
     //         arg1: *mut *mut ISC_SCHAR,
@@ -468,14 +468,14 @@ parse_functions! {
     //         arg5: *mut ISC_USHORT,
     //     );
     // }
-    // extern "C" {
-    //     pub fn isc_event_counts(
-    //         arg1: *mut ISC_ULONG,
-    //         arg2: ::std::os::raw::c_short,
-    //         arg3: *mut ISC_UCHAR,
-    //         arg4: *const ISC_UCHAR,
-    //     );
-    // }
+    extern "C" {
+        pub fn isc_event_counts(
+            arg1: *mut ISC_STATUS,
+            arg2: ::std::os::raw::c_short,
+            arg3: *mut ISC_UCHAR,
+            arg4: *const ISC_UCHAR,
+        ) -> ::std::os::raw::c_void;
+    }
     // extern "C" {
     //     pub fn isc_expand_dpb(arg1: *mut *mut ISC_SCHAR, arg2: *mut ::std::os::raw::c_short, ...);
     // }
@@ -488,9 +488,9 @@ parse_functions! {
     //         arg5: ::std::os::raw::c_short,
     //     ) -> ::std::os::raw::c_int;
     // }
-    // extern "C" {
-    //     pub fn isc_free(arg1: *mut ISC_SCHAR) -> ISC_LONG;
-    // }
+    extern "C" {
+        pub fn isc_free(arg1: *mut ISC_UCHAR) -> ISC_LONG;
+    }
     extern "C" {
         pub fn isc_get_segment(
             arg1: *mut ISC_STATUS,
@@ -781,15 +781,15 @@ parse_functions! {
     //         arg3: ::std::os::raw::c_short,
     //     ) -> ISC_STATUS;
     // }
-    // extern "C" {
-    //     pub fn isc_wait_for_event(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_db_handle,
-    //         arg3: ::std::os::raw::c_short,
-    //         arg4: *const ISC_UCHAR,
-    //         arg5: *mut ISC_UCHAR,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "C" {
+        pub fn isc_wait_for_event(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_db_handle,
+            arg3: ::std::os::raw::c_short,
+            arg4: *const ISC_UCHAR,
+            arg5: *mut ISC_UCHAR,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_close(arg1: *mut ISC_STATUS, arg2: *const ISC_SCHAR) -> ISC_STATUS;
     // }

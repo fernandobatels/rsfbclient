@@ -9,7 +9,9 @@ use crate::{
 };
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use rsfbclient_core::*;
-use std::{convert::TryFrom, io::Cursor, ptr};
+use std::ffi::CString;
+use std::os::raw::c_char;
+use std::{convert::TryFrom, io::Cursor, ptr, str};
 
 type NativeDbHandle = ibase::isc_db_handle;
 type NativeTrHandle = ibase::isc_tr_handle;
@@ -585,6 +587,80 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
             .collect::<Result<_, _>>()?;
 
         Ok(rcol)
+    }
+}
+
+impl<T: LinkageMarker> FirebirdClientDbEvents for NativeFbClient<T> {
+    fn wait_for_event(
+        &mut self,
+        db_handle: &mut Self::DbHandle,
+        name: String,
+    ) -> Result<(), FbError> {
+        let mut event_buffer = ptr::null_mut();
+        let mut result_buffer = ptr::null_mut();
+
+        let name = CString::new(name.clone()).unwrap();
+        let len = unsafe {
+            self.ibase.isc_event_block()(
+                &mut event_buffer,
+                &mut result_buffer,
+                1,
+                name.as_ptr() as *mut c_char,
+            )
+        };
+        debug_assert!(!event_buffer.is_null() && !result_buffer.is_null());
+
+        // Preparing the event_buffer. Yes, I need call the isc_wait_for_event
+        // before call isc_wait_for_event.
+        //
+        // PHP example: https://github.com/FirebirdSQL/php-firebird/blob/b6c288326678f7b8613f5a7d0648ad010c67674c/ibase_events.c#L126
+        {
+            unsafe {
+                if self.ibase.isc_wait_for_event()(
+                    &mut self.status[0],
+                    db_handle,
+                    len as i16,
+                    event_buffer,
+                    result_buffer,
+                ) != 0
+                {
+                    self.ibase.isc_free()(event_buffer);
+                    self.ibase.isc_free()(result_buffer);
+
+                    return Err(self.status.as_error(&self.ibase));
+                }
+            }
+
+            unsafe {
+                self.ibase.isc_event_counts()(
+                    &mut self.status[0],
+                    len as i16,
+                    event_buffer,
+                    result_buffer,
+                );
+            }
+        }
+
+        unsafe {
+            if self.ibase.isc_wait_for_event()(
+                &mut self.status[0],
+                db_handle,
+                len as i16,
+                event_buffer,
+                result_buffer,
+            ) != 0
+            {
+                self.ibase.isc_free()(event_buffer);
+                self.ibase.isc_free()(result_buffer);
+
+                return Err(self.status.as_error(&self.ibase));
+            }
+
+            self.ibase.isc_free()(event_buffer);
+            self.ibase.isc_free()(result_buffer);
+        }
+
+        Ok(())
     }
 }
 
