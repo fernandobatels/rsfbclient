@@ -203,6 +203,18 @@ mk_tests_default! {
     }
 
     #[test]
+    fn blob_custom_subtype() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        let (a,): (Option<Vec<u8>>,) = conn.query_first("select cast(null as blob SUB_TYPE -1) from rdb$database;", ())?
+            .unwrap();
+
+        assert_eq!(None, a);
+
+        Ok(())
+    }
+
+    #[test]
     fn dates() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
