@@ -646,7 +646,7 @@ pub fn parse_sql_response(
                 }
             }
 
-            ibase::SQL_BLOB if var.sqlsubtype == 0 || var.sqlsubtype == 1 => {
+            ibase::SQL_BLOB if var.sqlsubtype <= 1 => {
                 let id = resp.get_u64()?;
 
                 let null = read_null(resp, col_index)?;
