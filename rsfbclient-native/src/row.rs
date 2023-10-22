@@ -76,8 +76,7 @@ impl ColumnBuffer {
                 Boolean(Box::new(0))
             }
 
-            // BLOB sql_type text are considered a normal text on read
-            ibase::SQL_BLOB if (sqlsubtype == 0 || sqlsubtype == 1) => {
+            ibase::SQL_BLOB if (sqlsubtype <= 1) => {
                 let blob_id = Box::new(ibase::GDS_QUAD_t {
                     gds_quad_high: 0,
                     gds_quad_low: 0,
@@ -85,7 +84,9 @@ impl ColumnBuffer {
 
                 var.sqltype = ibase::SQL_BLOB as i16 + 1;
 
-                if sqlsubtype == 0 {
+                // subtype 0: binary
+                // subtype <= -1: custom
+                if sqlsubtype <= 0 {
                     BlobBinary(blob_id)
                 } else {
                     BlobText(blob_id)
