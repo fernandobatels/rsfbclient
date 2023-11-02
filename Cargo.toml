@@ -1,7 +1,7 @@
 [package]
 name = "rsfbclient"
 description = "Binds to official firebird client lib"
-version = "0.23.1"
+version = "0.23.2"
 authors = ["Luis Fernando Batels <luisfbatels@gmail.com>", "Jairo H Wiethan <jairinhowiethan@gmail.com>"]
 edition = "2021"
 repository = "https://github.com/fernandobatels/rsfbclient"
@@ -13,10 +13,10 @@ readme = "README.md"
 [dependencies]
 chrono = { version = "0.4.19", features = ["clock", "std"], default-features = false }
 lru-cache = "0.1.2"
-rsfbclient-core = { version = "0.23.1", path = "rsfbclient-core" }
-rsfbclient-native = { version = "0.23.1", path = "rsfbclient-native", optional = true }
-rsfbclient-rust = { version = "0.23.1", path = "rsfbclient-rust", optional = true }
-rsfbclient-derive = { version = "0.23.1", path = "rsfbclient-derive" }
+rsfbclient-core = { version = "0.23.2", path = "rsfbclient-core" }
+rsfbclient-native = { version = "0.23.2", path = "rsfbclient-native", optional = true }
+rsfbclient-rust = { version = "0.23.2", path = "rsfbclient-rust", optional = true }
+rsfbclient-derive = { version = "0.23.2", path = "rsfbclient-derive" }
 url = "2.2.1"
 percent-encoding = "2.1.0"
 
