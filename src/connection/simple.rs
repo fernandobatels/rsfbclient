@@ -178,7 +178,7 @@ impl SimpleConnection {
     }
 
     /// Wait for an event to be posted on database
-    pub(crate) fn wait_for_event(&mut self, name: String) -> Result<(), FbError> {
+    pub fn wait_for_event(&mut self, name: String) -> Result<(), FbError> {
         match &mut self.inner {
             #[cfg(feature = "linking")]
             TypeConnectionContainer::NativeDynLink(c) => c.wait_for_event(name),
