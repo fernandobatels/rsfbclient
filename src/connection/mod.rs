@@ -107,7 +107,7 @@ impl<C: FirebirdClient> Connection<C> {
         mut cli: C,
         conf: &ConnectionConfiguration<C::AttachmentConfig>,
     ) -> Result<Connection<C>, FbError> {
-        let handle = cli.attach_database(&conf.attachment_conf)?;
+        let handle = cli.attach_database(&conf.attachment_conf, conf.dialect)?;
         let stmt_cache = StmtCache::new(conf.stmt_cache_size);
 
         Ok(Connection {
@@ -127,7 +127,7 @@ impl<C: FirebirdClient> Connection<C> {
         conf: &ConnectionConfiguration<C::AttachmentConfig>,
         page_size: Option<u32>,
     ) -> Result<Connection<C>, FbError> {
-        let handle = cli.create_database(&conf.attachment_conf, page_size)?;
+        let handle = cli.create_database(&conf.attachment_conf, page_size, conf.dialect)?;
         let stmt_cache = StmtCache::new(conf.stmt_cache_size);
 
         Ok(Connection {

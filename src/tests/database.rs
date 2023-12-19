@@ -139,4 +139,38 @@ mk_tests_default! {
 
         Ok(())
     }
+
+    #[test]
+    #[cfg(all(feature = "linking", not(feature = "embedded_tests"), not(feature = "pure_rust")))]
+    fn dyn_linking_create_with_invalid_dialect() -> Result<(), FbError> {
+
+        let rs = builder_native()
+            .with_dyn_link()
+            .with_remote()
+            .db_name("test_create_db5.fdb")
+            .user("SYSDBA")
+            .host("localhost")
+            .dialect(rsfbclient::Dialect::D2)
+            .create_database();
+
+        assert!(rs.is_err());
+        assert!(rs.err().unwrap().to_string().contains("Database dialect 2 is not a valid dialec"));
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(all(feature = "pure_rust", not(feature = "native_client")))]
+    fn pure_rust_create_with_invalid_dialect() -> Result<(), FbError> {
+        let rs = builder_pure_rust()
+            .db_name("test_create_db55.fdb")
+            .user("SYSDBA")
+            .dialect(rsfbclient::Dialect::D2)
+            .create_database();
+
+        assert!(rs.is_err());
+        assert!(rs.err().unwrap().to_string().contains("Database dialect 2 is not a valid dialec"));
+
+        Ok(())
+    }
 }

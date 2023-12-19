@@ -113,8 +113,9 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
     fn attach_database(
         &mut self,
         config: &Self::AttachmentConfig,
+        dialect: Dialect,
     ) -> Result<NativeDbHandle, FbError> {
-        let (dpb, conn_string) = self.build_dpb(config);
+        let (dpb, conn_string) = self.build_dpb(config, dialect);
         let mut handle = 0;
 
         unsafe {
@@ -162,8 +163,9 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
         &mut self,
         config: &Self::AttachmentConfig,
         page_size: Option<u32>,
+        dialect: Dialect,
     ) -> Result<NativeDbHandle, FbError> {
-        let (mut dpb, conn_string) = self.build_dpb(config);
+        let (mut dpb, conn_string) = self.build_dpb(config, dialect);
         let mut handle = 0;
 
         if let Some(ps) = page_size {
@@ -668,7 +670,11 @@ impl<T: LinkageMarker> NativeFbClient<T> {
     /// Build the dpb and the connection string
     ///
     /// Used by attach database operations
-    fn build_dpb(&mut self, config: &NativeFbAttachmentConfig) -> (Vec<u8>, String) {
+    fn build_dpb(
+        &mut self,
+        config: &NativeFbAttachmentConfig,
+        dialect: Dialect,
+    ) -> (Vec<u8>, String) {
         let user = &config.user;
         let mut password = None;
         let db_name = &config.db_name;
@@ -708,6 +714,9 @@ impl<T: LinkageMarker> NativeFbClient<T> {
                 dpb.extend(&[ibase::isc_dpb_sql_role_name as u8, role.len() as u8]);
                 dpb.extend(role.bytes());
             }
+
+            dpb.extend(&[ibase::isc_dpb_sql_dialect as u8, 1 as u8]);
+            dpb.extend(&[dialect as u8]);
 
             dpb
         };
