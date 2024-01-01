@@ -37,6 +37,7 @@ pub trait FirebirdClientDbOps: Send {
         &mut self,
         config: &Self::AttachmentConfig,
         dialect: Dialect,
+        no_db_triggers: bool,
     ) -> Result<Self::DbHandle, FbError>;
 
     /// Disconnect from the database

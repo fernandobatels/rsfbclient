@@ -106,6 +106,12 @@ impl PureRustConnectionBuilder {
         self
     }
 
+    /// Disabled the database triggers
+    pub fn no_db_triggers(&mut self) -> &mut Self {
+        self.0.no_db_triggers = true;
+        self
+    }
+
     /// Default transaction configuration
     pub fn transaction(&mut self, conf: TransactionConfiguration) -> &mut Self {
         self.0.transaction_conf = conf;

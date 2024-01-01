@@ -86,6 +86,7 @@ impl FirebirdClientDbOps for RustFbClient {
         &mut self,
         config: &Self::AttachmentConfig,
         dialect: Dialect,
+        no_db_triggers: bool,
     ) -> Result<RustDbHandle, FbError> {
         let host = config.host.as_str();
         let port = config.port;
@@ -110,7 +111,8 @@ impl FirebirdClientDbOps for RustFbClient {
             )?,
         };
 
-        let attach_result = conn.attach_database(db_name, user, pass, role, dialect);
+        let attach_result =
+            conn.attach_database(db_name, user, pass, role, dialect, no_db_triggers);
 
         // Put the connection back
         self.conn.replace(conn);
@@ -420,6 +422,7 @@ impl FirebirdWireConnection {
         pass: &str,
         role_name: Option<&str>,
         dialect: Dialect,
+        no_db_triggers: bool,
     ) -> Result<DbHandle, FbError> {
         self.socket.write_all(&attach(
             db_name,
@@ -429,6 +432,7 @@ impl FirebirdWireConnection {
             self.charset.clone(),
             role_name.clone(),
             dialect,
+            no_db_triggers,
         ))?;
         self.socket.flush()?;
 
@@ -1049,7 +1053,7 @@ fn connection_test() {
         FirebirdWireConnection::connect("127.0.0.1", 3050, db_name, user, pass, UTF_8).unwrap();
 
     let mut db_handle = conn
-        .attach_database(db_name, user, pass, None, Dialect::D3)
+        .attach_database(db_name, user, pass, None, Dialect::D3, false)
         .unwrap();
 
     let mut tr_handle = conn

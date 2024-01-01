@@ -114,9 +114,15 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
         &mut self,
         config: &Self::AttachmentConfig,
         dialect: Dialect,
+        no_db_triggers: bool,
     ) -> Result<NativeDbHandle, FbError> {
-        let (dpb, conn_string) = self.build_dpb(config, dialect);
+        let (mut dpb, conn_string) = self.build_dpb(config, dialect);
         let mut handle = 0;
+
+        if no_db_triggers {
+            dpb.extend(&[ibase::isc_dpb_no_db_triggers as u8, 1 as u8]);
+            dpb.extend(&[1 as u8]);
+        }
 
         unsafe {
             if self.ibase.isc_attach_database()(

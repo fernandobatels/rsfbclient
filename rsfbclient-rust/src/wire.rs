@@ -140,8 +140,18 @@ pub fn attach(
     charset: Charset,
     role_name: Option<&str>,
     dialect: Dialect,
+    no_db_triggers: bool,
 ) -> Bytes {
-    let dpb = build_dpb(user, pass, protocol, charset, None, role_name, dialect);
+    let dpb = build_dpb(
+        user,
+        pass,
+        protocol,
+        charset,
+        None,
+        role_name,
+        dialect,
+        no_db_triggers,
+    );
 
     let mut attach = BytesMut::with_capacity(16 + db_name.len() + dpb.len());
 
@@ -166,7 +176,9 @@ pub fn create(
     role_name: Option<&str>,
     dialect: Dialect,
 ) -> Bytes {
-    let dpb = build_dpb(user, pass, protocol, charset, page_size, role_name, dialect);
+    let dpb = build_dpb(
+        user, pass, protocol, charset, page_size, role_name, dialect, false,
+    );
 
     let mut create = BytesMut::with_capacity(16 + db_name.len() + dpb.len());
 
@@ -189,6 +201,7 @@ fn build_dpb(
     page_size: Option<u32>,
     role_name: Option<&str>,
     dialect: Dialect,
+    no_db_triggers: bool,
 ) -> Bytes {
     let mut dpb = BytesMut::with_capacity(64);
 
@@ -214,6 +227,11 @@ fn build_dpb(
 
     dpb.extend(&[ibase::isc_dpb_sql_dialect as u8, 1 as u8]);
     dpb.extend(&[dialect as u8]);
+
+    if no_db_triggers {
+        dpb.extend(&[ibase::isc_dpb_no_db_triggers as u8, 1 as u8]);
+        dpb.extend(&[1 as u8]);
+    }
 
     match protocol {
         // Plaintext password
