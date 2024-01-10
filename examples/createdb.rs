@@ -18,6 +18,7 @@ fn main() -> Result<(), FbError> {
         .user("SYSDBA")
         .pass("masterkey")
         .page_size(8 * 1024) // Optional
+        .dialect(rsfbclient::Dialect::D1)
         .create_database()?;
 
     #[cfg(feature = "dynamic_loading")]
@@ -38,6 +39,7 @@ fn main() -> Result<(), FbError> {
         .user("SYSDBA")
         .pass("masterkey")
         .page_size(16 * 1024) // Optional
+        .dialect(rsfbclient::Dialect::D3)
         .create_database()?;
 
     conn.close()?;

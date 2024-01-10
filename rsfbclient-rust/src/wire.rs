@@ -12,7 +12,7 @@ use crate::{
     util::*,
     xsqlda::{XSqlVar, XSQLDA_DESCRIBE_VARS},
 };
-use rsfbclient_core::{ibase, Charset, Column, FbError, FreeStmtOp, SqlType, TrOp};
+use rsfbclient_core::{ibase, Charset, Column, Dialect, FbError, FreeStmtOp, SqlType, TrOp};
 
 /// Buffer length to use in the connection
 pub const BUFFER_LENGTH: u32 = 1024;
@@ -139,8 +139,19 @@ pub fn attach(
     protocol: ProtocolVersion,
     charset: Charset,
     role_name: Option<&str>,
+    dialect: Dialect,
+    no_db_triggers: bool,
 ) -> Bytes {
-    let dpb = build_dpb(user, pass, protocol, charset, None, role_name);
+    let dpb = build_dpb(
+        user,
+        pass,
+        protocol,
+        charset,
+        None,
+        role_name,
+        dialect,
+        no_db_triggers,
+    );
 
     let mut attach = BytesMut::with_capacity(16 + db_name.len() + dpb.len());
 
@@ -163,8 +174,11 @@ pub fn create(
     charset: Charset,
     page_size: Option<u32>,
     role_name: Option<&str>,
+    dialect: Dialect,
 ) -> Bytes {
-    let dpb = build_dpb(user, pass, protocol, charset, page_size, role_name);
+    let dpb = build_dpb(
+        user, pass, protocol, charset, page_size, role_name, dialect, false,
+    );
 
     let mut create = BytesMut::with_capacity(16 + db_name.len() + dpb.len());
 
@@ -186,6 +200,8 @@ fn build_dpb(
     charset: Charset,
     page_size: Option<u32>,
     role_name: Option<&str>,
+    dialect: Dialect,
+    no_db_triggers: bool,
 ) -> Bytes {
     let mut dpb = BytesMut::with_capacity(64);
 
@@ -207,6 +223,14 @@ fn build_dpb(
     if let Some(role) = role_name {
         dpb.extend(&[ibase::isc_dpb_sql_role_name as u8, role.len() as u8]);
         dpb.extend(role.bytes());
+    }
+
+    dpb.extend(&[ibase::isc_dpb_sql_dialect as u8, 1 as u8]);
+    dpb.extend(&[dialect as u8]);
+
+    if no_db_triggers {
+        dpb.extend(&[ibase::isc_dpb_no_db_triggers as u8, 1 as u8]);
+        dpb.extend(&[1 as u8]);
     }
 
     match protocol {

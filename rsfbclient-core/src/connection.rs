@@ -36,6 +36,8 @@ pub trait FirebirdClientDbOps: Send {
     fn attach_database(
         &mut self,
         config: &Self::AttachmentConfig,
+        dialect: Dialect,
+        no_db_triggers: bool,
     ) -> Result<Self::DbHandle, FbError>;
 
     /// Disconnect from the database
@@ -50,6 +52,7 @@ pub trait FirebirdClientDbOps: Send {
         &mut self,
         config: &Self::AttachmentConfig,
         page_size: Option<u32>,
+        dialect: Dialect,
     ) -> Result<Self::DbHandle, FbError>;
 }
 
@@ -145,12 +148,13 @@ pub trait FirebirdClientDbEvents: FirebirdClientDbOps {
     ) -> Result<(), FbError>;
 }
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 #[repr(u8)]
 /// Firebird sql dialect
 pub enum Dialect {
     D1 = 1,
     D2 = 2,
+    #[default]
     D3 = 3,
 }
 

@@ -214,6 +214,12 @@ where
         self.conn_conf.transaction_conf = builder(&mut transaction_builder()).build();
         self
     }
+
+    /// Disabled the database triggers
+    pub fn no_db_triggers(&mut self) -> &mut Self {
+        self.conn_conf.no_db_triggers = true;
+        self
+    }
 }
 
 impl<A, B> NativeConnectionBuilder<A, B> {

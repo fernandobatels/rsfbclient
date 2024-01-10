@@ -60,6 +60,7 @@ pub trait FirebirdClientFactory {
 pub struct ConnectionConfiguration<A> {
     attachment_conf: A,
     dialect: Dialect,
+    no_db_triggers: bool,
     stmt_cache_size: usize,
     transaction_conf: TransactionConfiguration,
 }
@@ -71,6 +72,7 @@ impl<A: Default> Default for ConnectionConfiguration<A> {
             dialect: Dialect::D3,
             stmt_cache_size: 20,
             transaction_conf: TransactionConfiguration::default(),
+            no_db_triggers: false,
         }
     }
 }
@@ -107,7 +109,8 @@ impl<C: FirebirdClient> Connection<C> {
         mut cli: C,
         conf: &ConnectionConfiguration<C::AttachmentConfig>,
     ) -> Result<Connection<C>, FbError> {
-        let handle = cli.attach_database(&conf.attachment_conf)?;
+        let handle =
+            cli.attach_database(&conf.attachment_conf, conf.dialect, conf.no_db_triggers)?;
         let stmt_cache = StmtCache::new(conf.stmt_cache_size);
 
         Ok(Connection {
@@ -127,7 +130,7 @@ impl<C: FirebirdClient> Connection<C> {
         conf: &ConnectionConfiguration<C::AttachmentConfig>,
         page_size: Option<u32>,
     ) -> Result<Connection<C>, FbError> {
-        let handle = cli.create_database(&conf.attachment_conf, page_size)?;
+        let handle = cli.create_database(&conf.attachment_conf, page_size, conf.dialect)?;
         let stmt_cache = StmtCache::new(conf.stmt_cache_size);
 
         Ok(Connection {

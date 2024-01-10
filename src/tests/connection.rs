@@ -309,4 +309,44 @@ mk_tests_default! {
 
         Ok(())
     }
+
+    #[test]
+    #[cfg(all(not(feature = "embedded_tests")))]
+    fn no_db_triggers() -> Result<(), FbError> {
+
+        let epoch = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+
+        let mut conn = cbuilder()
+            .connect()?;
+
+        conn.execute(&format!("create table log_conn{} (id int);", epoch), ())?;
+
+        conn.execute(&format!("create trigger trig_conexao{0} on connect as begin  insert into log_conn{0} (id) values (5); end", epoch), ())?;
+
+        conn.close()?;
+
+        let mut conn2 = cbuilder()
+            .no_db_triggers()
+            .connect()?;
+
+        let resp: Option<(i32,)> = conn2.query_first(&format!("select * from log_conn{}", epoch), ())?;
+        assert_eq!(None, resp);
+
+        conn2.close()?;
+
+        let mut conn3 = cbuilder()
+            .connect()?;
+
+        let resp: Option<(i32,)> = conn3.query_first(&format!("select * from log_conn{}", epoch), ())?;
+        assert_eq!(Some((5,)), resp);
+
+        conn3.execute(&format!("drop trigger trig_conexao{};", epoch), ()).ok();
+        conn3.execute(&format!("drop table log_conn{};", epoch), ()).ok();
+        conn3.close()?;
+
+        Ok(())
+    }
 }
