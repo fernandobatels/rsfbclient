@@ -1,6 +1,6 @@
 [package]
 name = "rsfbclient-rust"
-version = "0.23.2"
+version = "0.24.0"
 description = "A pure Rust implementation of firebird client lib"
 authors = ["Luis Fernando Batels <luisfbatels@gmail.com>", "Jairo H Wiethan <jairinhowiethan@gmail.com>"]
 edition = "2021"
@@ -19,7 +19,7 @@ num-bigint = "0.4.0"
 num_enum = "0.5.7"
 pwhash = "1.0.0"
 rand = "0.8.3"
-rsfbclient-core = { version = "0.23.2", path = "../rsfbclient-core" }
+rsfbclient-core = { version = "0.24.0", path = "../rsfbclient-core" }
 sha-1 = "0.10.0"
 sha2 = "0.10.2"
 
