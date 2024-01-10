@@ -152,9 +152,9 @@ pub trait FirebirdClientDbEvents: FirebirdClientDbOps {
 #[repr(u8)]
 /// Firebird sql dialect
 pub enum Dialect {
-    #[default]
     D1 = 1,
     D2 = 2,
+    #[default]
     D3 = 3,
 }
 
