@@ -20,6 +20,7 @@ pub enum EngineVersion {
     V2 = 2,
     V3 = 3,
     V4 = 4,
+    V5 = 5,
 }
 
 impl<T> SystemInfos for T
@@ -45,6 +46,7 @@ where
 
         if let Some((version,)) = row {
             return match &version.get(0..2) {
+                Some("5.") => Ok(EngineVersion::V5),
                 Some("4.") => Ok(EngineVersion::V4),
                 Some("3.") => Ok(EngineVersion::V3),
                 Some("2.") => Ok(EngineVersion::V2),
@@ -69,7 +71,7 @@ mk_tests_default! {
         let version = conn.server_engine()?;
 
         // Our current CI versions..
-        assert!([EngineVersion::V2, EngineVersion::V3, EngineVersion::V4].contains(&version));
+        assert!([EngineVersion::V2, EngineVersion::V3, EngineVersion::V4, EngineVersion::V5].contains(&version));
 
         Ok(())
     }
