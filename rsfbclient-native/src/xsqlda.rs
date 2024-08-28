@@ -36,7 +36,11 @@ impl XSqlDa {
     /// Returns a mutable reference to a XSQLVAR
     pub fn get_xsqlvar_mut(&mut self, col: usize) -> Option<&mut ibase::XSQLVAR> {
         if col < self.len as usize {
-            let xsqlvar = unsafe { self.ptr.as_mut().sqlvar.get_unchecked_mut(col as usize) };
+            let xsqlvar = unsafe {
+                let ptr = self.ptr.as_mut().sqlvar.as_mut_ptr();
+                std::slice::from_raw_parts_mut(ptr, self.len as usize)
+                    .get_unchecked_mut(col as usize)
+            };
 
             Some(xsqlvar)
         } else {

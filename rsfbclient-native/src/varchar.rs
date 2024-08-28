@@ -35,7 +35,10 @@ impl Varchar {
     pub fn as_bytes(&self) -> &[u8] {
         let len = u16::min(self.capacity, unsafe { self.ptr.as_ref().len }) as usize;
 
-        unsafe { self.ptr.as_ref().data.get_unchecked(..len) }
+        unsafe {
+            let ptr = self.ptr.as_ref().data.as_ptr();
+            std::slice::from_raw_parts(ptr, len).get_unchecked(..len)
+        }
     }
 
     /// Get the pointer to the inner type
