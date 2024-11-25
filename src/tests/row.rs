@@ -166,7 +166,7 @@ mk_tests_default! {
 
         let rvec: Vec<u8> = rand::thread_rng()
             .sample_iter(Standard)
-            .take(10000)
+            .take(1024 * 1024)
             .collect();
 
         conn.execute("DROP TABLE RBIGBLOBBIN", ()).ok();
@@ -187,7 +187,7 @@ mk_tests_default! {
 
         let rstr: String = rand::thread_rng()
             .sample_iter::<char, _>(Standard)
-            .take(10000)
+            .take(1024 * 1024)
             .collect();
 
         conn.execute("DROP TABLE RBIGBLOBTEXT", ()).ok();
