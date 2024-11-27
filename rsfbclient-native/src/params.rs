@@ -244,15 +244,18 @@ fn binary_to_blob<T: IBase>(
     // Assert that the handle is valid
     debug_assert_ne!(handle, 0);
 
-    unsafe {
-        if ibase.isc_put_segment()(
-            &mut status[0],
-            &mut handle,
-            bytes.len() as u16,
-            bytes.as_ptr() as *mut std::os::raw::c_char,
-        ) != 0
-        {
-            return Err(status.as_error(ibase));
+    // Max segment size: 65535
+    for b in bytes.chunks(65535) {
+        unsafe {
+            if ibase.isc_put_segment()(
+                &mut status[0],
+                &mut handle,
+                b.len() as u16,
+                b.as_ptr() as *mut std::os::raw::c_char,
+            ) != 0
+            {
+                return Err(status.as_error(ibase));
+            }
         }
     }
 
