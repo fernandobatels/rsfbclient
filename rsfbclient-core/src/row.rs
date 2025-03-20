@@ -37,12 +37,17 @@ impl Row {
 #[derive(Debug, Clone)]
 pub struct Column {
     pub value: SqlType,
+    pub raw_type: u32,
     pub name: String,
 }
 
 impl Column {
-    pub fn new(name: String, value: SqlType) -> Self {
-        Column { name, value }
+    pub fn new(name: String, raw_type: u32, value: SqlType) -> Self {
+        Column {
+            name,
+            raw_type,
+            value,
+        }
     }
 }
 
