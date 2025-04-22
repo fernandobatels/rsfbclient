@@ -425,7 +425,7 @@ mk_tests_default! {
             .unwrap();
         assert_eq!(2, row.cols.len());
 
-        assert_eq!(9, row.cols.first().unwrap().raw_type);
+        assert_eq!(448, row.cols.first().unwrap().raw_type);
 
         Ok(())
     }
