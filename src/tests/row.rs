@@ -413,4 +413,20 @@ mk_tests_default! {
 
         Ok(())
     }
+    #[test]
+    fn raw_type () -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        let row: Row = conn
+            .query_first(
+                "select cast('firebird' as varchar(8)), cast('firebird' as char(8)) from rdb$database",
+                (),
+            )?
+            .unwrap();
+        assert_eq!(2, row.cols.len());
+
+        assert_eq!(448, row.cols.first().unwrap().raw_type);
+
+        Ok(())
+    }
 }

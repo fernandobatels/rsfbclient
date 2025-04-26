@@ -586,17 +586,18 @@ pub fn parse_sql_response(
     let mut data = Vec::with_capacity(xsqlda.len());
 
     for (col_index, var) in xsqlda.iter().enumerate() {
+        // Remove nullable type indicator
+        let sqltype = var.sqltype as u32 & (!1);
+
         if version >= ProtocolVersion::V13 && read_null(resp, col_index)? {
             // There is no data in protocol 13 if null, so just continue
             data.push(ParsedColumn::Complete(Column::new(
                 var.alias_name.clone(),
+                sqltype,
                 SqlType::Null,
             )));
             continue;
         }
-
-        // Remove nullable type indicator
-        let sqltype = var.sqltype as u32 & (!1);
 
         match sqltype {
             ibase::SQL_VARYING => {
@@ -606,11 +607,13 @@ pub fn parse_sql_response(
                 if null {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
+                        sqltype,
                         SqlType::Null,
                     )))
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
+                        sqltype,
                         SqlType::Text(charset.decode(&d[..])?),
                     )))
                 }
@@ -623,11 +626,13 @@ pub fn parse_sql_response(
                 if null {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
+                        sqltype,
                         SqlType::Null,
                     )))
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
+                        sqltype,
                         SqlType::Integer(i),
                     )))
                 }
@@ -640,11 +645,13 @@ pub fn parse_sql_response(
                 if null {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
+                        sqltype,
                         SqlType::Null,
                     )))
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
+                        sqltype,
                         SqlType::Floating(f),
                     )))
                 }
@@ -660,11 +667,13 @@ pub fn parse_sql_response(
                 if null {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
+                        sqltype,
                         SqlType::Null,
                     )))
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
+                        sqltype,
                         SqlType::Timestamp(rsfbclient_core::date_time::decode_timestamp(ts)),
                     )))
                 }
@@ -677,6 +686,7 @@ pub fn parse_sql_response(
                 if null {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
+                        sqltype,
                         SqlType::Null,
                     )))
                 } else {
@@ -697,11 +707,13 @@ pub fn parse_sql_response(
                 if null {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
+                        sqltype,
                         SqlType::Null,
                     )))
                 } else {
                     data.push(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
+                        sqltype,
                         SqlType::Boolean(b),
                     )))
                 }
@@ -767,6 +779,7 @@ impl ParsedColumn {
 
                 Column::new(
                     col_name,
+                    ibase::SQL_BLOB,
                     if binary {
                         SqlType::Binary(data)
                     } else {

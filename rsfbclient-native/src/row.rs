@@ -55,6 +55,8 @@ pub struct ColumnBuffer {
 
     /// Column name
     col_name: String,
+
+    raw_type: i16,
 }
 
 impl ColumnBuffer {
@@ -154,6 +156,7 @@ impl ColumnBuffer {
             buffer,
             nullind,
             col_name,
+            raw_type: sqltype,
         })
     }
 
@@ -166,7 +169,11 @@ impl ColumnBuffer {
         charset: &Charset,
     ) -> Result<Column, FbError> {
         if *self.nullind != 0 {
-            return Ok(Column::new(self.col_name.clone(), SqlType::Null));
+            return Ok(Column::new(
+                self.col_name.clone(),
+                self.raw_type as u32,
+                SqlType::Null,
+            ));
         }
 
         let col_type = match &self.buffer {
@@ -185,7 +192,11 @@ impl ColumnBuffer {
             Boolean(b) => SqlType::Boolean(**b != 0),
         };
 
-        Ok(Column::new(self.col_name.clone(), col_type))
+        Ok(Column::new(
+            self.col_name.clone(),
+            self.raw_type as u32,
+            col_type,
+        ))
     }
 }
 
