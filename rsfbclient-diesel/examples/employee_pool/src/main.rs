@@ -1,5 +1,6 @@
 use diesel::{QueryDsl, RunQueryDsl};
 use r2d2::Pool;
+use std::env;
 use std::{sync::Arc, thread, time::Duration};
 
 use pool::FirebirdConnectionManager;
@@ -9,9 +10,7 @@ mod pool;
 mod schema;
 
 fn main() {
-    let path = std::env::current_dir().unwrap();
-    let connection_string = format!(
-        "firebird://SYSDBA:masterkey@localhost:3050/{}", path.join("employee.fdb").display());
+    let connection_string = env::var("DIESELFDB_CONN").expect("DIESELFDB_CONN env not found.");
 
     let manager = FirebirdConnectionManager::new(&connection_string);
     let pool = Arc::new(Pool::builder().max_size(4).build(manager).unwrap());

@@ -17,6 +17,3 @@ fbclient.lib
 
 # vscode conf folder
 .vscode
-
-# database example files
-employee.fdb
