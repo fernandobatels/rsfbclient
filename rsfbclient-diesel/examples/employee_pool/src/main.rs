@@ -13,7 +13,12 @@ fn main() {
     let connection_string = env::var("DIESELFDB_CONN").expect("DIESELFDB_CONN env not found.");
 
     let manager = FirebirdConnectionManager::new(&connection_string);
-    let pool = Arc::new(Pool::builder().max_size(4).build(manager).unwrap());
+    let pool = Arc::new(
+        Pool::builder()
+            .max_size(4)
+            .build(manager)
+            .expect("Failed to build connection pooling."),
+    );
 
     let mut tasks = vec![];
 
@@ -27,10 +32,10 @@ fn main() {
                         println!("Thread {}: {}", n, model.title)
                     }
 
-                    Err(e) => println!("execute query error in line:{} ! error: {:?}", line!(), e),
+                    Err(e) => println!("Execute query error in line:{} ! error: {:?}", line!(), e),
                 },
                 Err(e) => println!(
-                    "get connection from pool error in line:{} ! error: {:?}",
+                    "Get connection from pool error in line:{} ! error: {:?}",
                     line!(),
                     e
                 ),
