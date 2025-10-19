@@ -1,18 +1,17 @@
 use diesel::{QueryDsl, RunQueryDsl};
 use r2d2::Pool;
-use std::env;
-use std::{sync::Arc, thread, time::Duration};
+use r2d2_firebird::DieselConnectionManager;
+use std::{env, sync::Arc, thread, time::Duration};
 
-use pool::FirebirdConnectionManager;
 use schema::{job::dsl::*, Job};
 
-mod pool;
 mod schema;
 
 fn main() {
-    let connection_string = env::var("DIESELFDB_CONN").expect("DIESELFDB_CONN env not found.");
 
-    let manager = FirebirdConnectionManager::new(&connection_string);
+    let connecton_string = env::var("DIESELFDB_CONN").expect("DIESELFDB_CONN env not found");
+
+    let manager = DieselConnectionManager::new(&connecton_string);
     let pool = Arc::new(
         Pool::builder()
             .max_size(4)
@@ -24,8 +23,8 @@ fn main() {
 
     for n in 0..3 {
         let pool = pool.clone();
-
         let th = thread::spawn(move || loop {
+
             match pool.get() {
                 Ok(mut conn) => match job.offset(n).limit(1).first::<Job>(&mut *conn) {
                     Ok(model) => {

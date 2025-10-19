@@ -10,5 +10,7 @@ diesel = "2.0.0"
 rsfbclient-diesel = "0.25.0"
 r2d2 = "0.8.10"
 rsfbclient = "0.25.2"
+r2d2_firebird = {version="0.25.2", path="../../../r2d2_firebird", features=["diesel_pool"]}
+rsfbclient-core = "0.25.2"
 
 [workspace]
