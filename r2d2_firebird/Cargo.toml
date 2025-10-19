@@ -17,5 +17,12 @@ rsfbclient = { version = "0.25.2", path = "../", default-features = false }
 rsfbclient-core = { version = "0.25.2", path = "../rsfbclient-core" }
 r2d2 = "0.8.9"
 
+diesel = { version = "2.0.0", optional = true }
+rsfbclient-diesel = { version = "0.25.1", path = "../rsfbclient-diesel", optional = true }
+
+[features]
+default=[]
+diesel_pool=["diesel", "rsfbclient-diesel"]
+
 [dev-dependencies]
 rsfbclient = { version = "0.25.2", path = "../", features = ["pure_rust"], default-features = false }
