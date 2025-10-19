@@ -1,6 +1,6 @@
 [package]
 name = "rsfbclient-derive"
-version = "0.25.2"
+version = "0.26.0"
 description = "Derives and macros for rsfbclient"
 authors = ["Luis Fernando Batels <luisfbatels@gmail.com>"]
 edition = "2021"
