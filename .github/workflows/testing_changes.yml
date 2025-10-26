@@ -142,10 +142,15 @@ jobs:
           firebird_password: "test_password"
           isc_password: "masterkey"
 
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
       - name: Setup FirebirdSQL ${{ matrix.firebird }} on Windows
         if: matrix.plataform == 'windows'
+        shell: pwsh
         run: |
-          choco install firebird -params '/SuperClassic'
+          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+          ./ci-scripts/download_firebird_windows.ps1
 
       - name: Setup FirebirdSQL ${{ matrix.firebird }} on MacOSX
         if: matrix.plataform == 'macos'
@@ -175,6 +180,7 @@ jobs:
               $found = Get-ChildItem -File -Recurse -Path $folder -Include $FileName -ea 0
               Foreach ($source in $found) {
                 echo "  - $source"
+                Copy-Item -Path $source
               }
             }
           }
@@ -182,9 +188,6 @@ jobs:
           Search-Common-Folders -FileName "fbclient.lib"
           Search-Common-Folders -FileName "fbclient_ms.lib"
           Search-Common-Folders -FileName "isql.exe"
-
-      - name: Checkout sources
-        uses: actions/checkout@v2
 
       - name: Create a alias to test.fdb on fb v2
         if: matrix.firebird == 'v2'
@@ -209,7 +212,9 @@ jobs:
       - name: Create database test.fdb in fb ${{ matrix.firebird }} on Windows
         if: matrix.plataform == 'windows'
         run: |
-          echo "CREATE DATABASE 'localhost:test.fdb';" | & "C:\Program Files\Firebird\Firebird_5_0\isql.exe" -bail -quiet -z -user SYSDBA -password masterkey
+          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+          ./ci-scripts/create_sysdba_user_windows.ps1
+          echo "CREATE DATABASE 'localhost:test.fdb';" | & "C:\Program Files\Firebird\isql.exe" -bail -quiet -z -user SYSDBA -password masterkey
 
       - name: Create database test.fdb in fb ${{ matrix.firebird }} on MacOSX
         if: matrix.plataform == 'macos'
