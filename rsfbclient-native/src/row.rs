@@ -5,7 +5,7 @@
 //!
 
 use rsfbclient_core::{Charset, Column, FbError, SqlType};
-use std::{mem, result::Result};
+use std::{mem, result::Result, sync::Arc};
 
 use crate::{ibase, ibase::IBase, status::Status, varchar::Varchar};
 
@@ -53,8 +53,9 @@ pub struct ColumnBuffer {
     /// Null indicator
     nullind: Box<i16>,
 
-    /// Column name
-    col_name: String,
+    /// Column name. `Arc<str>` (built once here) so cloning it into every fetched
+    /// row's `Column` is a refcount bump rather than a per-row allocation.
+    col_name: Arc<str>,
 
     raw_type: i16,
 }
@@ -142,15 +143,15 @@ impl ColumnBuffer {
 
         var.sqldata = buffer.as_mut_ptr();
 
-        let col_name = {
+        let col_name: Arc<str> = {
             let len = usize::min(var.aliasname_length as usize, var.aliasname.len());
             let bname = var.aliasname[..len]
                 .iter()
                 .map(|b| *b as u8)
                 .collect::<Vec<u8>>();
 
-            String::from_utf8(bname)
-        }?;
+            String::from_utf8(bname)?.into()
+        };
 
         Ok(ColumnBuffer {
             buffer,

@@ -17,7 +17,8 @@ pub struct FbField<'a> {
 
 impl<'a> Field<'a, Fb> for FbField<'a> {
     fn field_name(&self) -> Option<&'a str> {
-        Some(self.raw.name.as_str())
+        let col: &'a Column = self.raw;
+        Some(&col.name[..])
     }
 
     fn value(&self) -> Option<RawValue<'a, Fb>> {
