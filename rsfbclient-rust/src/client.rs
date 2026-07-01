@@ -843,8 +843,15 @@ impl FirebirdWireConnection {
                     Ok(FetchOne::Row(cols)) => {
                         stmt_handle.prefetched.push_back(cols);
                         got += 1;
-                        if got >= count {
-                            return Ok(());
+                        // Do NOT return on got>=count: after the rows, the server
+                        // always sends a terminating op_fetch_response (messages=0
+                        // = end of this batch, or status=100 = end of cursor).
+                        // Returning early would discard that terminator (still
+                        // buffered) and desync the next op_fetch. Let BatchEnd/End
+                        // end the loop. Guard against a server sending more rows
+                        // than requested (should not happen).
+                        if got > count {
+                            return Err("server sent more rows than requested in op_fetch".into());
                         }
                     }
                     Ok(FetchOne::BatchEnd) => {
@@ -869,7 +876,7 @@ impl FirebirdWireConnection {
             let mut next = BytesMut::from(view.as_ref());
             let n = self.socket.read(&mut self.buff)?;
             if n == 0 {
-                return Err("Fetch: conexao fechada no meio de um lote".into());
+                return Err("Fetch: connection closed mid-batch".into());
             }
             next.extend_from_slice(&self.buff[..n]);
             acc = next;
@@ -899,7 +906,7 @@ impl FirebirdWireConnection {
         for _ in 0..self.lazy_count {
             if op_code != WireOp::Response as u32 {
                 return Err(FetchErr::Fatal(
-                    format!("Resposta inesperada no fetch (op {})", op_code).into(),
+                    format!("unexpected op_code in fetch (op {})", op_code).into(),
                 ));
             }
             self.lazy_count -= 1;
@@ -917,7 +924,7 @@ impl FirebirdWireConnection {
 
         if op_code != WireOp::FetchResponse as u32 {
             return Err(FetchErr::Fatal(
-                format!("Resposta inesperada no fetch (op {})", op_code).into(),
+                format!("unexpected op_code in fetch (op {})", op_code).into(),
             ));
         }
 
