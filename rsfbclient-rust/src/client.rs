@@ -2,6 +2,7 @@
 
 use bytes::{BufMut, Bytes, BytesMut};
 use std::{
+    collections::VecDeque,
     env,
     io::{Read, Write},
     net::TcpStream,
@@ -21,6 +22,34 @@ use rsfbclient_core::*;
 type RustDbHandle = DbHandle;
 type RustTrHandle = TrHandle;
 type RustStmtHandle = StmtHandle;
+
+/// How many rows to request per op_fetch (round-trip). Configurable via
+/// FB_FETCH_BATCH; defaults to 200. The crate originally used 1 (one row per round-trip).
+fn fetch_batch_size() -> u32 {
+    env::var("FB_FETCH_BATCH")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(200)
+}
+
+/// Result of parsing ONE op_fetch_response.
+enum FetchOne {
+    /// A row (status=0, messages=1).
+    Row(Vec<Column>),
+    /// End of THIS batch (status=0, messages=0): the server ended the op_fetch
+    /// without exhausting the cursor. Re-issuing op_fetch fetches the rest.
+    BatchEnd,
+    /// End of cursor (status=100). Nothing more to read.
+    End,
+}
+
+enum FetchErr {
+    /// Not enough bytes in the buffer — read more from the socket and retry.
+    NeedMore,
+    /// A real protocol/server error — propagate it.
+    Fatal(FbError),
+}
 
 /// Firebird client implemented in pure rust
 pub struct RustFbClient {
@@ -66,6 +95,10 @@ pub struct StmtHandleData {
     blr: Bytes,
     /// Number of parameters
     param_count: usize,
+    /// Rows already fetched in a batch but not yet delivered (batch fetch).
+    prefetched: VecDeque<Vec<Column>>,
+    /// Cursor exhausted on the server (do not request more batches).
+    cursor_eof: bool,
 }
 
 impl RustFbClient {
@@ -623,6 +656,8 @@ impl FirebirdWireConnection {
                 xsqlda,
                 blr,
                 param_count,
+                prefetched: VecDeque::new(),
+                cursor_eof: false,
             },
         ))
     }
@@ -657,6 +692,12 @@ impl FirebirdWireConnection {
             )
             .into());
         }
+
+        // Reopen the cursor: drop prefetched rows and the batch-fetch EOF flag
+        // from the previous execution. Without this, re-executing the same
+        // statement would inherit cursor_eof=true and fetch nothing.
+        stmt_handle.prefetched.clear();
+        stmt_handle.cursor_eof = false;
 
         // Execute
         let params = blr::params_to_blr(self, tr_handle, params)?;
@@ -698,6 +739,11 @@ impl FirebirdWireConnection {
             )
             .into());
         }
+
+        // Reopen the cursor (same reason as execute): reset the batch-fetch
+        // state from the previous execution.
+        stmt_handle.prefetched.clear();
+        stmt_handle.cursor_eof = false;
 
         let params = blr::params_to_blr(self, tr_handle, params)?;
 
@@ -746,51 +792,189 @@ impl FirebirdWireConnection {
         Ok(cols)
     }
 
-    /// Fetch rows from the executed statement, coercing the types
-    /// according to the provided blr
+    /// Fetch ONE row. Served from a buffer filled in batches: when the buffer
+    /// empties, a single op_fetch requests `FB_FETCH_BATCH` rows in one
+    /// round-trip (it used to be one row per round-trip). Streaming is
+    /// preserved — rows come out one at a time, memory bounded to one batch.
     pub fn fetch(
         &mut self,
         tr_handle: &mut TrHandle,
         stmt_handle: &mut StmtHandleData,
     ) -> Result<Option<Vec<Column>>, FbError> {
+        let count = fetch_batch_size();
+        let mut empty_batches = 0u32;
+        while stmt_handle.prefetched.is_empty() && !stmt_handle.cursor_eof {
+            self.fetch_batch(tr_handle, stmt_handle, count)?;
+            empty_batches += 1;
+            // Safety net: a well-behaved server never sends empty batches
+            // without exhausting the cursor; guards against a hang if it does.
+            if empty_batches > 1000 {
+                return Err("fetch: too many empty batches without end of cursor".into());
+            }
+        }
+        Ok(stmt_handle.prefetched.pop_front())
+    }
+
+    /// Requests `count` rows in one op_fetch and reads every op_fetch_response
+    /// that arrives, filling `stmt_handle.prefetched`. Parses greedily; if bytes
+    /// are missing mid-response, reads more from the socket and resumes (robust
+    /// against responses split across TCP segments — the cause of the old
+    /// "Invalid server response, missing bytes").
+    fn fetch_batch(
+        &mut self,
+        tr_handle: &mut TrHandle,
+        stmt_handle: &mut StmtHandleData,
+        count: u32,
+    ) -> Result<(), FbError> {
         self.socket
-            .write_all(&fetch(stmt_handle.handle.0, &stmt_handle.blr))?;
+            .write_all(&fetch(stmt_handle.handle.0, &stmt_handle.blr, count))?;
         self.socket.flush()?;
 
-        let (mut op_code, mut resp) = read_packet(&mut self.socket, &mut self.buff)?;
+        let mut acc = BytesMut::new();
+        let mut got = 0u32;
 
-        // Read lazy responses
+        loop {
+            // Parse as many responses as the accumulated bytes allow.
+            let mut view = std::mem::take(&mut acc).freeze();
+            loop {
+                let snapshot = view.clone(); // O(1): Bytes shares the underlying buffer
+                let saved_lazy = self.lazy_count;
+                match self.parse_one_fetch_response(&mut view, &stmt_handle.xsqlda, tr_handle) {
+                    Ok(FetchOne::Row(cols)) => {
+                        stmt_handle.prefetched.push_back(cols);
+                        got += 1;
+                        if got >= count {
+                            return Ok(());
+                        }
+                    }
+                    Ok(FetchOne::BatchEnd) => {
+                        // Server ended this op_fetch without exhausting the cursor.
+                        // Deliver what arrived; the next fetch() re-issues op_fetch.
+                        return Ok(());
+                    }
+                    Ok(FetchOne::End) => {
+                        stmt_handle.cursor_eof = true;
+                        return Ok(());
+                    }
+                    Err(FetchErr::NeedMore) => {
+                        self.lazy_count = saved_lazy; // undo partial lazy consumption
+                        view = snapshot;
+                        break;
+                    }
+                    Err(FetchErr::Fatal(e)) => return Err(e),
+                }
+            }
+
+            // Missing bytes: keep the unconsumed tail and read more from the socket.
+            let mut next = BytesMut::from(view.as_ref());
+            let n = self.socket.read(&mut self.buff)?;
+            if n == 0 {
+                return Err("Fetch: conexao fechada no meio de um lote".into());
+            }
+            next.extend_from_slice(&self.buff[..n]);
+            acc = next;
+        }
+    }
+
+    /// Tries to parse ONE op_fetch_response from `view`. On NeedMore, the caller
+    /// restores `view` from a snapshot (the partial consumption here is discarded).
+    fn parse_one_fetch_response(
+        &mut self,
+        view: &mut Bytes,
+        xsqlda: &[XSqlVar],
+        tr_handle: &mut TrHandle,
+    ) -> Result<FetchOne, FetchErr> {
+        // op_code, skipping Dummy packets
+        let mut op_code = loop {
+            if view.remaining() < 4 {
+                return Err(FetchErr::NeedMore);
+            }
+            let oc = view.get_u32().map_err(|_| FetchErr::NeedMore)?;
+            if oc != WireOp::Dummy as u32 {
+                break oc;
+            }
+        };
+
+        // Pending lazy responses
         for _ in 0..self.lazy_count {
             if op_code != WireOp::Response as u32 {
-                return err_conn_rejected(op_code);
+                return Err(FetchErr::Fatal(
+                    format!("Resposta inesperada no fetch (op {})", op_code).into(),
+                ));
             }
             self.lazy_count -= 1;
-            parse_response(&mut resp)?;
-
-            op_code = resp.get_u32()?;
+            parse_response(view).map_err(|_| FetchErr::NeedMore)?;
+            if view.remaining() < 4 {
+                return Err(FetchErr::NeedMore);
+            }
+            op_code = view.get_u32().map_err(|_| FetchErr::NeedMore)?;
         }
 
         if op_code == WireOp::Response as u32 {
-            // An error ocurred
-            parse_response(&mut resp)?;
+            // Error reported by the server
+            parse_response(view).map_err(FetchErr::Fatal)?;
         }
 
         if op_code != WireOp::FetchResponse as u32 {
-            return err_conn_rejected(op_code);
+            return Err(FetchErr::Fatal(
+                format!("Resposta inesperada no fetch (op {})", op_code).into(),
+            ));
         }
 
-        if let Some(parsed_cols) =
-            parse_fetch_response(&mut resp, &stmt_handle.xsqlda, self.version, &self.charset)?
-        {
-            let mut cols = Vec::with_capacity(parsed_cols.len());
+        // Body: [status: u32][messages: u32][null_map][columns...]. Peek status
+        // and messages without consuming, to tell end-of-cursor (status=100),
+        // end-of-batch (messages=0) and a row (messages=1) apart BEFORE delegating.
+        if view.remaining() < 4 {
+            return Err(FetchErr::NeedMore);
+        }
+        let status = {
+            let mut peek = view.clone();
+            peek.get_u32().map_err(|_| FetchErr::NeedMore)?
+        };
+        if status == 100 {
+            // End of cursor: consume only the status (same as parse_fetch_response).
+            view.advance(4).map_err(|_| FetchErr::NeedMore)?;
+            return Ok(FetchOne::End);
+        }
+        if view.remaining() < 8 {
+            return Err(FetchErr::NeedMore);
+        }
+        let messages = {
+            let mut peek = view.clone();
+            peek.get_u32().map_err(|_| FetchErr::NeedMore)?; // status
+            peek.get_u32().map_err(|_| FetchErr::NeedMore)? // messages
+        };
+        if messages == 0 {
+            // End of this batch with no row: consume status+messages, stop the batch.
+            view.advance(8).map_err(|_| FetchErr::NeedMore)?;
+            return Ok(FetchOne::BatchEnd);
+        }
 
-            for pc in parsed_cols {
-                cols.push(pc.into_column(self, tr_handle)?);
+        // A row is present. Delegate to the crate parser (re-reads status+messages+data).
+        // charset cloned so we don't hold a borrow of self when calling into_column.
+        let version = self.version;
+        let charset = self.charset.clone();
+        match parse_fetch_response(view, xsqlda, version, &charset) {
+            Ok(None) => Ok(FetchOne::End),
+            Ok(Some(parsed)) => {
+                let mut cols = Vec::with_capacity(parsed.len());
+                for pc in parsed {
+                    cols.push(pc.into_column(self, tr_handle).map_err(FetchErr::Fatal)?);
+                }
+                Ok(FetchOne::Row(cols))
             }
-
-            Ok(Some(cols))
-        } else {
-            Ok(None)
+            // Underflow (bytes missing mid-response) has a fixed message -> read
+            // more and resume. Any OTHER error (e.g. invalid UTF-8 when decoding a
+            // column) is a real data error: propagate it, don't turn it into an
+            // infinite wait for bytes that never arrive.
+            Err(e) => {
+                if matches!(&e, FbError::Other(m) if m == "Invalid server response, missing bytes")
+                {
+                    Err(FetchErr::NeedMore)
+                } else {
+                    Err(FetchErr::Fatal(e))
+                }
+            }
         }
     }
 
