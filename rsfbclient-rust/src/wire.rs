@@ -429,14 +429,14 @@ pub fn execute2(
 }
 
 /// Fetch row request
-pub fn fetch(stmt_handle: u32, blr: &[u8]) -> Bytes {
+pub fn fetch(stmt_handle: u32, blr: &[u8], count: u32) -> Bytes {
     let mut req = BytesMut::with_capacity(20 + blr.len());
 
     req.put_u32(WireOp::Fetch as u32);
     req.put_u32(stmt_handle);
     req.put_wire_bytes(blr);
     req.put_u32(0); // Message number
-    req.put_u32(1); // Message count TODO: increase to return more rows in one fetch request
+    req.put_u32(count); // Message count: request a batch of rows in a single round-trip
 
     req.freeze()
 }

@@ -11,6 +11,35 @@ mk_tests_default! {
     use std::str;
     use rand::{distributions::Standard, Rng};
 
+    // Batch-fetch regression (FB_FETCH_BATCH in the pure_rust backend): fetch
+    // more rows than one batch to CROSS batch boundaries. Validates count AND
+    // order — order catches any framing drift between op_fetch responses
+    // (batch continuation, end-of-batch, end-of-cursor).
+    #[test]
+    fn fetch_batches_crossing_boundary() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        // Generate 1..=500 without needing a table (crosses the default batch of 200).
+        let sql = "EXECUTE BLOCK RETURNS (n int) AS
+                   DECLARE i int = 0;
+                   BEGIN
+                     WHILE (i < 500) DO BEGIN
+                       i = i + 1;
+                       n = i;
+                       SUSPEND;
+                     END
+                   END";
+
+        let rows: Vec<(i32,)> = conn.query(sql, ())?;
+
+        assert_eq!(500, rows.len());
+        for (idx, (n,)) in rows.iter().enumerate() {
+            assert_eq!(idx as i32 + 1, *n);
+        }
+
+        Ok(())
+    }
+
     #[test]
     fn execute_affected_rows() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
