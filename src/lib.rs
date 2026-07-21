@@ -62,6 +62,32 @@
 //!     .into();
 //! ```
 //!
+//! # Services API
+//!
+//! With the native client (`linking` or `dynamic_loading` features) the
+//! [services](./services/index.html) module can attach to a server's *service
+//! manager* — the administration channel that `gbak` and the other command-line
+//! tools use — to query the server version and run backups and restores, with
+//! the verbose `gbak` log streamed back line by line while the action runs:
+//!
+//! ```rust,ignore
+//! use rsfbclient::services::{ServiceManager, SvcBackupOptions};
+//!
+//! let mut svc = ServiceManager::builder()
+//!     .host("localhost")
+//!     .user("SYSDBA")
+//!     .pass("masterkey")
+//!     .attach()?;
+//! println!("{}", svc.server_version()?);
+//! svc.backup_with_output("/data/db.fdb", "/data/db.fbk",
+//!     SvcBackupOptions::default(), |line| println!("{}", line))?;
+//! ```
+//!
+//! All paths given to service actions are **server** paths: the backup file is
+//! written on the server, by the server. The pure-rust wire implementation does
+//! not carry the service protocol, so this module needs one of the native
+//! features.
+//!
 //! # Cargo features
 //! All features can be used at the same time if needed.
 //!
@@ -92,6 +118,9 @@ mod query;
 mod statement;
 mod transaction;
 mod utils;
+
+#[cfg(feature = "native_client")]
+pub mod services;
 
 pub use crate::{
     connection::{Connection, ConnectionConfiguration, FirebirdClientFactory, SimpleConnection},
