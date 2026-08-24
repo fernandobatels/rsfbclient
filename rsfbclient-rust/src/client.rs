@@ -34,16 +34,36 @@ fn fetch_batch_size() -> u32 {
         .unwrap_or(200)
 }
 
-/// Result of parsing ONE op_fetch_response. Blob columns are still unresolved:
-/// fetching them costs extra round-trips that must not be interleaved with the
-/// responses of the running batch (see `fetch_batch`).
-enum FetchOne {
+/// Size of the scratch buffer for a single socket read. Batch fetch pulls many
+/// rows per op_fetch, so a bigger read cuts read syscalls and, more importantly,
+/// keeps rows from being split mid-response and re-parsed on the
+/// incomplete-response retry path of `read_with` (wasted CPU that scales with
+/// the column count).
+const READ_BUFFER_LEN: usize = 64 * 1024;
+
+/// Result of parsing ONE op_fetch_response. `T` is the decoded row: statements
+/// with blob columns use `Vec<ParsedColumn>`, since fetching a blob costs extra
+/// round-trips that must not be interleaved with the responses of the running
+/// batch (see `fetch_batch`); blob-free statements decode straight into
+/// `Vec<Column>`.
+enum FetchOne<T> {
     /// A row (status=0, messages=1).
-    Row(Vec<ParsedColumn>),
+    Row(T),
     /// End of THIS batch (status=0, messages=0): the server ended the op_fetch
     /// without exhausting the cursor. Re-issuing op_fetch fetches the rest.
     BatchEnd,
     /// End of cursor (status=100). Nothing more to read.
+    End,
+}
+
+/// What one op_fetch_response is, decided from its framing alone (op code,
+/// status and message count) before any column is decoded.
+enum Framed {
+    /// A row is present; `resp` is left at the start of the response body.
+    Row,
+    /// End of this batch: the response was consumed, no row.
+    BatchEnd,
+    /// End of cursor: the response was consumed, nothing more to read.
     End,
 }
 
@@ -117,6 +137,11 @@ pub struct StmtHandleData {
     prefetched: VecDeque<Vec<Column>>,
     /// Cursor exhausted on the server (do not request more batches).
     cursor_eof: bool,
+    /// Any output column is a blob. Blobs need a deferred round-trip to fetch, so
+    /// they go through the two-phase `ParsedColumn` path. When false (the common
+    /// case) fetch decodes rows straight into `Vec<Column>`, skipping the second
+    /// buffer and the per-column move loop.
+    has_blob: bool,
 }
 
 impl RustFbClient {
@@ -377,8 +402,7 @@ impl FirebirdWireConnection {
         socket.write_all(&req)?;
         socket.flush()?;
 
-        // May be a bit too much
-        let mut buff = vec![0; BUFFER_LENGTH as usize * 2].into_boxed_slice();
+        let mut buff = vec![0; READ_BUFFER_LEN].into_boxed_slice();
         let mut pending = Bytes::new();
 
         let ConnectionResponse {
@@ -863,6 +887,9 @@ impl FirebirdWireConnection {
             var.coerce()?;
         }
         let blr = xsqlda_to_blr(&xsqlda)?;
+        let has_blob = xsqlda
+            .iter()
+            .any(|var| var.sqltype as u32 & !1 == ibase::SQL_BLOB);
 
         Ok((
             stmt_type,
@@ -873,6 +900,7 @@ impl FirebirdWireConnection {
                 param_count,
                 prefetched: VecDeque::new(),
                 cursor_eof: false,
+                has_blob,
             },
         ))
     }
@@ -1047,6 +1075,74 @@ impl FirebirdWireConnection {
             .write_all(&fetch(stmt_handle.handle.0, &stmt_handle.blr, count))?;
         self.socket.flush()?;
 
+        if stmt_handle.has_blob {
+            self.read_batch_deferring_blobs(tr_handle, stmt_handle, count)
+        } else {
+            self.read_batch_columns(stmt_handle, count)
+        }
+    }
+
+    /// Reads a batch of a blob-free statement, decoding each row straight into
+    /// `Vec<Column>`: no `ParsedColumn` buffer, no per-column move loop and no
+    /// per-row charset clone (`into_column` is not used, so the charset is only
+    /// borrowed).
+    fn read_batch_columns(
+        &mut self,
+        stmt_handle: &mut StmtHandleData,
+        count: u32,
+    ) -> Result<(), FbError> {
+        let version = self.version;
+        let charset = self.charset.clone();
+        let xsqlda = &stmt_handle.xsqlda;
+
+        let mut rows = Vec::new();
+        let mut cursor_eof = false;
+        let mut got = 0u32;
+
+        loop {
+            let one = read_with(
+                &mut self.socket,
+                &mut self.buff,
+                &mut self.pending,
+                &mut self.lazy_count,
+                |resp, lazy_count| {
+                    parse_one_fetch_response_columns(resp, lazy_count, xsqlda, version, &charset)
+                },
+            )?;
+
+            match one {
+                FetchOne::Row(cols) => {
+                    rows.push(cols);
+                    got += 1;
+                    // Same as in `read_batch_deferring_blobs`: the terminating
+                    // op_fetch_response has to be consumed, so don't stop on
+                    // got >= count.
+                    if got > count {
+                        return Err("server sent more rows than requested in op_fetch".into());
+                    }
+                }
+                FetchOne::BatchEnd => break,
+                FetchOne::End => {
+                    cursor_eof = true;
+                    break;
+                }
+            }
+        }
+
+        stmt_handle.cursor_eof = cursor_eof;
+        stmt_handle.prefetched.extend(rows);
+
+        Ok(())
+    }
+
+    /// Reads a batch of a statement with blob columns: the rows are parsed first
+    /// and the blobs resolved afterwards, once the batch is fully consumed.
+    fn read_batch_deferring_blobs(
+        &mut self,
+        tr_handle: &mut TrHandle,
+        stmt_handle: &mut StmtHandleData,
+        count: u32,
+    ) -> Result<(), FbError> {
         let version = self.version;
         let charset = self.charset.clone();
         let xsqlda = &stmt_handle.xsqlda;
@@ -1284,7 +1380,45 @@ fn parse_one_fetch_response(
     xsqlda: &[XSqlVar],
     version: ProtocolVersion,
     charset: &Charset,
-) -> Result<FetchOne, FbError> {
+) -> Result<FetchOne<Vec<ParsedColumn>>, FbError> {
+    match frame_fetch_response(resp, lazy_count)? {
+        Framed::End => return Ok(FetchOne::End),
+        Framed::BatchEnd => return Ok(FetchOne::BatchEnd),
+        Framed::Row => {}
+    }
+
+    // Delegate to the crate parser (re-reads status+messages+data).
+    match parse_fetch_response(resp, xsqlda, version, charset)? {
+        Some(parsed) => Ok(FetchOne::Row(parsed)),
+        None => Ok(FetchOne::End),
+    }
+}
+
+/// Same as [`parse_one_fetch_response`], for a statement with no blob columns:
+/// the row is decoded straight into `Vec<Column>`.
+fn parse_one_fetch_response_columns(
+    resp: &mut Bytes,
+    lazy_count: &mut u32,
+    xsqlda: &[XSqlVar],
+    version: ProtocolVersion,
+    charset: &Charset,
+) -> Result<FetchOne<Vec<Column>>, FbError> {
+    match frame_fetch_response(resp, lazy_count)? {
+        Framed::End => return Ok(FetchOne::End),
+        Framed::BatchEnd => return Ok(FetchOne::BatchEnd),
+        Framed::Row => {}
+    }
+
+    match parse_fetch_response_columns(resp, xsqlda, version, charset)? {
+        Some(cols) => Ok(FetchOne::Row(cols)),
+        None => Ok(FetchOne::End),
+    }
+}
+
+/// Frames ONE op_fetch_response: consumes the response when it carries no row,
+/// and leaves `resp` at the start of the body when it does, so the caller can
+/// decode the row the way it needs.
+fn frame_fetch_response(resp: &mut Bytes, lazy_count: &mut u32) -> Result<Framed, FbError> {
     let op_code = skip_lazy_responses(resp, lazy_count)?;
 
     if op_code == WireOp::Response as u32 {
@@ -1313,20 +1447,16 @@ fn parse_one_fetch_response(
         // leave four bytes in the stream for the next operation to read as its
         // op code (op 0 -> "Connection rejected with code 0").
         resp.advance(8)?;
-        return Ok(FetchOne::End);
+        return Ok(Framed::End);
     }
 
     if messages == 0 {
         // End of this batch with no row.
         resp.advance(8)?;
-        return Ok(FetchOne::BatchEnd);
+        return Ok(Framed::BatchEnd);
     }
 
-    // A row is present. Delegate to the crate parser (re-reads status+messages+data).
-    match parse_fetch_response(resp, xsqlda, version, charset)? {
-        Some(parsed) => Ok(FetchOne::Row(parsed)),
-        None => Ok(FetchOne::End),
-    }
+    Ok(Framed::Row)
 }
 
 /// Read a server response

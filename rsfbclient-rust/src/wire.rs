@@ -732,6 +732,27 @@ pub fn parse_fetch_response(
     Ok(Some(parse_sql_response(resp, xsqlda, version, charset)?))
 }
 
+/// Like [`parse_fetch_response`] but decodes straight into `Vec<Column>`. Only
+/// valid when the statement has no blob columns (caller checks `has_blob`).
+pub fn parse_fetch_response_columns(
+    resp: &mut Bytes,
+    xsqlda: &[XSqlVar],
+    version: ProtocolVersion,
+    charset: &Charset,
+) -> Result<Option<Vec<Column>>, FbError> {
+    const END_OF_STREAM: u32 = 100;
+
+    let status = resp.get_u32()?;
+
+    if status == END_OF_STREAM {
+        return Ok(None);
+    }
+
+    Ok(Some(parse_sql_response_columns(
+        resp, xsqlda, version, charset,
+    )?))
+}
+
 /// Parse a server sql response (`WireOp::SqlResponse`)
 /// Identical to the FetchResponse, but has no status
 pub fn parse_sql_response(
@@ -740,6 +761,50 @@ pub fn parse_sql_response(
     version: ProtocolVersion,
     charset: &Charset,
 ) -> Result<Vec<ParsedColumn>, FbError> {
+    let mut data = Vec::with_capacity(xsqlda.len());
+    parse_sql_response_each(resp, xsqlda, version, charset, |pc| {
+        data.push(pc);
+        Ok(())
+    })?;
+    Ok(data)
+}
+
+/// Like [`parse_sql_response`] but decodes straight into `Vec<Column>`, skipping
+/// the intermediate `Vec<ParsedColumn>` and the per-column move loop. Only valid
+/// when the statement has no blob columns: a blob here is an error, since
+/// resolving it needs a connection round-trip this function does not have.
+pub fn parse_sql_response_columns(
+    resp: &mut Bytes,
+    xsqlda: &[XSqlVar],
+    version: ProtocolVersion,
+    charset: &Charset,
+) -> Result<Vec<Column>, FbError> {
+    let mut cols = Vec::with_capacity(xsqlda.len());
+    parse_sql_response_each(resp, xsqlda, version, charset, |pc| match pc {
+        ParsedColumn::Complete(c) => {
+            cols.push(c);
+            Ok(())
+        }
+        ParsedColumn::Blob { .. } => {
+            Err("parse_sql_response_columns called on a statement with blob columns".into())
+        }
+    })?;
+    Ok(cols)
+}
+
+/// Shared per-column decoder for a sql/fetch response body (after op_code). Feeds
+/// each decoded column to `sink`. The wire format lives here once; callers decide
+/// whether to collect `ParsedColumn` (blob path) or `Column` directly (fast path).
+fn parse_sql_response_each<F>(
+    resp: &mut Bytes,
+    xsqlda: &[XSqlVar],
+    version: ProtocolVersion,
+    charset: &Charset,
+    mut sink: F,
+) -> Result<(), FbError>
+where
+    F: FnMut(ParsedColumn) -> Result<(), FbError>,
+{
     let has_row = resp.get_u32()? != 0;
     if !has_row {
         return Err("Fetch returned no columns".into());
@@ -776,19 +841,17 @@ pub fn parse_sql_response(
         }
     };
 
-    let mut data = Vec::with_capacity(xsqlda.len());
-
     for (col_index, var) in xsqlda.iter().enumerate() {
         // Remove nullable type indicator
         let sqltype = var.sqltype as u32 & (!1);
 
         if version >= ProtocolVersion::V13 && read_null(resp, col_index)? {
             // There is no data in protocol 13 if null, so just continue
-            data.push(ParsedColumn::Complete(Column::new(
+            sink(ParsedColumn::Complete(Column::new(
                 var.alias_name.clone(),
                 sqltype,
                 SqlType::Null,
-            )));
+            )))?;
             continue;
         }
 
@@ -798,17 +861,17 @@ pub fn parse_sql_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(ParsedColumn::Complete(Column::new(
+                    sink(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
                         sqltype,
                         SqlType::Null,
-                    )))
+                    )))?
                 } else {
-                    data.push(ParsedColumn::Complete(Column::new(
+                    sink(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
                         sqltype,
                         SqlType::Text(charset.decode(&d[..])?),
-                    )))
+                    )))?
                 }
             }
 
@@ -817,17 +880,17 @@ pub fn parse_sql_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(ParsedColumn::Complete(Column::new(
+                    sink(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
                         sqltype,
                         SqlType::Null,
-                    )))
+                    )))?
                 } else {
-                    data.push(ParsedColumn::Complete(Column::new(
+                    sink(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
                         sqltype,
                         SqlType::Integer(i),
-                    )))
+                    )))?
                 }
             }
 
@@ -836,17 +899,17 @@ pub fn parse_sql_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(ParsedColumn::Complete(Column::new(
+                    sink(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
                         sqltype,
                         SqlType::Null,
-                    )))
+                    )))?
                 } else {
-                    data.push(ParsedColumn::Complete(Column::new(
+                    sink(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
                         sqltype,
                         SqlType::Floating(f),
-                    )))
+                    )))?
                 }
             }
 
@@ -858,17 +921,17 @@ pub fn parse_sql_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(ParsedColumn::Complete(Column::new(
+                    sink(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
                         sqltype,
                         SqlType::Null,
-                    )))
+                    )))?
                 } else {
-                    data.push(ParsedColumn::Complete(Column::new(
+                    sink(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
                         sqltype,
                         SqlType::Timestamp(rsfbclient_core::date_time::decode_timestamp(ts)),
-                    )))
+                    )))?
                 }
             }
 
@@ -877,17 +940,17 @@ pub fn parse_sql_response(
 
                 let null = read_null(resp, col_index)?;
                 if null {
-                    data.push(ParsedColumn::Complete(Column::new(
+                    sink(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
                         sqltype,
                         SqlType::Null,
-                    )))
+                    )))?
                 } else {
-                    data.push(ParsedColumn::Blob {
+                    sink(ParsedColumn::Blob {
                         binary: var.sqlsubtype == 0,
                         id: BlobId(id),
                         col_name: var.alias_name.clone(),
-                    })
+                    })?
                 }
             }
 
@@ -898,17 +961,17 @@ pub fn parse_sql_response(
                 let null = read_null(resp, col_index)?;
 
                 if null {
-                    data.push(ParsedColumn::Complete(Column::new(
+                    sink(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
                         sqltype,
                         SqlType::Null,
-                    )))
+                    )))?
                 } else {
-                    data.push(ParsedColumn::Complete(Column::new(
+                    sink(ParsedColumn::Complete(Column::new(
                         var.alias_name.clone(),
                         sqltype,
                         SqlType::Boolean(b),
-                    )))
+                    )))?
                 }
             }
 
@@ -922,7 +985,7 @@ pub fn parse_sql_response(
         }
     }
 
-    Ok(data)
+    Ok(())
 }
 
 /// Column data parsed from a fetch response
