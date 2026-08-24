@@ -185,9 +185,13 @@ impl AuthPluginType {
         }
     }
 
-    /// List with the plugins
+    /// List with the plugins, in order of preference. Must lead with the same
+    /// plugin as `Cnct::PluginName` in the connect request: the client only sends
+    /// auth data for that one, so a server that picks another plugin has to ask
+    /// for the data in an extra op_cont_auth round trip -- which Firebird 5
+    /// rejects when it answered op_accept_data (WireCrypt = Disabled).
     pub fn plugin_list() -> String {
-        [AuthPluginType::Srp.name(), AuthPluginType::Srp256.name()].join(",")
+        [AuthPluginType::Srp256.name(), AuthPluginType::Srp.name()].join(",")
     }
 
     pub fn parse(name: &[u8]) -> Result<Self, rsfbclient_core::FbError> {
