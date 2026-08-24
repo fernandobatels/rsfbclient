@@ -451,6 +451,38 @@ where
     }
 }
 
+/// Zero-copy row streaming, pure-rust backend only.
+#[cfg(feature = "pure_rust")]
+impl Connection<rsfbclient_rust::RustFbClient> {
+    /// Runs `sql` and hands each row to `visit` with no per-row allocation: the
+    /// row is decoded straight into a reusable `Vec<RawValue>`, where text
+    /// borrows the connection read buffer instead of being copied into a
+    /// `String`. Runs in the default transaction.
+    ///
+    /// The statement must have no blob columns (a blob needs its own round-trips,
+    /// which this path does not do); use [`Self::query_iter`] for those.
+    pub fn stream_raw<F>(&mut self, sql: &str, mut visit: F) -> Result<(), FbError>
+    where
+        F: FnMut(&[rsfbclient_rust::RawValue]) -> Result<(), FbError>,
+    {
+        use crate::statement::StatementData;
+
+        self.with_transaction(|tr| {
+            let mut stmt = StatementData::prepare(tr.conn, &mut tr.data, sql, false)?;
+
+            let result = (|| {
+                // Execute opens the select cursor; the rows are pulled by stream_raw.
+                stmt.query(tr.conn, &mut tr.data, ())?;
+                tr.conn.cli.stream_raw(&mut stmt.handle, &mut visit)
+            })();
+
+            stmt.close(tr.conn).ok();
+
+            result
+        })
+    }
+}
+
 #[cfg(test)]
 mk_tests_default! {
     use crate::*;

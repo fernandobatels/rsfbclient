@@ -13,6 +13,7 @@ use crate::{
     blr,
     consts::{AuthPluginType, ProtocolVersion, WireOp},
     events::*,
+    raw::RawValue,
     srp::*,
     util::*,
     wire::*,
@@ -366,6 +367,34 @@ impl FirebirdClientDbEvents for RustFbClient {
 
 fn err_client_not_connected<T>() -> Result<T, FbError> {
     Err("Client not connected to the server, call `attach_database` to connect".into())
+}
+
+impl StmtHandleData {
+    /// Whether any output column is a blob. Raw streaming
+    /// ([`RustFbClient::stream_raw`]) requires this to be false.
+    pub fn has_blob(&self) -> bool {
+        self.has_blob
+    }
+}
+
+impl RustFbClient {
+    /// Streaming fetch with no per-row allocation: each row is decoded straight
+    /// into a reusable `Vec<RawValue>` (text borrows the read buffer, so there is
+    /// no `Vec<Column>` and no `String` per row) and handed to `visit`. The
+    /// statement must be blob-free (see [`StmtHandleData::has_blob`]).
+    pub fn stream_raw<V>(
+        &mut self,
+        stmt_handle: &mut StmtHandleData,
+        visit: V,
+    ) -> Result<(), FbError>
+    where
+        V: FnMut(&[RawValue]) -> Result<(), FbError>,
+    {
+        self.conn
+            .as_mut()
+            .map(|conn| conn.stream_raw(stmt_handle, visit))
+            .unwrap_or_else(err_client_not_connected)
+    }
 }
 
 impl FirebirdWireConnection {
@@ -1201,6 +1230,102 @@ impl FirebirdWireConnection {
         Ok(())
     }
 
+    /// Streaming fetch that decodes each row straight into a reusable
+    /// `Vec<RawValue>` (text borrows the read buffer; no `Vec<Column>`, no
+    /// per-text `String`) and hands it to `visit`. Requires a blob-free statement
+    /// and a cursor with no rows buffered by [`Self::fetch`].
+    pub fn stream_raw<V>(
+        &mut self,
+        stmt_handle: &mut StmtHandleData,
+        mut visit: V,
+    ) -> Result<(), FbError>
+    where
+        V: FnMut(&[RawValue]) -> Result<(), FbError>,
+    {
+        if stmt_handle.has_blob {
+            return Err("stream_raw requires a statement with no blob columns".into());
+        }
+        if !stmt_handle.prefetched.is_empty() {
+            return Err("stream_raw cannot resume a cursor with rows buffered by fetch".into());
+        }
+
+        let count = fetch_batch_size();
+        let mut row = Vec::new();
+        let mut empty_batches = 0u32;
+
+        while !stmt_handle.cursor_eof {
+            let delivered = self.fetch_batch_raw(stmt_handle, count, &mut row, &mut visit)?;
+
+            // Same safety net as `fetch`: a well-behaved server never sends empty
+            // batches without exhausting the cursor.
+            if delivered == 0 {
+                empty_batches += 1;
+                if empty_batches > 1000 {
+                    return Err("stream_raw: too many empty batches without end of cursor".into());
+                }
+            } else {
+                empty_batches = 0;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// One op_fetch of up to `count` rows, decoded into `row` and delivered to
+    /// `visit` as they are parsed. Returns how many rows were delivered.
+    fn fetch_batch_raw<V>(
+        &mut self,
+        stmt_handle: &mut StmtHandleData,
+        count: u32,
+        row: &mut Vec<RawValue>,
+        visit: &mut V,
+    ) -> Result<u32, FbError>
+    where
+        V: FnMut(&[RawValue]) -> Result<(), FbError>,
+    {
+        self.socket
+            .write_all(&fetch(stmt_handle.handle.0, &stmt_handle.blr, count))?;
+        self.socket.flush()?;
+
+        let version = self.version;
+        let xsqlda = &stmt_handle.xsqlda;
+        let mut cursor_eof = false;
+        let mut got = 0u32;
+
+        loop {
+            let framed = read_with(
+                &mut self.socket,
+                &mut self.buff,
+                &mut self.pending,
+                &mut self.lazy_count,
+                |resp, lazy_count| {
+                    parse_one_fetch_response_raw(resp, lazy_count, xsqlda, version, row)
+                },
+            )?;
+
+            match framed {
+                // `row` borrows the read buffer, so it has to be consumed before
+                // the next response is read.
+                Framed::Row => {
+                    visit(row)?;
+                    got += 1;
+                    if got > count {
+                        return Err("server sent more rows than requested in op_fetch".into());
+                    }
+                }
+                Framed::BatchEnd => break,
+                Framed::End => {
+                    cursor_eof = true;
+                    break;
+                }
+            }
+        }
+
+        stmt_handle.cursor_eof = cursor_eof;
+
+        Ok(got)
+    }
+
     /// Create a new blob, returning the blob handle and id
     pub fn create_blob(
         &mut self,
@@ -1412,6 +1537,28 @@ fn parse_one_fetch_response_columns(
     match parse_fetch_response_columns(resp, xsqlda, version, charset)? {
         Some(cols) => Ok(FetchOne::Row(cols)),
         None => Ok(FetchOne::End),
+    }
+}
+
+/// Same as [`parse_one_fetch_response`], decoding the row into `out` as
+/// [`RawValue`] instead of building a `Vec<Column>`.
+fn parse_one_fetch_response_raw(
+    resp: &mut Bytes,
+    lazy_count: &mut u32,
+    xsqlda: &[XSqlVar],
+    version: ProtocolVersion,
+    out: &mut Vec<RawValue>,
+) -> Result<Framed, FbError> {
+    match frame_fetch_response(resp, lazy_count)? {
+        Framed::End => Ok(Framed::End),
+        Framed::BatchEnd => Ok(Framed::BatchEnd),
+        Framed::Row => {
+            if parse_fetch_response_raw(resp, xsqlda, version, out)? {
+                Ok(Framed::Row)
+            } else {
+                Ok(Framed::End)
+            }
+        }
     }
 }
 

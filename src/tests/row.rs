@@ -459,3 +459,105 @@ mk_tests_default! {
         Ok(())
     }
 }
+
+/// The zero-copy streaming path only exists on the pure-rust backend, so it
+/// cannot be generated for every client like the tests above.
+#[cfg(feature = "pure_rust")]
+mod raw_stream {
+    use crate::{prelude::*, FbError, RawValue, Row, SqlType};
+
+    /// 250 rows (crossing the default fetch batch of 200) with one column of each
+    /// type the raw path supports, and every fifth row all null.
+    const ROWS: &str = "EXECUTE BLOCK RETURNS (n int, s varchar(20), d double precision,
+                                               b boolean, ts timestamp) AS
+                        DECLARE i int = 0;
+                        BEGIN
+                          WHILE (i < 250) DO BEGIN
+                            i = i + 1;
+                            IF (MOD(i, 5) = 0) THEN BEGIN
+                              n = NULL; s = NULL; d = NULL; b = NULL; ts = NULL;
+                            END ELSE BEGIN
+                              n = i;
+                              s = 'ação ' || i;
+                              d = CAST(i AS DOUBLE PRECISION) / 4;
+                              b = MOD(i, 2) = 0;
+                              ts = DATEADD(i SECOND TO TIMESTAMP '2020-01-01 12:00:00');
+                            END
+                            SUSPEND;
+                          END
+                        END";
+
+    fn render_column(col: &crate::Column) -> Result<String, FbError> {
+        Ok(match &col.value {
+            SqlType::Null => "null".to_string(),
+            SqlType::Text(t) => t.clone(),
+            SqlType::Integer(i) => i.to_string(),
+            SqlType::Floating(f) => f.to_string(),
+            SqlType::Boolean(b) => b.to_string(),
+            SqlType::Timestamp(ts) => ts.to_string(),
+            other => return Err(format!("unexpected column {:?}", other).into()),
+        })
+    }
+
+    fn render_raw(value: &RawValue) -> Result<String, FbError> {
+        Ok(match value {
+            RawValue::Null => "null".to_string(),
+            RawValue::Text(bytes) => std::str::from_utf8(bytes)
+                .map_err(|e| FbError::from(e.to_string()))?
+                .to_string(),
+            RawValue::Integer(i) => i.to_string(),
+            RawValue::Floating(f) => f.to_string(),
+            RawValue::Boolean(b) => b.to_string(),
+            RawValue::Timestamp(ts) => ts.to_string(),
+        })
+    }
+
+    #[test]
+    fn stream_raw_matches_the_column_api() -> Result<(), FbError> {
+        let mut conn = crate::builder_pure_rust().connect()?;
+
+        let mut expected: Vec<Vec<String>> = Vec::new();
+        for row in conn.query_iter::<(), Row>(ROWS, ())? {
+            expected.push(
+                row?.cols
+                    .iter()
+                    .map(render_column)
+                    .collect::<Result<_, FbError>>()?,
+            );
+        }
+
+        let mut streamed: Vec<Vec<String>> = Vec::new();
+        conn.stream_raw(ROWS, |row| {
+            streamed.push(row.iter().map(render_raw).collect::<Result<_, FbError>>()?);
+
+            Ok(())
+        })?;
+
+        assert_eq!(250, streamed.len());
+        assert_eq!(expected, streamed);
+
+        // The rows above only prove the two paths agree, so make sure they are not
+        // agreeing on nothing: every kind must have shown up.
+        assert_eq!(
+            vec!["1", "ação 1", "0.25", "false", "2020-01-01 12:00:01"],
+            streamed[0]
+        );
+        assert_eq!(vec!["null"; 5], streamed[4]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stream_raw_rejects_blob_columns() -> Result<(), FbError> {
+        let mut conn = crate::builder_pure_rust().connect()?;
+
+        let res = conn.stream_raw(
+            "select cast('abc' as blob sub_type 1) from rdb$database",
+            |_| Ok(()),
+        );
+
+        assert!(res.is_err(), "a blob column must not be streamed raw");
+
+        Ok(())
+    }
+}
