@@ -46,6 +46,10 @@ impl<T> StmtCache<T> {
     /// Adds a prepared statement to the cache, returning the previous one for this sql
     /// or another if the cache is full
     fn insert(&mut self, data: StmtCacheData<T>) -> Option<T> {
+        if self.cache.capacity() == 0 {
+            return Some(data.stmt);
+        }
+
         if self.sqls.contains(&data.sql) {
             // Insert the new one and return the old
             self.cache.insert(data.sql, data.stmt)
@@ -102,8 +106,6 @@ where
         conn: &mut Connection<C>,
         data: StmtCacheData<StatementData<C>>,
     ) -> Result<(), FbError> {
-        conn.stmt_cache.sqls.insert(data.sql.clone());
-
         // Insert the new one and close the old if exists
         if let Some(mut stmt) = conn.stmt_cache.insert(data) {
             stmt.close(conn)?;
@@ -166,6 +168,48 @@ fn stmt_cache_test() {
     assert_eq!(cache.get("sql 5").expect("sql5 not in the cache").stmt, 5);
     assert_eq!(cache.get("sql 6").expect("sql6 not in the cache").stmt, 6);
 
+    assert!(cache.cache.is_empty());
+    assert!(cache.sqls.is_empty());
+}
+
+#[test]
+fn stmt_cache_zero_capacity_returns_every_statement() {
+    let mut cache = StmtCache::new(0);
+
+    let stmt = cache
+        .insert(StmtCacheData {
+            sql: "select 1".to_string(),
+            stmt: 1,
+        })
+        .expect("zero-capacity cache must return the statement");
+
+    assert_eq!(stmt, 1);
+    assert!(cache.cache.is_empty());
+    assert!(cache.sqls.is_empty());
+}
+
+#[test]
+fn stmt_cache_replacement_returns_previous_statement() {
+    let mut cache = StmtCache::new(2);
+
+    assert!(cache
+        .insert(StmtCacheData {
+            sql: "select 1".to_string(),
+            stmt: 1,
+        })
+        .is_none());
+
+    let stmt = cache
+        .insert(StmtCacheData {
+            sql: "select 1".to_string(),
+            stmt: 2,
+        })
+        .expect("replaced statement must be returned");
+
+    assert_eq!(stmt, 1);
+    assert_eq!(cache.cache.len(), 1);
+    assert_eq!(cache.sqls.len(), 1);
+    assert_eq!(cache.get("select 1").unwrap().stmt, 2);
     assert!(cache.cache.is_empty());
     assert!(cache.sqls.is_empty());
 }

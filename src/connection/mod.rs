@@ -202,11 +202,16 @@ impl<C: FirebirdClient> Connection<C> {
         let res = closure(&mut tr);
 
         if !in_transaction {
-            if res.is_ok() {
-                tr.commit_retaining()?;
-            } else {
-                tr.rollback_retaining()?;
-            }
+            return match res {
+                Ok(value) => {
+                    tr.commit()?;
+                    Ok(value)
+                }
+                Err(error) => {
+                    tr.rollback()?;
+                    Err(error)
+                }
+            };
         }
 
         let tr = TransactionData::from_transaction(tr);
@@ -274,14 +279,22 @@ impl<C: FirebirdClient> Connection<C> {
     pub fn commit(&mut self) -> Result<(), FbError> {
         self.in_transaction = false;
 
-        self.use_transaction(self.def_confs_tr, |tr| tr.commit_retaining())
+        if let Some(tr) = self.def_tr.take() {
+            tr.into_transaction(self).commit()
+        } else {
+            Ok(())
+        }
     }
 
     /// Rollback the default transaction
     pub fn rollback(&mut self) -> Result<(), FbError> {
         self.in_transaction = false;
 
-        self.use_transaction(self.def_confs_tr, |tr| tr.rollback_retaining())
+        if let Some(tr) = self.def_tr.take() {
+            tr.into_transaction(self).rollback()
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -319,16 +332,15 @@ where
     C: FirebirdClient,
 {
     fn drop(&mut self) {
-        // Close the cursor
-        self.stmt_cache_data
-            .as_mut()
-            .unwrap()
-            .stmt
-            .close_cursor(self.conn)
-            .ok();
+        let mut stmt_cache_data = self.stmt_cache_data.take().unwrap();
 
-        // Send the statement back to the cache
-        StmtCache::insert_and_close(self.conn, self.stmt_cache_data.take().unwrap()).ok();
+        if stmt_cache_data.stmt.close_cursor(self.conn).is_ok() {
+            // Only cache statements whose cursor was closed successfully.
+            StmtCache::insert_and_close(self.conn, stmt_cache_data).ok();
+        } else {
+            // A statement with an uncertain cursor state must not be reused.
+            stmt_cache_data.stmt.close(self.conn).ok();
+        }
 
         if !self.conn.in_transaction {
             // Commit the transaction
@@ -372,7 +384,8 @@ where
         P: IntoParams,
         R: FromRow + 'static,
     {
-        let stmt_cache_data = self.use_transaction(self.def_confs_tr, |tr| {
+        let in_transaction = self.in_transaction;
+        let stmt_cache_data = match self.use_transaction(self.def_confs_tr, |tr| {
             let params = params.to_params();
 
             // Get a statement from the cache
@@ -381,17 +394,21 @@ where
             match stmt_cache_data.stmt.query(tr.conn, &mut tr.data, params) {
                 Ok(_) => Ok(stmt_cache_data),
                 Err(e) => {
-                    // Return the statement to the cache
-                    StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
-
-                    if !tr.conn.in_transaction {
-                        tr.rollback_retaining().ok();
-                    }
+                    // A statement that failed to open its cursor must not be reused.
+                    stmt_cache_data.stmt.close(tr.conn).ok();
 
                     Err(e)
                 }
             }
-        })?;
+        }) {
+            Ok(stmt_cache_data) => stmt_cache_data,
+            Err(error) => {
+                if !in_transaction {
+                    self.rollback().ok();
+                }
+                return Err(error);
+            }
+        };
 
         let iter = StmtIter {
             stmt_cache_data: Some(stmt_cache_data),
@@ -420,10 +437,16 @@ where
             // Do not return now in case of error, because we need to return the statement to the cache
             let res = stmt_cache_data.stmt.execute(tr.conn, &mut tr.data, params);
 
-            // Return the statement to the cache
-            StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
-
-            res
+            match res {
+                Ok(value) => {
+                    StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
+                    Ok(value)
+                }
+                Err(error) => {
+                    stmt_cache_data.stmt.close(tr.conn).ok();
+                    Err(error)
+                }
+            }
         })
     }
 
@@ -441,12 +464,16 @@ where
             // Do not return now in case of error, because we need to return the statement to the cache
             let res = stmt_cache_data.stmt.execute2(tr.conn, &mut tr.data, params);
 
-            // Return the statement to the cache
-            StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
-
-            let f_res = FromRow::try_from(res?)?;
-
-            Ok(f_res)
+            match res {
+                Ok(row) => {
+                    StmtCache::insert_and_close(tr.conn, stmt_cache_data)?;
+                    FromRow::try_from(row)
+                }
+                Err(error) => {
+                    stmt_cache_data.stmt.close(tr.conn).ok();
+                    Err(error)
+                }
+            }
         })
     }
 }
