@@ -89,23 +89,16 @@
 //! features.
 //! # Transactions
 //!
-//! Every [Connection](./struct.Connection.html) keeps one **default transaction**, started
-//! lazily by the first `query`/`execute` call with the configuration given at connect time
-//! (the builder's `transaction(...)`/`with_transaction(...)` options; the defaults are
-//! `ReadCommited` + record version, `Wait` without timeout, read-write). Outside of an
-//! explicit `begin_transaction`, every statement is committed automatically.
+//! Every [Connection](./struct.Connection.html) starts a **default transaction** lazily for
+//! `query`/`execute` calls, using the configuration given at connect time (the builder's
+//! `transaction(...)`/`with_transaction(...)` options; the defaults are `ReadCommited` + record
+//! version, `Wait` without timeout, read-write). Outside of an explicit `begin_transaction`, the
+//! transaction is committed and released automatically after the statement completes. For a query
+//! iterator, this happens when the iterator is dropped after its cursor has been closed.
 //!
-//! Two properties of the default transaction are worth knowing:
-//!
-//! - [Connection::commit](./struct.Connection.html#method.commit) and
-//!   [Connection::rollback](./struct.Connection.html#method.rollback) are **retaining**
-//!   operations: they end the current unit of work but keep the same physical transaction
-//!   alive. Its configuration — and, for `TrIsolationLevel::Concurrency` (SNAPSHOT), the
-//!   snapshot it started with — persists for the whole life of the connection.
-//! - Because the physical transaction is reused,
-//!   [begin_transaction_config](./struct.Connection.html#method.begin_transaction_config)
-//!   only applies its configuration if the default transaction has not started yet (i.e.
-//!   before the first statement on the connection).
+//! [Connection::commit](./struct.Connection.html#method.commit) and
+//! [Connection::rollback](./struct.Connection.html#method.rollback) release the explicit default
+//! transaction started by `begin_transaction`/`begin_transaction_config`.
 //!
 //! When you need a transaction with its own isolation level, lock policy or lifetime —
 //! e.g. a SNAPSHOT reader beside a NO WAIT writer — create an explicit transaction object:
