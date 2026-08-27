@@ -304,6 +304,7 @@ pub const SQL_QUAD: u32 = 550;
 pub const SQL_TYPE_TIME: u32 = 560;
 pub const SQL_TYPE_DATE: u32 = 570;
 pub const SQL_INT64: u32 = 580;
+pub const SQL_INT128: u32 = 32752;
 pub const SQL_BOOLEAN: u32 = 32764;
 pub const SQL_NULL: u32 = 32766;
 pub const SQL_DATE: u32 = 510;

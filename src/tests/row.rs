@@ -322,6 +322,44 @@ mk_tests_default! {
 
     #[test]
     #[allow(clippy::float_cmp)]
+    #[cfg(all(feature = "native_client", not(feature = "pure_rust")))]
+    fn int128_and_decimal_28_mapping() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        if conn.server_engine()? < EngineVersion::V4 {
+            return Ok(());
+        }
+
+        conn.execute("set bind of int128 to native", ())?;
+
+        let expected_int128 = 123456789012345678901234567890_i128;
+        let (positive, negative): (i128, i128) = conn
+            .query_first(
+                "select cast(123456789012345678901234567890 as int128), cast(-123456789012345678901234567890 as int128) from rdb$database",
+                (),
+            )?
+            .expect("INT128 query must return one row");
+        assert_eq!(positive, expected_int128);
+        assert_eq!(negative, -expected_int128);
+
+        let (parameter,): (i128,) = conn
+            .query_first("select cast(? as int128) from rdb$database", (expected_int128,))?
+            .expect("INT128 parameter query must return one row");
+        assert_eq!(parameter, expected_int128);
+
+        let (decimal_28, expected_decimal_28): (f64, f64) = conn
+            .query_first(
+                "select cast(1.2345 as decimal(28,4)), cast(cast(1.2345 as decimal(28,4)) as double precision) from rdb$database",
+                (),
+            )?
+            .expect("DECIMAL(28,4) query must return one row");
+        assert_eq!(decimal_28, expected_decimal_28);
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
     fn float_points() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 

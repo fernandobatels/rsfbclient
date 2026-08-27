@@ -86,6 +86,16 @@ pub fn params_to_blr(
                 values.put_i64(*i);
             }
 
+            SqlType::Int128(i) => {
+                blr.put_slice(&[
+                    consts::blr::INT128,
+                    0, // Scale
+                ]);
+
+                values.put_i64((i >> 64) as i64);
+                values.put_u64(*i as u64);
+            }
+
             SqlType::Floating(f) => {
                 blr.put_u8(consts::blr::DOUBLE);
 
