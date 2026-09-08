@@ -994,6 +994,12 @@ impl FirebirdWireConnection {
 
                 let parsed_cols = parse_sql_response(resp, xsqlda, version, &charset)?;
 
+                // The sql response is followed by its own op_response, framed with
+                // its own op_code just like every other response on the wire.
+                let op_code = next_op_code(resp)?;
+                if op_code != WireOp::Response as u32 {
+                    return err_conn_rejected(op_code);
+                }
                 parse_response(resp)?;
 
                 Ok(parsed_cols)
