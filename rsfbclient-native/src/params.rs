@@ -120,6 +120,8 @@ enum ParamBufferData {
 
     Integer(Box<i64>),
 
+    Int128(Box<i128>),
+
     Floating(Box<f64>),
 
     Timestamp(Box<ibase::ISC_TIMESTAMP>),
@@ -138,6 +140,7 @@ impl ParamBufferData {
         match self {
             Text(s) => s.as_ptr() as _,
             Integer(i) => &**i as *const _ as _,
+            Int128(i) => i.as_mut() as *mut i128 as _,
             Floating(f) => &**f as *const _ as _,
             Timestamp(ts) => &**ts as *const _ as _,
             Null => ptr::null_mut(),
@@ -178,6 +181,8 @@ impl ParamBuffer {
             }
 
             SqlType::Integer(i) => (mem::size_of_val(&i), Integer(Box::new(i))),
+
+            SqlType::Int128(i) => (mem::size_of_val(&i), Int128(Box::new(i))),
 
             SqlType::Floating(f) => (mem::size_of_val(&f), Floating(Box::new(f))),
 

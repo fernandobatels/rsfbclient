@@ -21,6 +21,7 @@ impl SqlType {
                 }
             }
             Integer(_) => (ibase::SQL_INT64 + 1, 0),
+            Int128(_) => (ibase::SQL_INT128 + 1, 0),
             Floating(_) => (ibase::SQL_DOUBLE + 1, 0),
             Timestamp(_) => (ibase::SQL_TIMESTAMP + 1, 0),
             Null => (ibase::SQL_TEXT + 1, 0),
@@ -50,6 +51,12 @@ impl IntoParam for String {
 impl IntoParam for i64 {
     fn into_param(self) -> SqlType {
         Integer(self)
+    }
+}
+
+impl IntoParam for i128 {
+    fn into_param(self) -> SqlType {
+        Int128(self)
     }
 }
 

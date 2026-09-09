@@ -128,6 +128,7 @@
 //! | Firebird type | Rust type |
 //! |---|---|
 //! | `SMALLINT`, `INTEGER`, `BIGINT` | `i64` (or any smaller integer type via `try_into`) |
+//! | `INT128` (Firebird 4+) | `i128` |
 //! | `FLOAT`, `DOUBLE PRECISION`, `NUMERIC`, `DECIMAL` | `f64` / `f32` |
 //! | `CHAR`, `VARCHAR` | `String` (decoded with the connection charset) |
 //! | `BLOB SUB_TYPE TEXT` | `String` |
@@ -142,11 +143,11 @@
 //!   2^53 lose precision silently (e.g. `NUMERIC(18,2)` storing `90071992547409.93` reads
 //!   back as `90071992547409.92`). When the exact digits matter, `CAST` the column to
 //!   `VARCHAR` in SQL and parse, or keep the value in a wider text/integer form.
-//! - **Firebird 4+ types are not supported by the row reader**: selecting an `INT128`,
+//! - **Some Firebird 4+ types are not supported by the row reader**: selecting a
 //!   `DECFLOAT(16/34)`, `TIMESTAMP WITH TIME ZONE` or `TIME WITH TIME ZONE` column (or a
 //!   blob with `sub_type > 1`) fails at describe time with *"Unsupported column type"*.
-//!   `CAST` such columns to `VARCHAR`/`BIGINT`/plain `TIMESTAMP` in the SQL to move the
-//!   conversion server-side.
+//!   Plain `INT128` is preserved as `i128`; `NUMERIC`/`DECIMAL` values backed by INT128
+//!   follow the same `f64` mapping as their lower-precision counterparts.
 //!
 //! See `examples/type_mapping.rs` for all of the above, live.
 //!

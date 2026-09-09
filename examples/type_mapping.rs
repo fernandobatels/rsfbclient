@@ -3,20 +3,17 @@
 //!
 //! Example of how Firebird data types map to Rust types
 //!
-//! The driver's `SqlType` is deliberately coarse: every integer arrives
-//! as i64, every float / NUMERIC / DECIMAL as f64, CHAR/VARCHAR as
-//! String, BLOB as Vec<u8> or String, TIMESTAMP as chrono types and
-//! BOOLEAN as bool. This example shows each mapping live, plus the two
+//! The driver's `SqlType` maps SMALLINT/INTEGER/BIGINT to i64, Firebird 4+
+//! INT128 to i128, every float / NUMERIC / DECIMAL to f64, CHAR/VARCHAR
+//! to String, BLOB to Vec<u8> or String, TIMESTAMP to chrono types and
+//! BOOLEAN to bool. This example shows each mapping live, plus the two
 //! sharp edges worth knowing:
 //!
 //!  - NUMERIC/DECIMAL are converted through f64, so scaled values whose
 //!    integer form exceeds 2^53 silently lose precision (shown below
 //!    with a value that comes back one cent off).
-//!  - Firebird 4+ types (INT128, DECFLOAT, TIMESTAMP/TIME WITH TIME
-//!    ZONE) and blobs with sub_type > 1 are not supported by the row
-//!    reader: selecting such a column fails at describe time with
-//!    "Unsupported column type". CAST them to VARCHAR (or BIGINT etc.)
-//!    in SQL to move the conversion server-side.
+//!  - Some Firebird 4+ types (DECFLOAT and TIMESTAMP/TIME WITH TIME ZONE)
+//!    and blobs with sub_type > 1 are not supported by the row reader.
 //!
 //! The table is created by the example itself (idempotent); you only
 //! need an `examples.fdb` database. The FB4-specific columns are added
@@ -30,7 +27,7 @@ use rsfbclient::{prelude::*, FbError, SimpleConnection};
 
 fn connect() -> Result<SimpleConnection, FbError> {
     #[cfg(feature = "linking")]
-    let conn = rsfbclient::builder_native()
+    let conn: SimpleConnection = rsfbclient::builder_native()
         .with_dyn_link()
         .with_remote()
         .host("localhost")
@@ -41,7 +38,7 @@ fn connect() -> Result<SimpleConnection, FbError> {
         .into();
 
     #[cfg(feature = "dynamic_loading")]
-    let conn = rsfbclient::builder_native()
+    let conn: SimpleConnection = rsfbclient::builder_native()
         .with_dyn_load("./fbclient.lib")
         .with_remote()
         .host("localhost")
@@ -52,7 +49,7 @@ fn connect() -> Result<SimpleConnection, FbError> {
         .into();
 
     #[cfg(feature = "pure_rust")]
-    let conn = rsfbclient::builder_pure_rust()
+    let conn: SimpleConnection = rsfbclient::builder_pure_rust()
         .host("localhost")
         .db_name("examples.fdb")
         .user("SYSDBA")
@@ -128,21 +125,23 @@ fn main() -> Result<(), FbError> {
         .unwrap();
     println!("numeric via CAST    : {}   <- exact", num_text);
 
-    // 2. The unsupported types fail at describe time...
+    // 2. A real INT128 remains exact and is returned as Rust i128.
     if fb4 {
-        match conn.query_first::<(), (String,)>("select c_i128 from type_probe", ()) {
-            Ok(_) => println!("unexpected: INT128 fetched"),
-            Err(e) => println!("select c_i128 fails  : {}", e),
-        }
-        // ...and CAST moves the conversion server-side
-        let (i128_text, dec_text): (String, String) = conn
-            .query_first(
-                "select cast(c_i128 as varchar(50)), cast(c_dec as varchar(50)) from type_probe",
-                (),
-            )?
+        let (int128,): (i128,) = conn
+            .query_first("select c_i128 from type_probe", ())?
             .unwrap();
-        println!("int128 via CAST     : {}", i128_text);
-        println!("decfloat via CAST   : {}", dec_text);
+        println!("int128   -> i128   : {}", int128);
+
+        // DECFLOAT remains unsupported. Text conversion is shown only to
+        // demonstrate its exact digits, not as an INT128 compatibility path.
+        match conn.query_first::<(), (String,)>("select c_dec from type_probe", ()) {
+            Ok(_) => println!("unexpected: DECFLOAT fetched"),
+            Err(e) => println!("select c_dec fails   : {}", e),
+        }
+        let (dec_text,): (String,) = conn
+            .query_first("select cast(c_dec as varchar(50)) from type_probe", ())?
+            .unwrap();
+        println!("decfloat as text    : {}", dec_text);
     } else {
         println!("(Firebird 3 server: INT128/DECFLOAT part skipped)");
     }

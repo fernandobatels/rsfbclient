@@ -71,6 +71,8 @@ impl ColumnToVal<String> for Column {
 
             Integer(i) => Ok(i.to_string()),
 
+            Int128(i) => Ok(i.to_string()),
+
             Floating(f) => Ok(f.to_string()),
 
             Timestamp(ts) => Ok(ts.to_string()),
@@ -80,6 +82,20 @@ impl ColumnToVal<String> for Column {
             Boolean(bo) => Ok(bo.to_string()),
 
             Null => Err(err_column_null("String")),
+        }
+    }
+}
+
+impl ColumnToVal<i128> for Column {
+    fn to_val(self) -> Result<i128, FbError> {
+        match self.value {
+            Integer(i) => Ok(i128::from(i)),
+
+            Int128(i) => Ok(i),
+
+            Null => Err(err_column_null("i128")),
+
+            col => err_type_conv(col, "i128"),
         }
     }
 }

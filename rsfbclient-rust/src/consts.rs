@@ -1677,6 +1677,7 @@ pub mod blr {
     pub const COLUMN_NAME: u8 = 21;
     pub const COLUMN_NAME2: u8 = 22;
     pub const BOOL: u8 = 23;
+    pub const INT128: u8 = 26;
     // first sub parameter for domain_name[2]
     pub const DOMAIN_TYPE_OF: u8 = 0;
     pub const DOMAIN_FULL: u8 = 1;

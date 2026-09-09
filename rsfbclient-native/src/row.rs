@@ -18,6 +18,8 @@ pub enum ColumnBufferData {
     Text(Varchar),
     /// Coerces to Int64
     Integer(Box<i64>),
+    /// Native Firebird INT128
+    Int128(Box<i128>),
     /// Coerces to Double
     Float(Box<f64>),
     /// Coerces to Timestamp
@@ -35,6 +37,7 @@ impl ColumnBufferData {
         match self {
             Text(v) => v.as_ptr() as _,
             Integer(i) => &**i as *const _ as _,
+            Int128(i) => i.as_mut() as *mut i128 as _,
             Float(f) => &**f as *const _ as _,
             Timestamp(ts) => &**ts as *const _ as _,
             BlobText(bid) => &**bid as *const _ as _,
@@ -100,6 +103,23 @@ impl ColumnBuffer {
                 var.sqltype = ibase::SQL_VARYING as i16 + 1;
 
                 Text(Varchar::new(var.sqllen as u16))
+            }
+
+            ibase::SQL_INT128 if sqlsubtype == 0 && var.sqlscale == 0 => {
+                var.sqllen = mem::size_of::<i128>() as i16;
+                var.sqltype = ibase::SQL_INT128 as i16 + 1;
+
+                Int128(Box::new(0))
+            }
+
+            ibase::SQL_INT128 => {
+                // NUMERIC/DECIMAL backed by INT128 follows the crate's existing
+                // fixed-point policy and is converted to double by fbclient.
+                var.sqllen = mem::size_of::<f64>() as i16;
+                var.sqlscale = 0;
+                var.sqltype = ibase::SQL_DOUBLE as i16 + 1;
+
+                Float(Box::new(0.0))
             }
 
             ibase::SQL_SHORT | ibase::SQL_LONG | ibase::SQL_INT64 => {
@@ -181,6 +201,8 @@ impl ColumnBuffer {
             Text(varchar) => SqlType::Text(charset.decode(varchar.as_bytes())?),
 
             Integer(i) => SqlType::Integer(**i),
+
+            Int128(i) => SqlType::Int128(**i),
 
             Float(f) => SqlType::Floating(**f),
 

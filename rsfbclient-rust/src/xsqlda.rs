@@ -73,6 +73,19 @@ impl XSqlVar {
                 self.sqltype = ibase::SQL_VARYING as i16 + 1;
             }
 
+            ibase::SQL_INT128 if sqlsubtype == 0 && self.scale == 0 => {
+                self.data_length = mem::size_of::<i128>() as i16;
+                self.sqltype = ibase::SQL_INT128 as i16 + 1;
+            }
+
+            ibase::SQL_INT128 => {
+                // NUMERIC/DECIMAL backed by INT128 follows the crate's existing
+                // fixed-point policy and is converted to double by Firebird.
+                self.data_length = mem::size_of::<f64>() as i16;
+                self.scale = 0;
+                self.sqltype = ibase::SQL_DOUBLE as i16 + 1;
+            }
+
             ibase::SQL_SHORT | ibase::SQL_LONG | ibase::SQL_INT64 => {
                 self.data_length = mem::size_of::<i64>() as i16;
 
@@ -140,6 +153,8 @@ pub fn xsqlda_to_blr(xsqlda: &[XSqlVar]) -> Result<Bytes, FbError> {
                 consts::blr::INT64,
                 0, // Scale
             ]),
+
+            ibase::SQL_INT128 => blr.put_slice(&[consts::blr::INT128, var.scale as u8]),
 
             ibase::SQL_DOUBLE => blr.put_u8(consts::blr::DOUBLE),
 
@@ -403,4 +418,49 @@ fn err_invalid_xsqlda<T>() -> Result<T, FbError> {
     Err(FbError::Other(
         "Invalid Xsqlda received from server".to_string(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixed_point_int128_is_requested_as_double() {
+        let mut var = XSqlVar {
+            sqltype: ibase::SQL_INT128 as i16 + 1,
+            scale: -4,
+            sqlsubtype: 2,
+            data_length: 16,
+            ..Default::default()
+        };
+
+        var.coerce().unwrap();
+
+        assert_eq!(var.sqltype, ibase::SQL_DOUBLE as i16 + 1);
+        assert_eq!(var.scale, 0);
+        assert_eq!(var.data_length, mem::size_of::<f64>() as i16);
+
+        let blr = xsqlda_to_blr(&[var]).unwrap();
+        assert_eq!(blr[6], consts::blr::DOUBLE);
+    }
+
+    #[test]
+    fn integer_int128_is_preserved() {
+        let mut var = XSqlVar {
+            sqltype: ibase::SQL_INT128 as i16 + 1,
+            scale: 0,
+            sqlsubtype: 0,
+            data_length: 16,
+            ..Default::default()
+        };
+
+        var.coerce().unwrap();
+
+        assert_eq!(var.sqltype, ibase::SQL_INT128 as i16 + 1);
+        assert_eq!(var.scale, 0);
+        assert_eq!(var.data_length, mem::size_of::<i128>() as i16);
+
+        let blr = xsqlda_to_blr(&[var]).unwrap();
+        assert_eq!(&blr[6..8], &[consts::blr::INT128, 0]);
+    }
 }

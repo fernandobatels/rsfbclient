@@ -24,6 +24,9 @@ pub enum SqlType {
 
     Integer(i64),
 
+    /// Firebird 4+ `INT128` value.
+    Int128(i128),
+
     Floating(f64),
 
     Timestamp(chrono::NaiveDateTime),

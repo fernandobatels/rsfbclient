@@ -1114,6 +1114,27 @@ fn decode_row<S: RowSink>(
                 }
             }
 
+            ibase::SQL_INT128 => {
+                let high = resp.get_i64()?;
+                let low = resp.get_u64()?;
+                let i = (i128::from(high) << 64) | i128::from(low);
+
+                let null = read_null(resp, col_index)?;
+                if null {
+                    data.push(ParsedColumn::Complete(Column::new(
+                        var.alias_name.clone(),
+                        sqltype,
+                        SqlType::Null,
+                    )))
+                } else {
+                    data.push(ParsedColumn::Complete(Column::new(
+                        var.alias_name.clone(),
+                        sqltype,
+                        SqlType::Int128(i),
+                    )))
+                }
+            }
+
             ibase::SQL_DOUBLE => {
                 let f = resp.get_f64()?;
 
@@ -1486,4 +1507,43 @@ pub fn parse_info_sql_affected_rows(data: &mut Bytes) -> Result<usize, FbError> 
     }
 
     Ok(affected_rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsfbclient_core::charset::UTF_8;
+
+    fn assert_int128_decoded(expected: i128) {
+        let mut response = BytesMut::new();
+        response.put_u32(1); // Row is present.
+        response.put_u32(0); // Protocol 13 null bitmap, aligned to four bytes.
+        response.put_i64((expected >> 64) as i64);
+        response.put_u64(expected as u64);
+
+        let xsqlda = [XSqlVar {
+            sqltype: ibase::SQL_INT128 as i16 + 1,
+            data_length: 16,
+            alias_name: "VALUE".to_owned(),
+            ..Default::default()
+        }];
+
+        let mut response = response.freeze();
+        let columns =
+            parse_sql_response(&mut response, &xsqlda, ProtocolVersion::V13, &UTF_8).unwrap();
+
+        match &columns[0] {
+            ParsedColumn::Complete(column) => match &column.value {
+                SqlType::Int128(actual) => assert_eq!(*actual, expected),
+                actual => panic!("expected INT128, got {actual:?}"),
+            },
+            ParsedColumn::Blob { .. } => panic!("expected INT128, got blob"),
+        }
+    }
+
+    #[test]
+    fn int128_wire_value_keeps_all_bits() {
+        assert_int128_decoded(123456789012345678901234567890_i128);
+        assert_int128_decoded(-123456789012345678901234567890_i128);
+    }
 }
