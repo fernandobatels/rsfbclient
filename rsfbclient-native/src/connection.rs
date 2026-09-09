@@ -106,6 +106,24 @@ impl DynLoad {
     }
 }
 
+impl<T: LinkageMarker> NativeFbClient<T> {
+    fn drop_statement_after_prepare_error(
+        &mut self,
+        handle: &mut NativeStmtHandle,
+        error: FbError,
+    ) -> FbError {
+        unsafe {
+            self.ibase.isc_dsql_free_statement()(
+                &mut self.status[0],
+                handle,
+                FreeStmtOp::Drop as u16,
+            );
+        }
+
+        error
+    }
+}
+
 impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
     type DbHandle = NativeDbHandle;
     type AttachmentConfig = NativeFbAttachmentConfig;
@@ -343,7 +361,8 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
                 &mut *xsqlda,
             ) != 0
             {
-                return Err(self.status.as_error(&self.ibase));
+                let error = self.status.as_error(&self.ibase);
+                return Err(self.drop_statement_after_prepare_error(&mut handle, error));
             }
 
             let row_count = xsqlda.sqld;
@@ -355,7 +374,8 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
                 if self.ibase.isc_dsql_describe()(&mut self.status[0], &mut handle, 1, &mut *xsqlda)
                     != 0
                 {
-                    return Err(self.status.as_error(&self.ibase));
+                    let error = self.status.as_error(&self.ibase);
+                    return Err(self.drop_statement_after_prepare_error(&mut handle, error));
                 }
             }
 
@@ -372,7 +392,8 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
                 &mut info_buf[0],
             ) != 0
             {
-                return Err(self.status.as_error(&self.ibase));
+                let error = self.status.as_error(&self.ibase);
+                return Err(self.drop_statement_after_prepare_error(&mut handle, error));
             }
 
             for &v in &info_buf[3..] {
@@ -384,8 +405,10 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
             }
         }
 
-        let stmt_type = StmtType::try_from(stmt_type as u8)
-            .map_err(|_| FbError::from(format!("Invalid statement type: {}", stmt_type)))?;
+        let stmt_type = StmtType::try_from(stmt_type as u8).map_err(|_| {
+            let error = FbError::from(format!("Invalid statement type: {}", stmt_type));
+            self.drop_statement_after_prepare_error(&mut handle, error)
+        })?;
 
         // Create the column buffers and set the xsqlda conercions
         let col_buffers = (0..xsqlda.sqld)
@@ -396,7 +419,8 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
 
                 ColumnBuffer::from_xsqlvar(xcol)
             })
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<_, _>>()
+            .map_err(|error| self.drop_statement_after_prepare_error(&mut handle, error))?;
 
         Ok((
             stmt_type,

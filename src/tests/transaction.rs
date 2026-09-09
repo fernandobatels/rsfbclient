@@ -37,6 +37,43 @@ mk_tests_default! {
     }
 
     #[test]
+    fn automatic_queries_release_their_transactions() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        let (first_transaction,): (i64,) = conn
+            .query_first("select current_transaction from rdb$database", ())?
+            .unwrap();
+        let (second_transaction,): (i64,) = conn
+            .query_first("select current_transaction from rdb$database", ())?
+            .unwrap();
+
+        assert_ne!(first_transaction, second_transaction);
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_connection_transaction_is_reused_until_commit() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+        conn.begin_transaction()?;
+
+        let (first_transaction,): (i64,) = conn
+            .query_first("select current_transaction from rdb$database", ())?
+            .unwrap();
+        let (second_transaction,): (i64,) = conn
+            .query_first("select current_transaction from rdb$database", ())?
+            .unwrap();
+
+        assert_eq!(first_transaction, second_transaction);
+        conn.commit()?;
+
+        let (next_transaction,): (i64,) = conn
+            .query_first("select current_transaction from rdb$database", ())?
+            .unwrap();
+        assert_ne!(first_transaction, next_transaction);
+        Ok(())
+    }
+
+    #[test]
     fn recreate_insert_drop_with_commit() -> Result<(), FbError> {
         const TABLE_NAME: &str = "RSFBCLIENT_TEST_TRANS0";
 

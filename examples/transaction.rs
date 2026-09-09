@@ -69,7 +69,7 @@ fn main() -> Result<(), FbError> {
         Ok(())
     })?;
 
-    // New default transaction, but with a diferent transaction conf too
+    // New explicit default transaction with a different transaction configuration
     conn.begin_transaction_config(transaction_builder().read_only().build())?;
 
     Ok(())

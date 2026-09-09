@@ -286,6 +286,38 @@ mk_tests_default! {
     }
 
     #[test]
+    #[cfg(all(feature = "native_client", not(feature = "pure_rust")))]
+    fn unsupported_column_drops_prepared_statement_handle() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        if conn.server_engine()? < EngineVersion::V4 {
+            return Ok(());
+        }
+
+        conn.execute("set bind of decfloat to native", ())?;
+
+        for attempt in 0..1_100 {
+            let result: Result<Option<(f64,)>, FbError> = conn.query_first(
+                "select cast(1 as decfloat(34)) from rdb$database",
+                (),
+            );
+            let error = result.expect_err("DECFLOAT(34) result must remain unsupported");
+            let message = error.to_string();
+            assert!(
+                message.contains("Unsupported column type (32762"),
+                "unexpected error at attempt {attempt}: {message}"
+            );
+        }
+
+        let (value,): (i64,) = conn
+            .query_first("select 1 from rdb$database", ())?
+            .expect("query after prepare errors must return one row");
+        assert_eq!(value, 1);
+
+        Ok(())
+    }
+
+    #[test]
     #[allow(clippy::float_cmp, clippy::excessive_precision)]
     fn fixed_points() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;

@@ -12,14 +12,11 @@
 //!     that another transaction updated first fails immediately with
 //!     "update conflicts with concurrent update" instead of blocking.
 //!
-//! The example uses explicit `SimpleTransaction` objects instead of the
-//! connection's default transaction on purpose: the default transaction
-//! is started once with the configuration given at connect time, and
-//! `Connection::commit`/`rollback` are RETAINING operations — the same
-//! physical transaction (with its configuration and, under SNAPSHOT,
-//! its snapshot) lives for the whole life of the connection. Explicit
-//! transaction objects give each demonstration its own configuration
-//! and a real, consuming commit.
+//! The example uses explicit `SimpleTransaction` objects so each
+//! demonstration has an independent transaction lifetime and
+//! configuration. The connection's automatic transaction is scoped to
+//! a query or execute call, while an explicit transaction remains active
+//! until its consuming commit or rollback.
 //!
 //! The table is created by the example itself (idempotent); you only
 //! need an `examples.fdb` database.

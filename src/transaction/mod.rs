@@ -111,16 +111,15 @@ where
     C: FirebirdClient,
 {
     fn drop(&mut self) {
-        // Close the cursor
-        self.stmt_cache_data
-            .as_mut()
-            .unwrap()
-            .stmt
-            .close_cursor(self.tr.conn)
-            .ok();
+        let mut stmt_cache_data = self.stmt_cache_data.take().unwrap();
 
-        // Send the statement back to the cache
-        StmtCache::insert_and_close(self.tr.conn, self.stmt_cache_data.take().unwrap()).ok();
+        if stmt_cache_data.stmt.close_cursor(self.tr.conn).is_ok() {
+            // Only cache statements whose cursor was closed successfully.
+            StmtCache::insert_and_close(self.tr.conn, stmt_cache_data).ok();
+        } else {
+            // A statement with an uncertain cursor state must not be reused.
+            stmt_cache_data.stmt.close(self.tr.conn).ok();
+        }
     }
 }
 
@@ -171,8 +170,8 @@ impl<'c, C: FirebirdClient> Queryable for Transaction<'c, C> {
                 Ok(Box::new(iter))
             }
             Err(e) => {
-                // Return the statement to the cache
-                StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
+                // A statement that failed to open its cursor must not be reused.
+                stmt_cache_data.stmt.close(self.conn).ok();
 
                 Err(e)
             }
@@ -195,10 +194,16 @@ impl<C: FirebirdClient> Execute for Transaction<'_, C> {
             .stmt
             .execute(self.conn, &mut self.data, params);
 
-        // Return the statement to the cache
-        StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
-
-        res
+        match res {
+            Ok(value) => {
+                StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
+                Ok(value)
+            }
+            Err(error) => {
+                stmt_cache_data.stmt.close(self.conn).ok();
+                Err(error)
+            }
+        }
     }
 
     fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
@@ -216,10 +221,16 @@ impl<C: FirebirdClient> Execute for Transaction<'_, C> {
             .stmt
             .execute2(self.conn, &mut self.data, params);
 
-        // Return the statement to the cache
-        StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
-
-        FromRow::try_from(res?)
+        match res {
+            Ok(row) => {
+                StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
+                FromRow::try_from(row)
+            }
+            Err(error) => {
+                stmt_cache_data.stmt.close(self.conn).ok();
+                Err(error)
+            }
+        }
     }
 }
 
