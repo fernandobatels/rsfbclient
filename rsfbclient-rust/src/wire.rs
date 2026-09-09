@@ -1008,6 +1008,12 @@ pub fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
                 }
             }
 
+            // New warning (e.g. from a DDL statement). Not surfaced as an error,
+            // just consume its code so the vector stays aligned.
+            ibase::isc_arg_warning => {
+                resp.get_u32()?;
+            }
+
             // Error message arg number
             ibase::isc_arg_number => {
                 let num = resp.get_i32()?;
