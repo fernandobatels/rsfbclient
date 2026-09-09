@@ -17,6 +17,7 @@ use chrono::NaiveDateTime;
 pub enum RawValue {
     Null,
     Integer(i64),
+    Int128(i128),
     Floating(f64),
     Boolean(bool),
     Timestamp(NaiveDateTime),

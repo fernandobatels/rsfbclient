@@ -847,6 +847,8 @@ trait RowSink {
 
     fn integer(&mut self, var: &XSqlVar, sqltype: u32, value: i64) -> Result<(), FbError>;
 
+    fn int128(&mut self, var: &XSqlVar, sqltype: u32, value: i128) -> Result<(), FbError>;
+
     fn floating(&mut self, var: &XSqlVar, sqltype: u32, value: f64) -> Result<(), FbError>;
 
     fn timestamp(
@@ -893,6 +895,11 @@ impl RowSink for ParsedColumnSink<'_> {
 
     fn integer(&mut self, var: &XSqlVar, sqltype: u32, value: i64) -> Result<(), FbError> {
         self.push(var, sqltype, SqlType::Integer(value));
+        Ok(())
+    }
+
+    fn int128(&mut self, var: &XSqlVar, sqltype: u32, value: i128) -> Result<(), FbError> {
+        self.push(var, sqltype, SqlType::Int128(value));
         Ok(())
     }
 
@@ -960,6 +967,11 @@ impl RowSink for ColumnSink<'_> {
         Ok(())
     }
 
+    fn int128(&mut self, var: &XSqlVar, sqltype: u32, value: i128) -> Result<(), FbError> {
+        self.push(var, sqltype, SqlType::Int128(value));
+        Ok(())
+    }
+
     fn floating(&mut self, var: &XSqlVar, sqltype: u32, value: f64) -> Result<(), FbError> {
         self.push(var, sqltype, SqlType::Floating(value));
         Ok(())
@@ -1008,6 +1020,11 @@ impl RowSink for RawSink<'_> {
 
     fn integer(&mut self, _var: &XSqlVar, _sqltype: u32, value: i64) -> Result<(), FbError> {
         self.out.push(RawValue::Integer(value));
+        Ok(())
+    }
+
+    fn int128(&mut self, _var: &XSqlVar, _sqltype: u32, value: i128) -> Result<(), FbError> {
+        self.out.push(RawValue::Int128(value));
         Ok(())
     }
 
@@ -1119,19 +1136,10 @@ fn decode_row<S: RowSink>(
                 let low = resp.get_u64()?;
                 let i = (i128::from(high) << 64) | i128::from(low);
 
-                let null = read_null(resp, col_index)?;
-                if null {
-                    data.push(ParsedColumn::Complete(Column::new(
-                        var.alias_name.clone(),
-                        sqltype,
-                        SqlType::Null,
-                    )))
+                if read_null(resp, col_index)? {
+                    sink.null(var, sqltype)?
                 } else {
-                    data.push(ParsedColumn::Complete(Column::new(
-                        var.alias_name.clone(),
-                        sqltype,
-                        SqlType::Int128(i),
-                    )))
+                    sink.int128(var, sqltype, i)?
                 }
             }
 
@@ -1524,7 +1532,7 @@ mod tests {
         let xsqlda = [XSqlVar {
             sqltype: ibase::SQL_INT128 as i16 + 1,
             data_length: 16,
-            alias_name: "VALUE".to_owned(),
+            alias_name: "VALUE".into(),
             ..Default::default()
         }];
 

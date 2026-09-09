@@ -576,6 +576,7 @@ mod raw_stream {
                 .map_err(|e| FbError::from(e.to_string()))?
                 .to_string(),
             RawValue::Integer(i) => i.to_string(),
+            RawValue::Int128(i) => i.to_string(),
             RawValue::Floating(f) => f.to_string(),
             RawValue::Boolean(b) => b.to_string(),
             RawValue::Timestamp(ts) => ts.to_string(),
