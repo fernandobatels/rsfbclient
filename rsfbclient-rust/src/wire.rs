@@ -53,8 +53,9 @@ pub fn connect(db_name: &str, user: &str, username: &str, hostname: &str, srp_ke
         uid.put_u8(user.len() as u8);
         uid.put(user.as_bytes());
 
-        // Request SRP by default
-        let plugin = AuthPluginType::Srp.name();
+        // Request the strongest plugin we implement; the server falls back to the
+        // next one in the plugin list below if it does not support it
+        let plugin = AuthPluginType::Srp256.name();
 
         uid.put_u8(Cnct::PluginName as u8);
         uid.put_u8(plugin.len() as u8);
