@@ -8,6 +8,7 @@ use std::{borrow::Cow, convert::TryFrom, str, sync::Arc};
 use crate::{
     client::{BlobId, FirebirdWireConnection},
     consts::{gds_to_msg, AuthPluginType, Cnct, ProtocolVersion, WireOp, P_REQ_ASYNC},
+    raw::RawValue,
     srp::*,
     util::*,
     xsqlda::{XSqlVar, XSQLDA_DESCRIBE_VARS},
@@ -763,10 +764,15 @@ pub fn parse_sql_response(
     charset: &Charset,
 ) -> Result<Vec<ParsedColumn>, FbError> {
     let mut data = Vec::with_capacity(xsqlda.len());
-    parse_sql_response_each(resp, xsqlda, version, charset, |pc| {
-        data.push(pc);
-        Ok(())
-    })?;
+    decode_row(
+        resp,
+        xsqlda,
+        version,
+        &mut ParsedColumnSink {
+            charset,
+            out: &mut data,
+        },
+    )?;
     Ok(data)
 }
 
@@ -781,31 +787,266 @@ pub fn parse_sql_response_columns(
     charset: &Charset,
 ) -> Result<Vec<Column>, FbError> {
     let mut cols = Vec::with_capacity(xsqlda.len());
-    parse_sql_response_each(resp, xsqlda, version, charset, |pc| match pc {
-        ParsedColumn::Complete(c) => {
-            cols.push(c);
-            Ok(())
-        }
-        ParsedColumn::Blob { .. } => {
-            Err("parse_sql_response_columns called on a statement with blob columns".into())
-        }
-    })?;
+    decode_row(
+        resp,
+        xsqlda,
+        version,
+        &mut ColumnSink {
+            charset,
+            out: &mut cols,
+        },
+    )?;
     Ok(cols)
 }
 
-/// Shared per-column decoder for a sql/fetch response body (after op_code). Feeds
-/// each decoded column to `sink`. The wire format lives here once; callers decide
-/// whether to collect `ParsedColumn` (blob path) or `Column` directly (fast path).
-fn parse_sql_response_each<F>(
+/// Like [`parse_fetch_response`] but decodes into `out` as [`RawValue`], with no
+/// charset decode and no per-column allocation: text is a `Bytes` handle onto the
+/// read buffer. `out` is reused across rows, so a whole result set streams with no
+/// per-row allocation. Returns `Ok(false)` at end of cursor. Blob columns are
+/// rejected (the caller checks `has_blob`).
+pub fn parse_fetch_response_raw(
     resp: &mut Bytes,
     xsqlda: &[XSqlVar],
     version: ProtocolVersion,
-    charset: &Charset,
-    mut sink: F,
-) -> Result<(), FbError>
-where
-    F: FnMut(ParsedColumn) -> Result<(), FbError>,
-{
+    out: &mut Vec<RawValue>,
+) -> Result<bool, FbError> {
+    const END_OF_STREAM: u32 = 100;
+
+    let status = resp.get_u32()?;
+
+    if status == END_OF_STREAM {
+        return Ok(false);
+    }
+
+    parse_sql_response_raw(resp, xsqlda, version, out)?;
+
+    Ok(true)
+}
+
+/// Body of [`parse_fetch_response_raw`] (after the status word).
+pub fn parse_sql_response_raw(
+    resp: &mut Bytes,
+    xsqlda: &[XSqlVar],
+    version: ProtocolVersion,
+    out: &mut Vec<RawValue>,
+) -> Result<(), FbError> {
+    out.clear();
+
+    decode_row(resp, xsqlda, version, &mut RawSink { out })
+}
+
+/// Destination for the columns of one decoded row. The wire layout is decoded in
+/// exactly one place ([`decode_row`]); the sink decides what a column becomes --
+/// a [`ParsedColumn`] (blobs deferred), a [`Column`] directly, or a zero-copy
+/// [`RawValue`].
+trait RowSink {
+    fn null(&mut self, var: &XSqlVar, sqltype: u32) -> Result<(), FbError>;
+
+    /// Text still in the connection charset, borrowed from the read buffer.
+    fn text(&mut self, var: &XSqlVar, sqltype: u32, data: Bytes) -> Result<(), FbError>;
+
+    fn integer(&mut self, var: &XSqlVar, sqltype: u32, value: i64) -> Result<(), FbError>;
+
+    fn floating(&mut self, var: &XSqlVar, sqltype: u32, value: f64) -> Result<(), FbError>;
+
+    fn timestamp(
+        &mut self,
+        var: &XSqlVar,
+        sqltype: u32,
+        ts: ibase::ISC_TIMESTAMP,
+    ) -> Result<(), FbError>;
+
+    fn boolean(&mut self, var: &XSqlVar, sqltype: u32, value: bool) -> Result<(), FbError>;
+
+    /// Only the blob id is on the wire; the data needs its own round-trips, so
+    /// sinks that cannot issue them reject the column.
+    fn blob(&mut self, var: &XSqlVar, sqltype: u32, id: BlobId) -> Result<(), FbError>;
+}
+
+/// Sink that collects [`ParsedColumn`], leaving blobs to be resolved later.
+struct ParsedColumnSink<'a> {
+    charset: &'a Charset,
+    out: &'a mut Vec<ParsedColumn>,
+}
+
+impl ParsedColumnSink<'_> {
+    fn push(&mut self, var: &XSqlVar, sqltype: u32, value: SqlType) {
+        self.out.push(ParsedColumn::Complete(Column::new(
+            var.alias_name.clone(),
+            sqltype,
+            value,
+        )));
+    }
+}
+
+impl RowSink for ParsedColumnSink<'_> {
+    fn null(&mut self, var: &XSqlVar, sqltype: u32) -> Result<(), FbError> {
+        self.push(var, sqltype, SqlType::Null);
+        Ok(())
+    }
+
+    fn text(&mut self, var: &XSqlVar, sqltype: u32, data: Bytes) -> Result<(), FbError> {
+        let text = self.charset.decode(&data[..])?;
+        self.push(var, sqltype, SqlType::Text(text));
+        Ok(())
+    }
+
+    fn integer(&mut self, var: &XSqlVar, sqltype: u32, value: i64) -> Result<(), FbError> {
+        self.push(var, sqltype, SqlType::Integer(value));
+        Ok(())
+    }
+
+    fn floating(&mut self, var: &XSqlVar, sqltype: u32, value: f64) -> Result<(), FbError> {
+        self.push(var, sqltype, SqlType::Floating(value));
+        Ok(())
+    }
+
+    fn timestamp(
+        &mut self,
+        var: &XSqlVar,
+        sqltype: u32,
+        ts: ibase::ISC_TIMESTAMP,
+    ) -> Result<(), FbError> {
+        self.push(
+            var,
+            sqltype,
+            SqlType::Timestamp(rsfbclient_core::date_time::decode_timestamp(ts)),
+        );
+        Ok(())
+    }
+
+    fn boolean(&mut self, var: &XSqlVar, sqltype: u32, value: bool) -> Result<(), FbError> {
+        self.push(var, sqltype, SqlType::Boolean(value));
+        Ok(())
+    }
+
+    fn blob(&mut self, var: &XSqlVar, _sqltype: u32, id: BlobId) -> Result<(), FbError> {
+        self.out.push(ParsedColumn::Blob {
+            binary: var.sqlsubtype == 0,
+            id,
+            col_name: var.alias_name.clone(),
+        });
+        Ok(())
+    }
+}
+
+/// Sink that builds [`Column`] directly, for statements with no blob columns.
+struct ColumnSink<'a> {
+    charset: &'a Charset,
+    out: &'a mut Vec<Column>,
+}
+
+impl ColumnSink<'_> {
+    fn push(&mut self, var: &XSqlVar, sqltype: u32, value: SqlType) {
+        self.out
+            .push(Column::new(var.alias_name.clone(), sqltype, value));
+    }
+}
+
+impl RowSink for ColumnSink<'_> {
+    fn null(&mut self, var: &XSqlVar, sqltype: u32) -> Result<(), FbError> {
+        self.push(var, sqltype, SqlType::Null);
+        Ok(())
+    }
+
+    fn text(&mut self, var: &XSqlVar, sqltype: u32, data: Bytes) -> Result<(), FbError> {
+        let text = self.charset.decode(&data[..])?;
+        self.push(var, sqltype, SqlType::Text(text));
+        Ok(())
+    }
+
+    fn integer(&mut self, var: &XSqlVar, sqltype: u32, value: i64) -> Result<(), FbError> {
+        self.push(var, sqltype, SqlType::Integer(value));
+        Ok(())
+    }
+
+    fn floating(&mut self, var: &XSqlVar, sqltype: u32, value: f64) -> Result<(), FbError> {
+        self.push(var, sqltype, SqlType::Floating(value));
+        Ok(())
+    }
+
+    fn timestamp(
+        &mut self,
+        var: &XSqlVar,
+        sqltype: u32,
+        ts: ibase::ISC_TIMESTAMP,
+    ) -> Result<(), FbError> {
+        self.push(
+            var,
+            sqltype,
+            SqlType::Timestamp(rsfbclient_core::date_time::decode_timestamp(ts)),
+        );
+        Ok(())
+    }
+
+    fn boolean(&mut self, var: &XSqlVar, sqltype: u32, value: bool) -> Result<(), FbError> {
+        self.push(var, sqltype, SqlType::Boolean(value));
+        Ok(())
+    }
+
+    fn blob(&mut self, _var: &XSqlVar, _sqltype: u32, _id: BlobId) -> Result<(), FbError> {
+        Err("parse_sql_response_columns called on a statement with blob columns".into())
+    }
+}
+
+/// Sink that emits [`RawValue`]: no charset decode, no allocation per column --
+/// text is a refcounted handle onto the read buffer.
+struct RawSink<'a> {
+    out: &'a mut Vec<RawValue>,
+}
+
+impl RowSink for RawSink<'_> {
+    fn null(&mut self, _var: &XSqlVar, _sqltype: u32) -> Result<(), FbError> {
+        self.out.push(RawValue::Null);
+        Ok(())
+    }
+
+    fn text(&mut self, _var: &XSqlVar, _sqltype: u32, data: Bytes) -> Result<(), FbError> {
+        self.out.push(RawValue::Text(data));
+        Ok(())
+    }
+
+    fn integer(&mut self, _var: &XSqlVar, _sqltype: u32, value: i64) -> Result<(), FbError> {
+        self.out.push(RawValue::Integer(value));
+        Ok(())
+    }
+
+    fn floating(&mut self, _var: &XSqlVar, _sqltype: u32, value: f64) -> Result<(), FbError> {
+        self.out.push(RawValue::Floating(value));
+        Ok(())
+    }
+
+    fn timestamp(
+        &mut self,
+        _var: &XSqlVar,
+        _sqltype: u32,
+        ts: ibase::ISC_TIMESTAMP,
+    ) -> Result<(), FbError> {
+        self.out.push(RawValue::Timestamp(
+            rsfbclient_core::date_time::decode_timestamp(ts),
+        ));
+        Ok(())
+    }
+
+    fn boolean(&mut self, _var: &XSqlVar, _sqltype: u32, value: bool) -> Result<(), FbError> {
+        self.out.push(RawValue::Boolean(value));
+        Ok(())
+    }
+
+    fn blob(&mut self, _var: &XSqlVar, _sqltype: u32, _id: BlobId) -> Result<(), FbError> {
+        Err("raw streaming called on a statement with blob columns".into())
+    }
+}
+
+/// Decodes the columns of one sql/fetch response body (after the op_code and,
+/// for a fetch, the status word) into `sink`. The wire format lives here once;
+/// the sink decides what each column becomes.
+fn decode_row<S: RowSink>(
+    resp: &mut Bytes,
+    xsqlda: &[XSqlVar],
+    version: ProtocolVersion,
+    sink: &mut S,
+) -> Result<(), FbError> {
     let has_row = resp.get_u32()? != 0;
     if !has_row {
         return Err("Fetch returned no columns".into());
@@ -848,11 +1089,7 @@ where
 
         if version >= ProtocolVersion::V13 && read_null(resp, col_index)? {
             // There is no data in protocol 13 if null, so just continue
-            sink(ParsedColumn::Complete(Column::new(
-                var.alias_name.clone(),
-                sqltype,
-                SqlType::Null,
-            )))?;
+            sink.null(var, sqltype)?;
             continue;
         }
 
@@ -860,57 +1097,30 @@ where
             ibase::SQL_VARYING => {
                 let d = resp.get_wire_bytes()?;
 
-                let null = read_null(resp, col_index)?;
-                if null {
-                    sink(ParsedColumn::Complete(Column::new(
-                        var.alias_name.clone(),
-                        sqltype,
-                        SqlType::Null,
-                    )))?
+                if read_null(resp, col_index)? {
+                    sink.null(var, sqltype)?
                 } else {
-                    sink(ParsedColumn::Complete(Column::new(
-                        var.alias_name.clone(),
-                        sqltype,
-                        SqlType::Text(charset.decode(&d[..])?),
-                    )))?
+                    sink.text(var, sqltype, d)?
                 }
             }
 
             ibase::SQL_INT64 => {
                 let i = resp.get_i64()?;
 
-                let null = read_null(resp, col_index)?;
-                if null {
-                    sink(ParsedColumn::Complete(Column::new(
-                        var.alias_name.clone(),
-                        sqltype,
-                        SqlType::Null,
-                    )))?
+                if read_null(resp, col_index)? {
+                    sink.null(var, sqltype)?
                 } else {
-                    sink(ParsedColumn::Complete(Column::new(
-                        var.alias_name.clone(),
-                        sqltype,
-                        SqlType::Integer(i),
-                    )))?
+                    sink.integer(var, sqltype, i)?
                 }
             }
 
             ibase::SQL_DOUBLE => {
                 let f = resp.get_f64()?;
 
-                let null = read_null(resp, col_index)?;
-                if null {
-                    sink(ParsedColumn::Complete(Column::new(
-                        var.alias_name.clone(),
-                        sqltype,
-                        SqlType::Null,
-                    )))?
+                if read_null(resp, col_index)? {
+                    sink.null(var, sqltype)?
                 } else {
-                    sink(ParsedColumn::Complete(Column::new(
-                        var.alias_name.clone(),
-                        sqltype,
-                        SqlType::Floating(f),
-                    )))?
+                    sink.floating(var, sqltype, f)?
                 }
             }
 
@@ -920,38 +1130,20 @@ where
                     timestamp_time: resp.get_u32()?,
                 };
 
-                let null = read_null(resp, col_index)?;
-                if null {
-                    sink(ParsedColumn::Complete(Column::new(
-                        var.alias_name.clone(),
-                        sqltype,
-                        SqlType::Null,
-                    )))?
+                if read_null(resp, col_index)? {
+                    sink.null(var, sqltype)?
                 } else {
-                    sink(ParsedColumn::Complete(Column::new(
-                        var.alias_name.clone(),
-                        sqltype,
-                        SqlType::Timestamp(rsfbclient_core::date_time::decode_timestamp(ts)),
-                    )))?
+                    sink.timestamp(var, sqltype, ts)?
                 }
             }
 
             ibase::SQL_BLOB if var.sqlsubtype <= 1 => {
                 let id = resp.get_u64()?;
 
-                let null = read_null(resp, col_index)?;
-                if null {
-                    sink(ParsedColumn::Complete(Column::new(
-                        var.alias_name.clone(),
-                        sqltype,
-                        SqlType::Null,
-                    )))?
+                if read_null(resp, col_index)? {
+                    sink.null(var, sqltype)?
                 } else {
-                    sink(ParsedColumn::Blob {
-                        binary: var.sqlsubtype == 0,
-                        id: BlobId(id),
-                        col_name: var.alias_name.clone(),
-                    })?
+                    sink.blob(var, sqltype, BlobId(id))?
                 }
             }
 
@@ -959,20 +1151,10 @@ where
                 let b = resp.get_u8()? == 1;
                 resp.advance(3)?; // Pad to 4 bytes
 
-                let null = read_null(resp, col_index)?;
-
-                if null {
-                    sink(ParsedColumn::Complete(Column::new(
-                        var.alias_name.clone(),
-                        sqltype,
-                        SqlType::Null,
-                    )))?
+                if read_null(resp, col_index)? {
+                    sink.null(var, sqltype)?
                 } else {
-                    sink(ParsedColumn::Complete(Column::new(
-                        var.alias_name.clone(),
-                        sqltype,
-                        SqlType::Boolean(b),
-                    )))?
+                    sink.boolean(var, sqltype, b)?
                 }
             }
 

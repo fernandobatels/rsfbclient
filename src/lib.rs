@@ -206,6 +206,10 @@ pub use rsfbclient_core::{
 #[doc(hidden)]
 pub use rsfbclient_core::{charset, Charset};
 
+/// Zero-copy row value for [`Connection::stream_raw`] (pure-rust backend only).
+#[cfg(feature = "pure_rust")]
+pub use rsfbclient_rust::{RawValue, RustFbClient};
+
 //builders are behind feature gates inside this module
 pub use crate::connection::builders;
 pub use builders::*;
