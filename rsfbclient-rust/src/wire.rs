@@ -3,7 +3,7 @@
 #![allow(non_upper_case_globals)]
 
 use bytes::{BufMut, Bytes, BytesMut};
-use std::{borrow::Cow, convert::TryFrom, str};
+use std::{borrow::Cow, convert::TryFrom, str, sync::Arc};
 
 use crate::{
     client::{BlobId, FirebirdWireConnection},
@@ -937,7 +937,7 @@ pub enum ParsedColumn {
         /// Blob id
         id: BlobId,
         /// Column name
-        col_name: String,
+        col_name: Arc<str>,
     },
 }
 

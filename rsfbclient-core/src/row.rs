@@ -1,5 +1,7 @@
 //! Sql column types and traits
 
+use std::sync::Arc;
+
 use crate::{
     error::{err_column_null, err_type_conv},
     FbError, SqlType,
@@ -38,13 +40,16 @@ impl Row {
 pub struct Column {
     pub value: SqlType,
     pub raw_type: u32,
-    pub name: String,
+    /// Column name/alias. `Arc<str>` so the driver can clone it into every row
+    /// with just a refcount bump — the name is constant across a result set, and
+    /// cloning a `String` per column per row was the dominant decode allocation.
+    pub name: Arc<str>,
 }
 
 impl Column {
-    pub fn new(name: String, raw_type: u32, value: SqlType) -> Self {
+    pub fn new(name: impl Into<Arc<str>>, raw_type: u32, value: SqlType) -> Self {
         Column {
-            name,
+            name: name.into(),
             raw_type,
             value,
         }

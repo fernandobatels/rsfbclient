@@ -5,7 +5,7 @@
 use crate::util::*;
 use bytes::{BufMut, Bytes, BytesMut};
 use rsfbclient_core::{ibase, FbError, StmtType};
-use std::{convert::TryFrom, mem};
+use std::{convert::TryFrom, mem, sync::Arc};
 
 use crate::consts;
 
@@ -54,8 +54,9 @@ pub struct XSqlVar {
 
     pub owner_name: String,
 
-    /// Column alias
-    pub alias_name: String,
+    /// Column alias. `Arc<str>` (built once here at describe) so cloning it into
+    /// every row's `Column` during fetch is a refcount bump, not an allocation.
+    pub alias_name: Arc<str>,
 }
 
 impl XSqlVar {
@@ -371,7 +372,7 @@ pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result
                 resp.copy_to_slice(&mut buff)?;
 
                 if let Some(var) = xsqlda.get_mut(col_index) {
-                    var.alias_name = String::from_utf8(buff).unwrap_or_default();
+                    var.alias_name = Arc::from(String::from_utf8(buff).unwrap_or_default());
                 } else {
                     return err_invalid_xsqlda();
                 }
