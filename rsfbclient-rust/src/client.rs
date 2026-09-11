@@ -414,6 +414,9 @@ impl FirebirdWireConnection {
         // 44ms -> 0.2ms, a 1000-row select 107ms -> 5.7ms.
         let _ = socket.set_nodelay(true);
 
+        // normalize user
+        let user = &normalize_user(user);
+
         // System username
         let username =
             env::var("USER").unwrap_or_else(|_| env::var("USERNAME").unwrap_or_default());
@@ -1697,6 +1700,22 @@ where
     read_response(&mut socket, buff, pending, &mut 0)?;
 
     Ok(socket)
+}
+
+/// Normalizes the username to uppercase, unless it is encased by `"`
+fn normalize_user(user: &str) -> String {
+    if user.starts_with("\"") && user.ends_with("\"") {
+        user.trim_matches('"').to_string()
+    } else {
+        user.to_uppercase()
+    }
+}
+
+#[test]
+fn test_normalize_user() {
+    assert_eq!(normalize_user("Testuser"), "TESTUSER");
+    assert_eq!(normalize_user("testuser"), "TESTUSER");
+    assert_eq!(normalize_user("\"Testuser\""), "Testuser");
 }
 
 #[derive(Debug, Clone, Copy)]
