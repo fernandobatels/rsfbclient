@@ -7,27 +7,27 @@ pub use rsfbclient_core::ibase::*;
 //(dynamic linking version, libloading version)
 macro_rules! parse_functions {
     ($(
-        extern "C" {
+        extern $abi:literal {
             pub fn $name:ident $items:tt $( -> $ret:ty )? ;
         }
     )*) =>
     {
       pub trait IBase : Send{
-        $( gen_dynlink_signature_only!( $name ~ $items ~ $($ret)? ); )*
+        $( gen_dynlink_signature_only!( $abi ~ $name ~ $items ~ $($ret)? ); )*
       }
 
       #[cfg(feature = "linking")]
       pub struct IBaseLinking;
       #[cfg(feature = "linking")]
       impl IBase for IBaseLinking {
-        $( gen_dynlink_definition!( $name ~ $items ~ $($ret)? ); )*
+        $( gen_dynlink_definition!( $abi ~ $name ~ $items ~ $($ret)? ); )*
       }
 
       #[cfg(feature = "dynamic_loading")]
       pub struct IBaseDynLoading(std::sync::Arc<libloading::Library>);
       #[cfg(feature = "dynamic_loading")]
       impl IBase for IBaseDynLoading {
-        $( gen_libloading_definition!( $name ~ $items ~ $($ret)? ); )*
+        $( gen_libloading_definition!( $abi ~ $name ~ $items ~ $($ret)? ); )*
       }
     }
 }
@@ -58,8 +58,8 @@ impl IBaseDynLoading {
 //from the C decls
 //That is, an unsafe function returning an unsafe extern C function pointer
 macro_rules! gen_dynlink_signature_only {
-  ( $name:ident ~ ( $( $params:tt )* ) ~ $($ret:ty)? )
-  => ( unsafe fn$name(&self) -> unsafe extern "C" fn(  $($params)* ) -> $($ret)? ;)
+  ( $abi:literal ~ $name:ident ~ ( $( $params:tt )* ) ~ $($ret:ty)? )
+  => ( unsafe fn$name(&self) -> unsafe extern $abi fn(  $($params)* ) -> $($ret)? ;)
 }
 
 //Generates a definition like
@@ -74,10 +74,10 @@ macro_rules! gen_dynlink_signature_only {
 //from the C decls
 //That is, an unsafe function returning an unsafe extern C function pointer
 macro_rules! gen_dynlink_definition {
-  ( $name:ident ~ ( $( $params:tt )* ) ~ $($ret:ty)? )
+  ( $abi:literal ~ $name:ident ~ ( $( $params:tt )* ) ~ $($ret:ty)? )
   => {
-   unsafe fn $name(&self) -> unsafe extern "C" fn(  $($params)* ) -> $($ret)? {
-      extern "C" {
+   unsafe fn $name(&self) -> unsafe extern $abi fn(  $($params)* ) -> $($ret)? {
+      extern $abi {
          pub fn $name (  $($params)* ) -> $($ret)?;
       }
       $name
@@ -96,16 +96,16 @@ macro_rules! gen_dynlink_definition {
 //That is, an unsafe function returning an unsafe extern C function pointer using
 //the libloading crate
 macro_rules! gen_libloading_definition {
-  ( $name:ident ~ ( $( $params:tt )* ) ~ $($ret:ty)? )
+  ( $abi:literal ~ $name:ident ~ ( $( $params:tt )* ) ~ $($ret:ty)? )
   => {
-    unsafe fn $name(&self) -> unsafe extern "C" fn(  $($params)* ) -> $($ret)? {
+    unsafe fn $name(&self) -> unsafe extern $abi fn(  $($params)* ) -> $($ret)? {
       *self.0.get( stringify!($name).as_bytes() ).unwrap()
     }
   }
 }
 
 parse_functions! {
-    extern "C" {
+    extern "system" {
         pub fn isc_attach_database(
             arg1: *mut ISC_STATUS,
             arg2: ::std::os::raw::c_short,
@@ -229,23 +229,23 @@ parse_functions! {
     // extern "C" {
     //     pub fn isc_cancel_blob(arg1: *mut ISC_STATUS, arg2: *mut isc_blob_handle) -> ISC_STATUS;
     // }
-    // extern "C" {
-    //     pub fn isc_cancel_events(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_db_handle,
-    //         arg3: *mut ISC_LONG,
-    //     ) -> ISC_STATUS;
-    // }
-    extern "C" {
+    extern "system" {
+        pub fn isc_cancel_events(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_db_handle,
+            arg3: *mut ISC_LONG,
+        ) -> ISC_STATUS;
+    }
+    extern "system" {
         pub fn isc_close_blob(arg1: *mut ISC_STATUS, arg2: *mut isc_blob_handle) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_commit_retaining(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_commit_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_create_blob(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_db_handle,
@@ -265,7 +265,7 @@ parse_functions! {
     //         arg7: *const ISC_SCHAR,
     //     ) -> ISC_STATUS;
     // }
-    extern "C" {
+    extern "system" {
         pub fn isc_create_database(
            arg1: *mut ISC_STATUS,
            arg2: ::std::os::raw::c_short,
@@ -276,16 +276,16 @@ parse_functions! {
            arg7: ::std::os::raw::c_short,
         ) -> ISC_STATUS;
     }
-    // extern "C" {
-    //     pub fn isc_database_info(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_db_handle,
-    //         arg3: ::std::os::raw::c_short,
-    //         arg4: *const ISC_SCHAR,
-    //         arg5: ::std::os::raw::c_short,
-    //         arg6: *mut ISC_SCHAR,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "system" {
+        pub fn isc_database_info(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_db_handle,
+            arg3: ::std::os::raw::c_short,
+            arg4: *const ISC_SCHAR,
+            arg5: ::std::os::raw::c_short,
+            arg6: *mut ISC_SCHAR,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_decode_date(arg1: *const ISC_QUAD, arg2: *mut ::std::os::raw::c_void);
     // }
@@ -298,13 +298,13 @@ parse_functions! {
     // extern "C" {
     //     pub fn isc_decode_timestamp(arg1: *const ISC_TIMESTAMP, arg2: *mut ::std::os::raw::c_void);
     // }
-    extern "C" {
+    extern "system" {
         pub fn isc_detach_database(arg1: *mut ISC_STATUS, arg2: *mut isc_db_handle) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_drop_database(arg1: *mut ISC_STATUS, arg2: *mut isc_db_handle) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_dsql_allocate_statement(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_db_handle,
@@ -318,7 +318,7 @@ parse_functions! {
     //         arg3: *mut isc_stmt_handle,
     //     ) -> ISC_STATUS;
     // }
-    extern "C" {
+    extern "system" {
         pub fn isc_dsql_describe(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_stmt_handle,
@@ -326,7 +326,7 @@ parse_functions! {
             arg4: *mut XSQLDA,
         ) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_dsql_describe_bind(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_stmt_handle,
@@ -346,7 +346,7 @@ parse_functions! {
     //         arg8: *const XSQLDA,
     //     ) -> ISC_STATUS;
     // }
-    extern "C" {
+    extern "system" {
         pub fn isc_dsql_execute(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_tr_handle,
@@ -355,7 +355,7 @@ parse_functions! {
             arg5: *const XSQLDA,
         ) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
          pub fn isc_dsql_execute2(
              arg1: *mut ISC_STATUS,
              arg2: *mut isc_tr_handle,
@@ -365,7 +365,7 @@ parse_functions! {
              arg6: *const XSQLDA,
          ) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_dsql_execute_immediate(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_db_handle,
@@ -376,7 +376,7 @@ parse_functions! {
             arg7: *const XSQLDA,
         ) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_dsql_fetch(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_stmt_handle,
@@ -387,7 +387,7 @@ parse_functions! {
     // extern "C" {
     //     pub fn isc_dsql_finish(arg1: *mut isc_db_handle) -> ISC_STATUS;
     // }
-    extern "C" {
+    extern "system" {
         pub fn isc_dsql_free_statement(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_stmt_handle,
@@ -402,7 +402,7 @@ parse_functions! {
     //         arg4: *mut XSQLDA,
     //     ) -> ISC_STATUS;
     // }
-    extern "C" {
+    extern "system" {
         pub fn isc_dsql_prepare(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_tr_handle,
@@ -421,7 +421,7 @@ parse_functions! {
     //         arg4: ::std::os::raw::c_ushort,
     //     ) -> ISC_STATUS;
     // }
-    extern "C" {
+    extern "system" {
         pub fn isc_dsql_sql_info(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_stmt_handle,
@@ -468,7 +468,7 @@ parse_functions! {
     //         arg5: *mut ISC_USHORT,
     //     );
     // }
-    extern "C" {
+    extern "system" {
         pub fn isc_event_counts(
             arg1: *mut ISC_STATUS,
             arg2: ::std::os::raw::c_short,
@@ -488,10 +488,10 @@ parse_functions! {
     //         arg5: ::std::os::raw::c_short,
     //     ) -> ::std::os::raw::c_int;
     // }
-    extern "C" {
+    extern "system" {
         pub fn isc_free(arg1: *mut ISC_UCHAR) -> ISC_LONG;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_get_segment(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_blob_handle,
@@ -518,14 +518,14 @@ parse_functions! {
     // extern "C" {
     //     pub fn isc_interprete(arg1: *mut ISC_SCHAR, arg2: *mut *mut ISC_STATUS) -> ISC_LONG;
     // }
-    extern "C" {
+    extern "system" {
         pub fn fb_interpret(
             arg1: *mut ISC_SCHAR,
             arg2: ::std::os::raw::c_uint,
             arg3: *mut *const ISC_STATUS,
         ) -> ISC_LONG;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_open_blob(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_db_handle,
@@ -545,21 +545,21 @@ parse_functions! {
     //         arg7: *const ISC_UCHAR,
     //     ) -> ISC_STATUS;
     // }
-    // extern "C" {
-    //     pub fn isc_prepare_transaction2(
-    //         arg1: *mut ISC_STATUS_ARRAY,
-    //         arg2: *mut isc_tr_handle,
-    //         arg3: ISC_USHORT,
-    //         arg4: *const ISC_UCHAR,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "system" {
+        pub fn isc_prepare_transaction2(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_tr_handle,
+            arg3: ISC_USHORT,
+            arg4: *const ISC_UCHAR,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_print_sqlerror(arg1: ISC_SHORT, arg2: *const ISC_STATUS);
     // }
     // extern "C" {
     //     pub fn isc_print_status(arg1: *const ISC_STATUS_ARRAY) -> ISC_STATUS;
     // }
-    extern "C" {
+    extern "system" {
         pub fn isc_put_segment(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_blob_handle,
@@ -581,24 +581,24 @@ parse_functions! {
     //         arg10: *mut ::std::os::raw::c_void,
     //     ) -> ISC_STATUS;
     // }
-    // extern "C" {
-    //     pub fn isc_que_events(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_db_handle,
-    //         arg3: *mut ISC_LONG,
-    //         arg4: ::std::os::raw::c_short,
-    //         arg5: *const ISC_UCHAR,
-    //         arg6: ISC_EVENT_CALLBACK,
-    //         arg7: *mut ::std::os::raw::c_void,
-    //     ) -> ISC_STATUS;
-    // }
-    extern "C" {
+    extern "system" {
+        pub fn isc_que_events(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_db_handle,
+            arg3: *mut ISC_LONG,
+            arg4: ::std::os::raw::c_short,
+            arg5: *const ISC_UCHAR,
+            arg6: ISC_EVENT_CALLBACK,
+            arg7: *mut ::std::os::raw::c_void,
+        ) -> ISC_STATUS;
+    }
+    extern "system" {
         pub fn isc_rollback_retaining(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_rollback_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_start_multiple(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_tr_handle,
@@ -618,7 +618,7 @@ parse_functions! {
     //     pub fn fb_disconnect_transaction(arg1: *mut ISC_STATUS, arg2: *mut isc_tr_handle)
     //         -> ISC_STATUS;
     // }
-    extern "C" {
+    extern "system" {
         pub fn isc_sqlcode(arg1: *const ISC_STATUS) -> ISC_LONG;
     }
     // extern "C" {
@@ -657,7 +657,7 @@ parse_functions! {
     //         arg9: *mut ISC_SCHAR,
     //     ) -> ISC_STATUS;
     // }
-//    extern "C" {
+//    extern "system" {
 //        pub fn isc_vax_integer(arg1: *const ISC_SCHAR, arg2: ::std::os::raw::c_short) -> ISC_LONG;
 //    }
     // extern "C" {
@@ -713,15 +713,15 @@ parse_functions! {
     //         arg6: ::std::os::raw::c_short,
     //     ) -> ISC_STATUS;
     // }
-    // extern "C" {
-    //     pub fn isc_reconnect_transaction(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_db_handle,
-    //         arg3: *mut isc_tr_handle,
-    //         arg4: ::std::os::raw::c_short,
-    //         arg5: *const ISC_SCHAR,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "system" {
+        pub fn isc_reconnect_transaction(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_db_handle,
+            arg3: *mut isc_tr_handle,
+            arg4: ::std::os::raw::c_short,
+            arg5: *const ISC_SCHAR,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_release_request(arg1: *mut ISC_STATUS, arg2: *mut isc_req_handle) -> ISC_STATUS;
     // }
@@ -781,7 +781,7 @@ parse_functions! {
     //         arg3: ::std::os::raw::c_short,
     //     ) -> ISC_STATUS;
     // }
-    extern "C" {
+    extern "system" {
         pub fn isc_wait_for_event(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_db_handle,
@@ -1203,7 +1203,7 @@ parse_functions! {
     // extern "C" {
     //     pub fn isc_baddress_s(arg1: *const ISC_SCHAR, arg2: *mut usize);
     // }
-    extern "C" {
+    extern "system" {
         pub fn isc_service_attach(
             arg1: *mut ISC_STATUS,
             arg2: ::std::os::raw::c_ushort,
@@ -1213,10 +1213,10 @@ parse_functions! {
             arg6: *const ISC_SCHAR,
         ) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_service_detach(arg1: *mut ISC_STATUS, arg2: *mut isc_svc_handle) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_service_query(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_svc_handle,
@@ -1229,7 +1229,7 @@ parse_functions! {
             arg9: *mut ISC_SCHAR,
         ) -> ISC_STATUS;
     }
-    extern "C" {
+    extern "system" {
         pub fn isc_service_start(
             arg1: *mut ISC_STATUS,
             arg2: *mut isc_svc_handle,

@@ -64,6 +64,25 @@ pub struct ColumnBuffer {
 }
 
 impl ColumnBuffer {
+    /// Ask Firebird to format scalar columns as text without floating-point loss.
+    /// Blobs are returned byte-for-byte, irrespective of their declared subtype.
+    pub(crate) fn from_xsqlvar_text(var: &mut ibase::XSQLVAR) -> Result<Self, FbError> {
+        let original_type = var.sqltype & !1;
+        if original_type as u32 == ibase::SQL_BLOB {
+            var.sqlsubtype = 0;
+        } else {
+            if ![ibase::SQL_TEXT as i16, ibase::SQL_VARYING as i16].contains(&original_type) {
+                var.sqllen = 128;
+            }
+            var.sqltype = ibase::SQL_VARYING as i16 + 1;
+            var.sqlscale = 0;
+            var.sqlsubtype = 0;
+        }
+        let mut buffer = Self::from_xsqlvar(var)?;
+        buffer.raw_type = original_type;
+        Ok(buffer)
+    }
+
     /// Allocate a buffer from an output (column) XSQLVAR, coercing the data types as necessary
     pub fn from_xsqlvar(var: &mut ibase::XSQLVAR) -> Result<Self, FbError> {
         // Remove nullable type indicator

@@ -19,9 +19,10 @@ type NativeStmtHandle = ibase::isc_stmt_handle;
 
 /// Client that wraps the native fbclient library
 pub struct NativeFbClient<T: LinkageMarker> {
-    ibase: T::L,
-    status: Status,
+    pub(crate) ibase: T::L,
+    pub(crate) status: Status,
     charset: Charset,
+    pub(crate) text_rows: bool,
 }
 
 /// The remote part of native client configuration
@@ -73,6 +74,7 @@ impl DynLink {
             ibase: ibase::IBaseLinking,
             status: Default::default(),
             charset: self.0.clone(),
+            text_rows: false,
         };
         result
     }
@@ -100,6 +102,7 @@ impl DynLoad {
             ibase: load_result,
             status: Default::default(),
             charset: self.charset.clone(),
+            text_rows: false,
         };
 
         Ok(result)
@@ -231,29 +234,7 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
     ) -> Result<Self::TrHandle, FbError> {
         let mut handle = 0;
 
-        // Transaction parameter buffer
-        let mut tpb = vec![
-            ibase::isc_tpb_version3 as u8,
-            confs.isolation.into(),
-            confs.data_access as u8,
-            confs.lock_resolution.into(),
-        ];
-        if let TrLockResolution::Wait(Some(time)) = confs.lock_resolution {
-            tpb.push(ibase::isc_tpb_lock_timeout as u8);
-            tpb.push(4 as u8);
-            tpb.extend_from_slice(&time.to_le_bytes());
-        }
-
-        if let TrIsolationLevel::ReadCommited(rec) = confs.isolation {
-            tpb.push(rec as u8);
-        }
-
-        #[repr(C)]
-        struct IscTeb {
-            db_handle: *mut ibase::isc_db_handle,
-            tpb_len: usize,
-            tpb_ptr: *const u8,
-        }
+        let tpb = transaction_buffer(confs);
 
         unsafe {
             if self.ibase.isc_start_multiple()(
@@ -262,7 +243,7 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
                 1,
                 &mut IscTeb {
                     db_handle,
-                    tpb_len: tpb.len(),
+                    tpb_len: tpb.len() as i32,
                     tpb_ptr: &tpb[0],
                 } as *mut _ as _,
             ) != 0
@@ -417,7 +398,11 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
                     .get_xsqlvar_mut(col as usize)
                     .ok_or_else(|| FbError::from("Error getting the xsqlvar"))?;
 
-                ColumnBuffer::from_xsqlvar(xcol)
+                if self.text_rows {
+                    ColumnBuffer::from_xsqlvar_text(xcol)
+                } else {
+                    ColumnBuffer::from_xsqlvar(xcol)
+                }
             })
             .collect::<Result<_, _>>()
             .map_err(|error| self.drop_statement_after_prepare_error(&mut handle, error))?;
@@ -727,6 +712,9 @@ impl<T: LinkageMarker> NativeFbClient<T> {
 
             dpb.extend(&[ibase::isc_dpb_version1 as u8]);
 
+            // Rust connection strings are UTF-8, independently of the SQL charset.
+            dpb.extend(&[ibase::isc_dpb_utf8_filename as u8, 0]);
+
             dpb.extend(&[ibase::isc_dpb_user_name as u8, user.len() as u8]);
             dpb.extend(user.bytes());
 
@@ -752,5 +740,38 @@ impl<T: LinkageMarker> NativeFbClient<T> {
         };
 
         (dpb, conn_string)
+    }
+}
+
+#[repr(C)]
+pub(crate) struct IscTeb {
+    pub db_handle: *mut ibase::isc_db_handle,
+    pub tpb_len: i32,
+    pub tpb_ptr: *const u8,
+}
+
+pub(crate) fn transaction_buffer(confs: TransactionConfiguration) -> Vec<u8> {
+    let mut tpb = vec![
+        ibase::isc_tpb_version3 as u8,
+        confs.isolation.into(),
+        confs.data_access as u8,
+        confs.lock_resolution.into(),
+    ];
+    if let TrLockResolution::Wait(Some(time)) = confs.lock_resolution {
+        tpb.push(ibase::isc_tpb_lock_timeout as u8);
+        tpb.push(4 as u8);
+        tpb.extend_from_slice(&time.to_le_bytes());
+    }
+
+    if let TrIsolationLevel::ReadCommited(rec) = confs.isolation {
+        tpb.push(rec as u8);
+    }
+
+    tpb
+}
+
+impl StmtHandleData {
+    pub(crate) fn has_output(&self) -> bool {
+        self.xsqlda.sqld > 0
     }
 }
