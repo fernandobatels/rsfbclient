@@ -112,6 +112,34 @@ impl<T: LinkageMarker> NativeTransaction<T> {
         sql: &str,
         params: Vec<SqlType>,
     ) -> Result<Vec<Vec<Column>>, FbError> {
+        let mut rows = Vec::new();
+        self.query_each(database, sql, params, |row| {
+            rows.push(row);
+            Ok(())
+        })?;
+        Ok(rows)
+    }
+
+    /// Execute a statement, visiting each SELECT or RETURNING row in order.
+    ///
+    /// Uses the transaction's configured [`RowConversion`], just like [`Self::query`].
+    /// Earlier rows are not retained by this method; the callback may retain them.
+    /// A statement without output executes normally without calling `visit`.
+    ///
+    /// A callback error stops iteration and is returned after releasing the
+    /// statement. This method does not commit or roll back the transaction;
+    /// statements may already have made changes before a callback fails.
+    /// SQL authorization and read-only policy belong to the caller.
+    pub fn query_each<F>(
+        &mut self,
+        database: usize,
+        sql: &str,
+        params: Vec<SqlType>,
+        mut visit: F,
+    ) -> Result<(), FbError>
+    where
+        F: FnMut(Vec<Column>) -> Result<(), FbError>,
+    {
         self.validate_database(database)?;
         if self.handle == 0 || self.state != TransactionState::Active {
             return Err("Transaction is not active".into());
@@ -123,15 +151,14 @@ impl<T: LinkageMarker> NativeTransaction<T> {
             sql,
         )?;
         let result = (|| {
-            let mut rows = Vec::new();
             if !matches!(kind, StmtType::Select | StmtType::SelectForUpd) && statement.has_output()
             {
-                rows.push(self.client.execute2(
+                visit(self.client.execute2(
                     &mut self.databases[database],
                     &mut self.handle,
                     &mut statement,
                     params,
-                )?);
+                )?)?;
             } else {
                 self.client.execute(
                     &mut self.databases[database],
@@ -145,17 +172,17 @@ impl<T: LinkageMarker> NativeTransaction<T> {
                         &mut self.handle,
                         &mut statement,
                     )? {
-                        rows.push(row);
+                        visit(row)?;
                     }
                 }
             }
-            Ok(rows)
+            Ok(())
         })();
         let release = self.client.free_statement(&mut statement, FreeStmtOp::Drop);
         match result {
-            Ok(rows) => {
+            Ok(()) => {
                 release?;
-                Ok(rows)
+                Ok(())
             }
             Err(error) => Err(error),
         }

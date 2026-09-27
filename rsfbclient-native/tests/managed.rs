@@ -130,6 +130,177 @@ fn post(fixture: &Fixture, commit: bool) -> Result<(), FbError> {
 
 #[test]
 #[ignore = "requires explicit native Firebird test environment"]
+fn query_each_streams_rows_and_preserves_conversion() -> TestResult {
+    let f = Fixture::new()?;
+    let mut tx = f.start(false, false)?;
+    tx.query_each(0, "select 1 from rdb$database where 1=0", vec![], |_| {
+        panic!("An empty result must not invoke the callback")
+    })?;
+    let mut count = 0;
+    tx.query_each(
+        0,
+        "with recursive counter(n) as (select 1 from rdb$database union all select n+1 from counter where n < 200) select n from counter order by n",
+        vec![],
+        |row| {
+            count += 1;
+            assert!(matches!(&row[0].value, SqlType::Text(s) if s.trim() == count.to_string()));
+            Ok(())
+        },
+    )?;
+    assert_eq!(count, 200);
+    let mut calls = 0;
+    tx.query_each(
+        0,
+        "select cast(? as numeric(18,4)), cast(? as varchar(40)), cast(null as integer), cast('' as varchar(1)), cast(? as blob sub_type 0), cast(? as timestamp) from rdb$database",
+        vec![
+            SqlType::Text("-90071992547409.1234".into()),
+            SqlType::Text("İşlem ığüşöç".into()),
+            SqlType::Binary(vec![0, 255, 65]),
+            SqlType::Text("2026-09-27 12:34:56.1234".into()),
+        ],
+        |row| {
+            calls += 1;
+            assert!(matches!(&row[0].value, SqlType::Text(s) if s.trim() == "-90071992547409.1234"));
+            assert!(matches!(&row[1].value, SqlType::Text(s) if s == "İşlem ığüşöç"));
+            assert!(matches!(row[2].value, SqlType::Null));
+            assert!(matches!(&row[3].value, SqlType::Text(s) if s.is_empty()));
+            assert!(matches!(&row[4].value, SqlType::Binary(b) if b == &[0, 255, 65]));
+            assert!(matches!(&row[5].value, SqlType::Text(s) if s.contains("12:34:56.1234")));
+            Ok(())
+        },
+    )?;
+    assert_eq!(calls, 1);
+    tx.rollback()?;
+    let mut native = NativeTransaction::start(
+        f.loading.try_to_client()?,
+        &f.configs[..1],
+        Dialect::D3,
+        Default::default(),
+        RowConversion::Native,
+    )?;
+    native.query_each(
+        0,
+        "select cast(42 as bigint), cast(12.25 as numeric(18,2)) from rdb$database",
+        vec![],
+        |row| {
+            assert!(matches!(row[0].value, SqlType::Integer(42)));
+            assert!(matches!(row[1].value, SqlType::Floating(value) if value == 12.25));
+            Ok(())
+        },
+    )?;
+    native.rollback()?;
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires explicit native Firebird test environment"]
+fn query_each_supports_returning_and_statements_without_output() -> TestResult {
+    let f = Fixture::new()?;
+    f.table()?;
+    let mut tx = f.start(true, true)?;
+    let mut returned = 0;
+    tx.query_each(
+        1,
+        "insert into rsfb_managed (id) values (?) returning id",
+        vec![SqlType::Integer(7)],
+        |row| {
+            returned += 1;
+            assert!(matches!(&row[0].value, SqlType::Text(s) if s.trim() == "7"));
+            Ok(())
+        },
+    )?;
+    assert_eq!(returned, 1);
+    tx.query_each(
+        1,
+        "update rsfb_managed set amount=12.5 where id=7",
+        vec![],
+        |_| panic!("A statement without output must not invoke the callback"),
+    )?;
+    assert_eq!(
+        scalar(&mut tx, 1, "select amount from rsfb_managed where id=7")?,
+        "12.5000"
+    );
+    tx.query_each(1, "delete from rsfb_managed where id=7", vec![], |_| {
+        panic!("A statement without output must not invoke the callback")
+    })?;
+    assert_eq!(
+        scalar(&mut tx, 1, "select count(*) from rsfb_managed")?,
+        "0"
+    );
+    tx.rollback()?;
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires explicit native Firebird test environment"]
+fn query_each_callback_errors_release_statements_and_keep_transaction() -> TestResult {
+    let f = Fixture::new()?;
+    f.table()?;
+    let mut tx = f.start(false, true)?;
+    for _ in 0..30 {
+        let mut visited = 0;
+        let error = tx
+            .query_each(
+                0,
+                "select 1 from rdb$database union all select 2 from rdb$database",
+                vec![],
+                |_| {
+                    visited += 1;
+                    Err("intentional callback failure".into())
+                },
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("intentional callback failure"));
+        assert_eq!(visited, 1);
+        assert!(tx
+            .query_each(
+                0,
+                "select cast(? as integer) from rdb$database",
+                vec![],
+                |_| Ok(())
+            )
+            .is_err());
+        assert!(tx
+            .query_each(0, "select absent_column from rdb$database", vec![], |_| Ok(
+                ()
+            ))
+            .is_err());
+    }
+    assert_eq!(
+        scalar(
+            &mut tx,
+            0,
+            "select count(*) from mon$statements where mon$attachment_id=current_connection"
+        )?,
+        "1"
+    );
+    let error = tx
+        .query_each(
+            0,
+            "insert into rsfb_managed (id) values (1) returning id",
+            vec![],
+            |_| Err("returning callback failure".into()),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("returning callback failure"));
+    // Callback errors do not implicitly undo already executed DML.
+    assert_eq!(
+        scalar(&mut tx, 0, "select count(*) from rsfb_managed")?,
+        "1"
+    );
+    assert!(tx
+        .query_each(9, "select 1 from rdb$database", vec![], |_| Ok(()))
+        .is_err());
+    tx.rollback()?;
+    assert!(tx
+        .query_each(0, "select 1 from rdb$database", vec![], |_| Ok(()))
+        .is_err());
+    assert_eq!(f.scalar("select count(*) from rsfb_managed")?, "0");
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires explicit native Firebird test environment"]
 fn native_typed_conversion_is_unchanged() -> TestResult {
     let f = Fixture::new()?;
     let mut tx = NativeTransaction::start(
