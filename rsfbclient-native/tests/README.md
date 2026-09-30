@@ -22,6 +22,11 @@ cargo test -p rsfbclient-native --features dynamic_loading --lib
 
 Coverage:
 
+- `query_each`: empty/single/many rows, callback order, both row conversions,
+  exact decimals, NULL/empty strings, Turkish text, BLOBs and timestamps;
+  non-default participants, RETURNING and statements without output; callback
+  error propagation, statement cleanup and explicit rollback after failed DML
+  callbacks. The driver does not impose a SELECT-only policy.
 - Existing typed conversion, lossless large/negative NUMERIC values, NULL versus
   empty strings, Turkish SQL text and database filenames, timestamp/date/time,
   multi-segment binary/text BLOBs, INSERT RETURNING.
