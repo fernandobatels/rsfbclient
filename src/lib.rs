@@ -207,3 +207,7 @@ pub use rsfbclient_rust::{RawValue, RustFbClient};
 //builders are behind feature gates inside this module
 pub use crate::connection::builders;
 pub use builders::*;
+
+/// Owned native transactions and cancellable events, including multi-database recovery.
+#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
+pub use rsfbclient_native::managed;

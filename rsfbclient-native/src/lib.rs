@@ -14,3 +14,5 @@ pub use connection::{NativeFbAttachmentConfig, NativeFbClient, RemoteConfig};
 pub use connection::{DynLink, DynLoad, LinkageMarker};
 
 pub use services::NativeServiceManager;
+
+pub mod managed;
