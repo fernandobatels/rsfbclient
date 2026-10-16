@@ -64,11 +64,12 @@
 //!
 //! # Services API
 //!
-//! With the native client (`linking` or `dynamic_loading` features) the
-//! [services](./services/index.html) module can attach to a server's *service
+//! The [services](./services/index.html) module can attach to a server's *service
 //! manager* — the administration channel that `gbak` and the other command-line
 //! tools use — to query the server version and run backups and restores, with
-//! the verbose `gbak` log streamed back line by line while the action runs:
+//! the verbose `gbak` log streamed back line by line while the action runs.
+//! It works with the native client (`linking` / `dynamic_loading`) and, over
+//! the wire protocol, with the pure-rust one (`pure_rust`):
 //!
 //! ```rust,ignore
 //! use rsfbclient::services::{ServiceManager, SvcBackupOptions};
@@ -182,7 +183,7 @@ mod statement;
 mod transaction;
 mod utils;
 
-#[cfg(feature = "native_client")]
+#[cfg(any(feature = "native_client", feature = "pure_rust"))]
 pub mod services;
 
 pub use crate::{

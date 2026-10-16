@@ -442,10 +442,27 @@ impl RustFbClient {
 }
 
 impl FirebirdWireConnection {
-    /// Start a connection to the firebird server
+    /// Start a connection to the firebird server, for a database attach
     pub fn connect(
         host: &str,
         port: u16,
+        db_name: &str,
+        user: &str,
+        pass: &str,
+        charset: Charset,
+    ) -> Result<Self, FbError> {
+        Self::connect_for(host, port, WireOp::Attach, db_name, user, pass, charset)
+    }
+
+    /// Start a connection to the firebird server for `operation`
+    /// (`op_attach` / `op_create` on a database, `op_service_attach` on the
+    /// service manager), running the protocol negotiation and the
+    /// authentication handshake. What follows — the attach itself — is sent
+    /// by the caller.
+    pub fn connect_for(
+        host: &str,
+        port: u16,
+        operation: WireOp,
         db_name: &str,
         user: &str,
         pass: &str,
@@ -475,6 +492,7 @@ impl FirebirdWireConnection {
         let srp_key: [u8; 32] = rand::random();
 
         let req = connect(
+            operation,
             db_name,
             user,
             &username,
@@ -696,6 +714,74 @@ impl FirebirdWireConnection {
         self.read_response()?;
 
         Ok(())
+    }
+
+    /// Attach to the service manager of the connected server. The connection
+    /// must have been opened with [`Self::connect_for`] and
+    /// `WireOp::ServiceAttach`. `expected_db` names the database the coming
+    /// actions concern, for servers whose security database depends on it.
+    pub fn service_attach(
+        &mut self,
+        user: &str,
+        pass: &str,
+        expected_db: Option<&str>,
+    ) -> Result<SvcHandle, FbError> {
+        self.socket.write_all(&service_attach(
+            user,
+            pass,
+            self.version,
+            expected_db,
+            self.auth_plugin.as_ref(),
+            &self.srp_key,
+        )?)?;
+        self.socket.flush()?;
+
+        let resp = self.read_response()?;
+
+        Ok(SvcHandle(resp.handle))
+    }
+
+    /// Detach from the service manager
+    pub fn service_detach(&mut self, svc_handle: SvcHandle) -> Result<(), FbError> {
+        self.socket.write_all(&service_detach(svc_handle.0))?;
+        self.socket.flush()?;
+
+        self.read_response()?;
+
+        Ok(())
+    }
+
+    /// Start a service action; `request` is the action byte and its
+    /// arguments (see `rsfbclient_core::services`). Returns as soon as the
+    /// server accepted it — the action then runs on the server, and its
+    /// output is read with [`Self::service_query`].
+    pub fn service_start(&mut self, svc_handle: SvcHandle, request: &[u8]) -> Result<(), FbError> {
+        self.socket.write_all(&service_start(svc_handle.0, request))?;
+        self.socket.flush()?;
+
+        self.read_response()?;
+
+        Ok(())
+    }
+
+    /// Query the service manager: the server answers the `receive_items`
+    /// into a buffer of at most `buffer_length` bytes, returned as-is. For
+    /// `isc_info_svc_line` this blocks until the running action has a line
+    /// to give, or has finished.
+    pub fn service_query(
+        &mut self,
+        svc_handle: SvcHandle,
+        send_items: &[u8],
+        receive_items: &[u8],
+        buffer_length: u32,
+    ) -> Result<Bytes, FbError> {
+        self.socket
+            .write_all(&service_info(svc_handle.0, send_items, receive_items, buffer_length))?;
+        self.socket.flush()?;
+
+        let resp = self.read_response()?;
+
+        Ok(resp.data)
     }
 
     /// Wait until `name` is posted on the database.
@@ -1662,6 +1748,25 @@ impl FirebirdWireConnection {
             &mut self.lazy_count,
         )
     }
+
+    /// A connection over an already-open plaintext socket, skipping the
+    /// handshake — for loopback tests against a scripted fake server.
+    #[cfg(test)]
+    pub(crate) fn test_over_socket(socket: TcpStream, version: ProtocolVersion) -> Self {
+        Self {
+            socket: FbStream::Plain(socket),
+            version,
+            buff: vec![0; READ_BUFFER_LEN].into_boxed_slice(),
+            pending: Bytes::new(),
+            lazy_count: 0,
+            inline_blob_size: 0,
+            charset: rsfbclient_core::charset::UTF_8,
+            auth_plugin: None,
+            srp_key: [0; 32],
+            event_channel: None,
+            next_event_id: 1,
+        }
+    }
 }
 
 /// Reads from `socket` until `parse` succeeds against the accumulated bytes,
@@ -1997,6 +2102,10 @@ pub struct DbHandle(u32);
 #[derive(Debug, Clone, Copy)]
 /// A transaction handle
 pub struct TrHandle(u32);
+
+#[derive(Debug, Clone, Copy)]
+/// A service manager attachment handle
+pub struct SvcHandle(u32);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 /// A statement handle
