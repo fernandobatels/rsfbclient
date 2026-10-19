@@ -225,6 +225,17 @@ impl<'c> Queryable for SimpleTransaction<'c> {
             TypeTransactionContainer::PureRust(tr) => tr.query_iter(sql, params),
         }
     }
+
+    fn describe(&mut self, sql: &str) -> Result<Vec<rsfbclient_core::ColumnDesc>, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeTransactionContainer::NativeDynLink(tr) => tr.describe(sql),
+            #[cfg(feature = "dynamic_loading")]
+            TypeTransactionContainer::NativeDynLoad(tr) => tr.describe(sql),
+            #[cfg(feature = "pure_rust")]
+            TypeTransactionContainer::PureRust(tr) => tr.describe(sql),
+        }
+    }
 }
 
 #[cfg(test)]

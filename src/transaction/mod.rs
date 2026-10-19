@@ -5,7 +5,7 @@
 //!
 
 use rsfbclient_core::{
-    FbError, FirebirdClient, FromRow, IntoParams, TrOp, TransactionConfiguration,
+    ColumnDesc, FbError, FirebirdClient, FromRow, IntoParams, TrOp, TransactionConfiguration,
 };
 use std::marker;
 use std::mem;
@@ -173,6 +173,23 @@ impl<'c, C: FirebirdClient> Queryable for Transaction<'c, C> {
                 // A statement that failed to open its cursor must not be reused.
                 stmt_cache_data.stmt.close(self.conn).ok();
 
+                Err(e)
+            }
+        }
+    }
+
+    fn describe(&mut self, sql: &str) -> Result<Vec<ColumnDesc>, FbError> {
+        // Prepared here, then handed to the cache: the query that usually
+        // follows a describe reuses the same statement.
+        let mut stmt_cache_data = StmtCache::get_or_prepare(self, sql, false)?;
+
+        match stmt_cache_data.stmt.describe(self.conn) {
+            Ok(columns) => {
+                StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
+                Ok(columns)
+            }
+            Err(e) => {
+                stmt_cache_data.stmt.close(self.conn).ok();
                 Err(e)
             }
         }

@@ -4,7 +4,7 @@
 //! High level api
 //!
 
-use rsfbclient_core::{FbError, FromRow, IntoParams};
+use rsfbclient_core::{ColumnDesc, FbError, FromRow, IntoParams};
 
 /// Implemented for types that can be used to execute sql queries
 pub trait Queryable {
@@ -68,6 +68,15 @@ pub trait Queryable {
     {
         self.query_iter(sql, params)?.next().transpose()
     }
+
+    /// Prepare `sql` (or take it from the statement cache) and describe its
+    /// output columns without executing it: the name each has in the result
+    /// set, the relation / context alias / field it comes from, and its type.
+    ///
+    /// Costs one prepare, which the cache then reuses for the next
+    /// `query_iter` of the same text. With the pure-rust client the
+    /// description itself is free: it is part of the prepare response.
+    fn describe(&mut self, sql: &str) -> Result<Vec<ColumnDesc>, FbError>;
 }
 
 /// Implemented for types that can be used to execute sql statements

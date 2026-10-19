@@ -4,13 +4,13 @@
 
 use crate::util::*;
 use bytes::{BufMut, Bytes, BytesMut};
-use rsfbclient_core::{ibase, FbError, StmtType};
+use rsfbclient_core::{ibase, non_empty, ColumnDesc, FbError, StmtType};
 use std::{convert::TryFrom, mem, sync::Arc};
 
 use crate::consts;
 
 /// Data to return about a statement
-pub const XSQLDA_DESCRIBE_VARS: [u8; 17] = [
+pub const XSQLDA_DESCRIBE_VARS: [u8; 18] = [
     ibase::isc_info_sql_stmt_type as u8, // Statement type: StmtType
     ibase::isc_info_sql_bind as u8,      // Select params
     ibase::isc_info_sql_describe_vars as u8, // Param count
@@ -27,6 +27,7 @@ pub const XSQLDA_DESCRIBE_VARS: [u8; 17] = [
     ibase::isc_info_sql_relation as u8,  //
     ibase::isc_info_sql_owner as u8,     //
     ibase::isc_info_sql_alias as u8,     // Column alias
+    ibase::isc_info_sql_relation_alias as u8, // Context alias of the relation
     ibase::isc_info_sql_describe_end as u8, // End of column data
 ];
 
@@ -57,9 +58,30 @@ pub struct XSqlVar {
     /// Column alias. `Arc<str>` (built once here at describe) so cloning it into
     /// every row's `Column` during fetch is a refcount bump, not an allocation.
     pub alias_name: Arc<str>,
+
+    /// Context alias of the relation in the statement (`C` for `FROM clients c`).
+    pub relation_alias: String,
 }
 
 impl XSqlVar {
+    /// What the server said about this column, for
+    /// [`FirebirdClientSqlOps::describe_statement`]. Must be taken before
+    /// [`coerce`](Self::coerce), which rewrites the type for the fetch.
+    pub fn describe(&self) -> ColumnDesc {
+        ColumnDesc {
+            name: self.alias_name.to_string(),
+            field: non_empty(self.field_name.clone()),
+            relation: non_empty(self.relation_name.clone()),
+            relation_alias: non_empty(self.relation_alias.clone()),
+            owner: non_empty(self.owner_name.clone()),
+            sql_type: self.sqltype as u32 & !1,
+            sub_type: self.sqlsubtype,
+            scale: self.scale,
+            length: self.data_length,
+            nullable: self.sqltype & 1 == 1 || self.null_ind,
+        }
+    }
+
     /// Coerces the data types of this XSqlVar as necessary
     pub fn coerce(&mut self) -> Result<(), FbError> {
         // Remove nullable type indicator
@@ -393,6 +415,19 @@ pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result
                 }
             }
 
+            ibase::isc_info_sql_relation_alias => {
+                let len = resp.get_u16_le()? as usize;
+
+                let mut buff = vec![0; len];
+                resp.copy_to_slice(&mut buff)?;
+
+                if let Some(var) = xsqlda.get_mut(col_index) {
+                    var.relation_alias = String::from_utf8(buff).unwrap_or_default();
+                } else {
+                    return err_invalid_xsqlda();
+                }
+            }
+
             // End of this column data
             ibase::isc_info_sql_describe_end => {}
 
@@ -442,6 +477,105 @@ mod tests {
 
         let blr = xsqlda_to_blr(&[var]).unwrap();
         assert_eq!(blr[6], consts::blr::DOUBLE);
+    }
+
+    /// One column item of a prepare response, as the server lays it out.
+    fn item(code: u32, payload: &[u8]) -> Vec<u8> {
+        let mut v = vec![code as u8];
+        v.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+        v.extend_from_slice(payload);
+        v
+    }
+
+    fn str_item(code: u32, s: &str) -> Vec<u8> {
+        item(code, s.as_bytes())
+    }
+
+    fn u32_item(code: u32, n: u32) -> Vec<u8> {
+        item(code, &n.to_le_bytes())
+    }
+
+    #[test]
+    fn describe_reports_source_relation_alias_and_field() {
+        // SELECT c.cli_nom AS nom, 1 + 1 FROM clients c
+        let mut resp = vec![];
+        resp.extend(u32_item(ibase::isc_info_sql_stmt_type, 1));
+        resp.extend([
+            ibase::isc_info_sql_bind as u8,
+            ibase::isc_info_sql_describe_vars as u8,
+            4,
+            0,
+        ]);
+        resp.extend(0u32.to_le_bytes());
+        resp.push(ibase::isc_info_sql_describe_end as u8);
+        resp.extend([
+            ibase::isc_info_sql_select as u8,
+            ibase::isc_info_sql_describe_vars as u8,
+            4,
+            0,
+        ]);
+        resp.extend(2u32.to_le_bytes());
+        // column 1
+        resp.extend(u32_item(ibase::isc_info_sql_sqlda_seq, 1));
+        resp.extend(u32_item(ibase::isc_info_sql_type, ibase::SQL_VARYING + 1));
+        resp.extend(u32_item(ibase::isc_info_sql_sub_type, 4));
+        resp.extend(u32_item(ibase::isc_info_sql_scale, 0));
+        resp.extend(u32_item(ibase::isc_info_sql_length, 80));
+        resp.extend(u32_item(ibase::isc_info_sql_null_ind, 1));
+        resp.extend(str_item(ibase::isc_info_sql_field, "CLI_NOM"));
+        resp.extend(str_item(ibase::isc_info_sql_relation, "CLIENTS"));
+        resp.extend(str_item(ibase::isc_info_sql_owner, "SYSDBA"));
+        resp.extend(str_item(ibase::isc_info_sql_alias, "NOM"));
+        resp.extend(str_item(ibase::isc_info_sql_relation_alias, "C"));
+        resp.push(ibase::isc_info_sql_describe_end as u8);
+        // column 2: an expression — the server sends empty names
+        resp.extend(u32_item(ibase::isc_info_sql_sqlda_seq, 2));
+        resp.extend(u32_item(ibase::isc_info_sql_type, ibase::SQL_LONG));
+        resp.extend(u32_item(ibase::isc_info_sql_sub_type, 0));
+        resp.extend(u32_item(ibase::isc_info_sql_scale, 0));
+        resp.extend(u32_item(ibase::isc_info_sql_length, 4));
+        resp.extend(u32_item(ibase::isc_info_sql_null_ind, 0));
+        resp.extend(str_item(ibase::isc_info_sql_field, ""));
+        resp.extend(str_item(ibase::isc_info_sql_relation, ""));
+        resp.extend(str_item(ibase::isc_info_sql_owner, ""));
+        resp.extend(str_item(ibase::isc_info_sql_alias, "ADD"));
+        resp.extend(str_item(ibase::isc_info_sql_relation_alias, ""));
+        resp.push(ibase::isc_info_sql_describe_end as u8);
+        resp.push(ibase::isc_info_end as u8);
+
+        let mut xsqlda = vec![];
+        let mut bytes = Bytes::from(resp);
+        let info = parse_xsqlda(&mut bytes, &mut xsqlda).unwrap();
+        assert_eq!(info.stmt_type, StmtType::Select);
+        assert!(!info.truncated);
+
+        let desc: Vec<ColumnDesc> = xsqlda.iter().map(XSqlVar::describe).collect();
+        assert_eq!(
+            desc[0],
+            ColumnDesc {
+                name: "NOM".into(),
+                field: Some("CLI_NOM".into()),
+                relation: Some("CLIENTS".into()),
+                relation_alias: Some("C".into()),
+                owner: Some("SYSDBA".into()),
+                sql_type: ibase::SQL_VARYING,
+                sub_type: 4,
+                scale: 0,
+                length: 80,
+                nullable: true,
+            }
+        );
+        assert_eq!(desc[1].name, "ADD");
+        assert!(desc[1].is_expression());
+        assert_eq!(desc[1].relation_alias, None);
+        assert!(!desc[1].nullable);
+        assert!(!desc[1].is_blob());
+
+        // Coercion rewrites types for the fetch; the description was taken first.
+        for var in xsqlda.iter_mut() {
+            var.coerce().unwrap();
+        }
+        assert_eq!(xsqlda[0].describe().name, "NOM");
     }
 
     #[test]

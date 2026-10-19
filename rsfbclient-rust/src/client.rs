@@ -174,6 +174,9 @@ pub struct StmtHandleData {
     handle: RustStmtHandle,
     /// Output xsqlda
     xsqlda: Vec<XSqlVar>,
+    /// The columns as the server described them at prepare, kept so
+    /// `describe_statement` answers without a round trip.
+    columns: Vec<ColumnDesc>,
     /// Blr representation of the above
     blr: Bytes,
     /// Number of parameters
@@ -393,6 +396,14 @@ impl FirebirdClientSqlOps for RustFbClient {
             .as_mut()
             .map(|conn| conn.fetch(tr_handle, stmt_handle))
             .unwrap_or_else(err_client_not_connected)
+    }
+
+    /// Answered from the prepare response: no round trip.
+    fn describe_statement(
+        &mut self,
+        stmt_handle: &mut Self::StmtHandle,
+    ) -> Result<Vec<ColumnDesc>, FbError> {
+        Ok(stmt_handle.columns.clone())
     }
 }
 
@@ -756,7 +767,8 @@ impl FirebirdWireConnection {
     /// server accepted it — the action then runs on the server, and its
     /// output is read with [`Self::service_query`].
     pub fn service_start(&mut self, svc_handle: SvcHandle, request: &[u8]) -> Result<(), FbError> {
-        self.socket.write_all(&service_start(svc_handle.0, request))?;
+        self.socket
+            .write_all(&service_start(svc_handle.0, request))?;
         self.socket.flush()?;
 
         self.read_response()?;
@@ -775,8 +787,12 @@ impl FirebirdWireConnection {
         receive_items: &[u8],
         buffer_length: u32,
     ) -> Result<Bytes, FbError> {
-        self.socket
-            .write_all(&service_info(svc_handle.0, send_items, receive_items, buffer_length))?;
+        self.socket.write_all(&service_info(
+            svc_handle.0,
+            send_items,
+            receive_items,
+            buffer_length,
+        ))?;
         self.socket.flush()?;
 
         let resp = self.read_response()?;
@@ -1060,6 +1076,9 @@ impl FirebirdWireConnection {
             param_count = parse_resp.param_count;
         }
 
+        // What the server said, before coercion rewrites the types for the fetch.
+        let columns: Vec<ColumnDesc> = xsqlda.iter().map(XSqlVar::describe).collect();
+
         // Coerce the output columns and transform to blr
         for var in xsqlda.iter_mut() {
             var.coerce()?;
@@ -1074,6 +1093,7 @@ impl FirebirdWireConnection {
             StmtHandleData {
                 handle: stmt_handle,
                 xsqlda,
+                columns,
                 blr,
                 param_count,
                 prefetched: VecDeque::new(),
@@ -2550,6 +2570,7 @@ mod pipeline_tests {
         StmtHandleData {
             handle: StmtHandle(7),
             xsqlda,
+            columns: vec![],
             blr: Bytes::new(),
             param_count: 0,
             prefetched: VecDeque::new(),
