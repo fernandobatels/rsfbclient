@@ -525,9 +525,40 @@ impl FirebirdWireConnection {
             parse_accept(resp)
         })?;
 
+        // Whether the password was verified during this handshake, so the
+        // attach must not carry it again.
+        let mut verified = continue_auth;
+
         if let Some(auth_plugin) = &mut auth_plugin {
+            // Every pass after the first follows an op_cont_auth we sent: the
+            // server's answer to it arrived as `auth_plugin`.
+            let mut round = 0;
             loop {
+                round += 1;
                 match auth_plugin.kind {
+                    AuthPluginType::Legacy => {
+                        // Asked on op_cond_accept, or mid-exchange after an SRP
+                        // round: answer with op_cont_auth now. On op_accept_data
+                        // (WireCrypt = Disabled) the hash goes in the attach DPB
+                        // instead — Firebird 5 rejects an extra round there.
+                        if continue_auth || round > 1 {
+                            socket.write_all(&cont_auth(
+                                legacy_auth_data(pass).as_bytes(),
+                                AuthPluginType::Legacy,
+                                AuthPluginType::plugin_list(),
+                                &[],
+                            ))?;
+                            socket.flush()?;
+
+                            // op_response: a login error comes back as Err.
+                            // No session key exists, so no wire encryption
+                            // follows; a server with WireCrypt = Required
+                            // refuses this login.
+                            read_response(&mut socket, &mut buff, &mut pending, &mut 0)?;
+                            verified = true;
+                        }
+                        break;
+                    }
                     plugin @ AuthPluginType::Srp => {
                         let srp = SrpClient::<sha1::Sha1>::new(&srp_key, &SRP_GROUP);
 
@@ -630,7 +661,7 @@ impl FirebirdWireConnection {
             lazy_count: 0,
             inline_blob_size,
             charset,
-            auth_plugin: if continue_auth {
+            auth_plugin: if verified {
                 // Already authenticated
                 None
             } else {

@@ -302,23 +302,19 @@ fn build_dpb(
 
         // Hashed password
         ProtocolVersion::V11 | ProtocolVersion::V12 => {
-            #[allow(deprecated)]
-            let enc_pass = pwhash::unix_crypt::hash_with("9z", pass).unwrap();
-            let enc_pass = &enc_pass[2..];
-
             params.push(DpbData {
                 tag: ibase::isc_dpb_password_enc as u8,
-                data: enc_pass.as_bytes().to_vec().into(),
+                data: legacy_auth_data(pass).into_bytes().into(),
             });
         }
 
-        // Protocol 13+ (auth plugins). The DPB carries the SRP proof when the
-        // password was not verified on cont_auth (WireCrypt = Disabled);
+        // Protocol 13+ (auth plugins). The DPB carries the plugin's data when
+        // the password was not verified on cont_auth (WireCrypt = Disabled);
         // otherwise it was already verified and nothing is added. Protocols
         // 14-19 attach exactly like 13.
         _ => {
             if let Some(auth) = auth_plugin {
-                if let Some(auth_data) = &auth.data {
+                if let Some(proof) = auth_proof(auth, user, pass, srp_key)? {
                     params.push(DpbData {
                         tag: ibase::isc_dpb_auth_plugin_name as u8,
                         data: auth.kind.name().as_bytes().into(),
@@ -328,25 +324,6 @@ fn build_dpb(
                         tag: ibase::isc_dpb_auth_plugin_list as u8,
                         data: AuthPluginType::plugin_list().into_bytes().into(),
                     });
-
-                    let proof = {
-                        match auth.kind {
-                            AuthPluginType::Srp => {
-                                let srp = SrpClient::<sha1::Sha1>::new(srp_key, &SRP_GROUP);
-                                let verifier =
-                                    crate::client::srp_verifier(srp, user, pass, auth_data)?;
-
-                                hex::encode(verifier.get_proof())
-                            }
-                            AuthPluginType::Srp256 => {
-                                let srp = SrpClient::<sha2::Sha256>::new(srp_key, &SRP_GROUP);
-                                let verifier =
-                                    crate::client::srp_verifier(srp, user, pass, auth_data)?;
-
-                                hex::encode(verifier.get_proof())
-                            }
-                        }
-                    };
 
                     params.push(DpbData {
                         tag: ibase::isc_dpb_specific_auth_data as u8,
@@ -358,6 +335,42 @@ fn build_dpb(
     }
 
     Ok(dpb(&params))
+}
+
+/// What the legacy login sends for `pass`: the DES `crypt(3)` hash with the
+/// fixed salt "9z", minus the salt (Firebird's LegacyClient: `&pwt[2]`). The
+/// same value is the `isc_dpb_password_enc` of protocols 11 and 12. DES crypt
+/// only reads the first 8 characters, as on the server.
+pub fn legacy_auth_data(pass: &str) -> String {
+    #[allow(deprecated)]
+    let enc = pwhash::unix_crypt::hash_with("9z", pass).unwrap();
+    enc[2..].to_string()
+}
+
+/// The plugin-specific data an attach must carry when authentication was left
+/// to it (`op_accept_data` with `authenticated = 0`): the SRP proof, or the
+/// legacy hash. `None` when there is nothing to send (no SRP data from the
+/// server).
+fn auth_proof(
+    auth: &AuthPlugin,
+    user: &str,
+    pass: &str,
+    srp_key: &[u8; 32],
+) -> Result<Option<String>, FbError> {
+    Ok(match (auth.kind, &auth.data) {
+        (AuthPluginType::Legacy, _) => Some(legacy_auth_data(pass)),
+        (AuthPluginType::Srp, Some(auth_data)) => {
+            let srp = SrpClient::<sha1::Sha1>::new(srp_key, &SRP_GROUP);
+            let verifier = crate::client::srp_verifier(srp, user, pass, auth_data)?;
+            Some(hex::encode(verifier.get_proof()))
+        }
+        (AuthPluginType::Srp256, Some(auth_data)) => {
+            let srp = SrpClient::<sha2::Sha256>::new(srp_key, &SRP_GROUP);
+            let verifier = crate::client::srp_verifier(srp, user, pass, auth_data)?;
+            Some(hex::encode(verifier.get_proof()))
+        }
+        (AuthPluginType::Srp | AuthPluginType::Srp256, None) => None,
+    })
 }
 
 struct DpbData<'a> {
@@ -514,33 +527,18 @@ fn build_spb(
         }
 
         ProtocolVersion::V11 | ProtocolVersion::V12 => {
-            #[allow(deprecated)]
-            let enc_pass = pwhash::unix_crypt::hash_with("9z", pass).unwrap();
-            push_attach_arg(&mut spb, ibase::isc_spb_password_enc as u8, enc_pass[2..].as_bytes());
+            push_attach_arg(&mut spb, ibase::isc_spb_password_enc as u8, legacy_auth_data(pass).as_bytes());
         }
 
         _ => {
             if let Some(auth) = auth_plugin {
-                if let Some(auth_data) = &auth.data {
+                if let Some(proof) = auth_proof(auth, user, pass, srp_key)? {
                     push_attach_arg(&mut spb, ibase::isc_spb_auth_plugin_name as u8, auth.kind.name().as_bytes());
                     push_attach_arg(
                         &mut spb,
                         ibase::isc_spb_auth_plugin_list as u8,
                         AuthPluginType::plugin_list().as_bytes(),
                     );
-
-                    let proof = match auth.kind {
-                        AuthPluginType::Srp => {
-                            let srp = SrpClient::<sha1::Sha1>::new(srp_key, &SRP_GROUP);
-                            let verifier = crate::client::srp_verifier(srp, user, pass, auth_data)?;
-                            hex::encode(verifier.get_proof())
-                        }
-                        AuthPluginType::Srp256 => {
-                            let srp = SrpClient::<sha2::Sha256>::new(srp_key, &SRP_GROUP);
-                            let verifier = crate::client::srp_verifier(srp, user, pass, auth_data)?;
-                            hex::encode(verifier.get_proof())
-                        }
-                    };
 
                     push_attach_arg(&mut spb, ibase::isc_spb_specific_auth_data as u8, proof.as_bytes());
                 }
@@ -1626,9 +1624,10 @@ pub fn parse_accept(resp: &mut Bytes) -> Result<ConnectionResponse, FbError> {
 
     let auth_plugin =
         if op_code == WireOp::AcceptData as u32 || op_code == WireOp::CondAccept as u32 {
-            let auth_data = parse_srp_auth_data(&mut resp.get_wire_bytes()?)?;
+            let mut raw_data = resp.get_wire_bytes()?;
 
             let plugin = AuthPluginType::parse(&resp.get_wire_bytes()?)?;
+            let auth_data = plugin_auth_data(plugin, &mut raw_data)?;
 
             let authenticated = resp.get_u32()? != 0;
 
@@ -1667,8 +1666,9 @@ pub fn parse_cont_auth(resp: &mut Bytes) -> Result<AuthPlugin, FbError> {
         return err_conn_rejected(op_code);
     }
 
-    let auth_data = parse_srp_auth_data(&mut resp.get_wire_bytes()?)?;
+    let mut raw_data = resp.get_wire_bytes()?;
     let plugin = AuthPluginType::parse(&resp.get_wire_bytes()?)?;
+    let auth_data = plugin_auth_data(plugin, &mut raw_data)?;
     let _plugin_list = resp.get_wire_bytes()?;
     let keys = resp.get_wire_bytes()?;
 
@@ -1683,6 +1683,17 @@ pub fn parse_cont_auth(resp: &mut Bytes) -> Result<AuthPlugin, FbError> {
 pub struct SrpAuthData {
     pub salt: Box<[u8]>,
     pub pub_key: Box<[u8]>,
+}
+
+/// The server's data for `plugin`. Only SRP sends any (salt and public key);
+/// the legacy plugin asks with an empty block, and whatever it sent must not
+/// be read as an SRP structure. The data comes before the plugin name on the
+/// wire, so callers read both and hand the raw block here.
+fn plugin_auth_data(plugin: AuthPluginType, raw: &mut Bytes) -> Result<Option<SrpAuthData>, FbError> {
+    match plugin {
+        AuthPluginType::Legacy => Ok(None),
+        AuthPluginType::Srp | AuthPluginType::Srp256 => parse_srp_auth_data(raw),
+    }
 }
 
 /// Parse the auth data from the Srp / Srp256 plugin
@@ -1762,6 +1773,64 @@ pub fn parse_info_sql_affected_rows(data: &mut Bytes) -> Result<usize, FbError> 
 mod tests {
     use super::*;
     use rsfbclient_core::charset::UTF_8;
+
+    /// Expected values from the system crypt(3) (`perl -e 'print crypt("masterkey","9z")'`),
+    /// an implementation independent of the pwhash crate.
+    #[test]
+    fn legacy_auth_data_is_des_crypt_with_salt_9z_minus_the_salt() {
+        assert_eq!(legacy_auth_data("masterkey"), "QP3LMZ/MJh.");
+        // DES crypt reads 8 characters, as the server's check does.
+        assert_eq!(legacy_auth_data("masterkeyLONGER"), "QP3LMZ/MJh.");
+        assert_eq!(legacy_auth_data(""), "retK2Kk/GLk");
+    }
+
+    fn accept_naming(op: WireOp, plugin: &str, data: &[u8]) -> Bytes {
+        let mut b = BytesMut::new();
+        b.put_u32(op as u32);
+        b.put_u32(ProtocolVersion::V15 as u32);
+        b.put_u32(1); // arch
+        b.put_u32(5); // type
+        b.put_wire_bytes(data);
+        b.put_wire_bytes(plugin.as_bytes());
+        b.put_u32(0); // not authenticated
+        b.put_wire_bytes(b"");
+        b.freeze()
+    }
+
+    /// A server that only knows the user through Legacy_UserManager names
+    /// Legacy_Auth in its accept; that used to fail with "Invalid auth plugin".
+    #[test]
+    fn an_accept_naming_legacy_auth_is_understood() {
+        let r = parse_accept(&mut accept_naming(WireOp::CondAccept, "Legacy_Auth", b"")).unwrap();
+        assert!(r.continue_auth);
+        let auth = r.auth_plugin.expect("the plugin to answer");
+        assert!(matches!(auth.kind, AuthPluginType::Legacy));
+        assert!(auth.data.is_none());
+
+        // Whatever data block comes with it is not parsed as SRP salt/key.
+        let r = parse_accept(&mut accept_naming(WireOp::AcceptData, "Legacy_Auth", b"\xff\xff")).unwrap();
+        assert!(!r.continue_auth);
+        assert!(matches!(r.auth_plugin.unwrap().kind, AuthPluginType::Legacy));
+    }
+
+    /// With WireCrypt = Disabled the legacy hash rides in the attach DPB.
+    #[test]
+    fn an_attach_left_to_legacy_auth_carries_the_hash() {
+        let auth = AuthPlugin { kind: AuthPluginType::Legacy, data: None, keys: Bytes::new() };
+        let req = attach("db", "SYSDBA", "masterkey", ProtocolVersion::V15, UTF_8, None, Dialect::D3, false, Some(&auth), &[0; 32])
+            .unwrap();
+        let find = |needle: &[u8]| req.windows(needle.len()).any(|w| w == needle);
+        assert!(find(b"Legacy_Auth"));
+        assert!(find(b"QP3LMZ/MJh."));
+        assert!(!find(b"masterkey"), "the password itself never goes on the wire");
+    }
+
+    #[test]
+    fn the_client_never_offers_legacy_auth_itself() {
+        assert_eq!(AuthPluginType::plugin_list(), "Srp256,Srp");
+        assert!(matches!(AuthPluginType::parse(b"Legacy_Auth"), Ok(AuthPluginType::Legacy)));
+        assert!(AuthPluginType::parse(b"Win_Sspi").is_err());
+    }
 
     fn assert_int128_decoded(expected: i128) {
         let mut response = BytesMut::new();
