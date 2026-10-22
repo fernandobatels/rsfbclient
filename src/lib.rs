@@ -196,7 +196,7 @@ pub use crate::{
 };
 pub use rsfbclient_core::{
     Column, ColumnDesc, ColumnToVal, Dialect, FbError, FromRow, IntoParam, IntoParams, ParamsType,
-    Row, SqlType,
+    Row, SqlType, StmtPlan,
 };
 
 #[doc(hidden)]

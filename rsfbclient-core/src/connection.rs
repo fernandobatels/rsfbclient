@@ -147,6 +147,11 @@ pub trait FirebirdClientSqlOps {
         &mut self,
         stmt_handle: &mut Self::StmtHandle,
     ) -> Result<Vec<ColumnDesc>, FbError>;
+
+    /// The access plan the server chose for a prepared statement (see
+    /// [`StmtPlan`]): the legacy one-line `PLAN` and, on Firebird 3+, the
+    /// explained tree. One info round trip; the statement is not executed.
+    fn statement_plan(&mut self, stmt_handle: &mut Self::StmtHandle) -> Result<StmtPlan, FbError>;
 }
 
 /// What the server knows about one output column of a prepared statement:

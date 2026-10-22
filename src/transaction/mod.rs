@@ -5,7 +5,8 @@
 //!
 
 use rsfbclient_core::{
-    ColumnDesc, FbError, FirebirdClient, FromRow, IntoParams, TrOp, TransactionConfiguration,
+    ColumnDesc, FbError, FirebirdClient, FromRow, IntoParams, StmtPlan, TrOp,
+    TransactionConfiguration,
 };
 use std::marker;
 use std::mem;
@@ -187,6 +188,21 @@ impl<'c, C: FirebirdClient> Queryable for Transaction<'c, C> {
             Ok(columns) => {
                 StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
                 Ok(columns)
+            }
+            Err(e) => {
+                stmt_cache_data.stmt.close(self.conn).ok();
+                Err(e)
+            }
+        }
+    }
+
+    fn plan(&mut self, sql: &str) -> Result<StmtPlan, FbError> {
+        let mut stmt_cache_data = StmtCache::get_or_prepare(self, sql, false)?;
+
+        match stmt_cache_data.stmt.plan(self.conn) {
+            Ok(plan) => {
+                StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
+                Ok(plan)
             }
             Err(e) => {
                 stmt_cache_data.stmt.close(self.conn).ok();

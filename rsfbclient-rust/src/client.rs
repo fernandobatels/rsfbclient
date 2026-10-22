@@ -405,6 +405,13 @@ impl FirebirdClientSqlOps for RustFbClient {
     ) -> Result<Vec<ColumnDesc>, FbError> {
         Ok(stmt_handle.columns.clone())
     }
+
+    fn statement_plan(&mut self, stmt_handle: &mut Self::StmtHandle) -> Result<StmtPlan, FbError> {
+        self.conn
+            .as_mut()
+            .map(|conn| conn.statement_plan(stmt_handle))
+            .unwrap_or_else(err_client_not_connected)
+    }
 }
 
 impl FirebirdClientDbEvents for RustFbClient {
@@ -1147,6 +1154,38 @@ impl FirebirdWireConnection {
         self.lazy_count += 1;
 
         Ok(())
+    }
+
+    /// The plan the server chose for a prepared statement: `op_info_sql`
+    /// asking `isc_info_sql_get_plan` + `isc_info_sql_explain_plan`. One
+    /// round trip; when the two together overflow the info buffer, each is
+    /// asked again on its own so it gets the whole buffer.
+    pub fn statement_plan(
+        &mut self,
+        stmt_handle: &mut StmtHandleData,
+    ) -> Result<StmtPlan, FbError> {
+        let handle = stmt_handle.handle.0;
+        let mut info = self.plan_info(handle, &PLAN_INFO_ITEMS)?;
+        if info.truncated {
+            let plan = self.plan_info(handle, &PLAN_INFO_ITEMS[..1])?;
+            let explained = self.plan_info(handle, &PLAN_INFO_ITEMS[1..])?;
+            info = PlanInfo {
+                plan: plan.plan,
+                explained: explained.explained,
+                truncated: plan.truncated || explained.truncated,
+            };
+        }
+        let charset = &self.charset;
+        StmtPlan::from_info(info, |b| charset.decode(b))
+    }
+
+    fn plan_info(&mut self, stmt_handle: u32, items: &[u8]) -> Result<PlanInfo, FbError> {
+        self.socket.write_all(&info_sql(stmt_handle, items))?;
+        self.socket.flush()?;
+
+        let data = self.read_response()?.data;
+
+        Ok(parse_plan_info(&data))
     }
 
     /// Execute the prepared statement with parameters

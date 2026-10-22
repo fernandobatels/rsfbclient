@@ -8,6 +8,7 @@ pub(crate) mod error;
 pub mod ibase;
 pub mod services;
 mod params;
+mod plan;
 mod row;
 mod transaction;
 
@@ -15,6 +16,7 @@ pub use charset::Charset;
 pub use connection::*;
 pub use error::FbError;
 pub use params::*;
+pub use plan::*;
 pub use row::*;
 pub use transaction::*;
 

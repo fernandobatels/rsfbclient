@@ -263,6 +263,31 @@ impl DynLoad {
 }
 
 impl<T: LinkageMarker> NativeFbClient<T> {
+    /// One `isc_dsql_sql_info` round trip for plan items, parsed.
+    fn plan_info(
+        &mut self,
+        handle: &mut NativeStmtHandle,
+        items: &[u8],
+    ) -> Result<PlanInfo, FbError> {
+        let req: Vec<c_char> = items.iter().map(|b| *b as c_char).collect();
+        let mut buf = vec![0 as c_char; i16::MAX as usize];
+        unsafe {
+            if self.ibase.isc_dsql_sql_info()(
+                &mut self.status[0],
+                handle,
+                req.len() as i16,
+                req.as_ptr(),
+                buf.len() as i16,
+                buf.as_mut_ptr(),
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+        let bytes: Vec<u8> = buf.iter().map(|b| *b as u8).collect();
+        Ok(parse_plan_info(&bytes))
+    }
+
     fn drop_statement_after_prepare_error(
         &mut self,
         handle: &mut NativeStmtHandle,
@@ -638,6 +663,22 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
             stmt_handle.aliases_resolved = true;
         }
         Ok(stmt_handle.columns.clone())
+    }
+
+    /// `isc_dsql_sql_info` with the two plan items; when they overflow the
+    /// buffer together (its length is a `short`), each is asked on its own.
+    fn statement_plan(&mut self, stmt_handle: &mut Self::StmtHandle) -> Result<StmtPlan, FbError> {
+        let mut info = self.plan_info(&mut stmt_handle.handle, &PLAN_INFO_ITEMS)?;
+        if info.truncated {
+            let plan = self.plan_info(&mut stmt_handle.handle, &PLAN_INFO_ITEMS[..1])?;
+            let explained = self.plan_info(&mut stmt_handle.handle, &PLAN_INFO_ITEMS[1..])?;
+            info = PlanInfo {
+                plan: plan.plan,
+                explained: explained.explained,
+                truncated: plan.truncated || explained.truncated,
+            };
+        }
+        StmtPlan::from_info(info, |b| self.charset.decode(b))
     }
 
     fn free_statement(

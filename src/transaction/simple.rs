@@ -236,6 +236,17 @@ impl<'c> Queryable for SimpleTransaction<'c> {
             TypeTransactionContainer::PureRust(tr) => tr.describe(sql),
         }
     }
+
+    fn plan(&mut self, sql: &str) -> Result<rsfbclient_core::StmtPlan, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeTransactionContainer::NativeDynLink(tr) => tr.plan(sql),
+            #[cfg(feature = "dynamic_loading")]
+            TypeTransactionContainer::NativeDynLoad(tr) => tr.plan(sql),
+            #[cfg(feature = "pure_rust")]
+            TypeTransactionContainer::PureRust(tr) => tr.plan(sql),
+        }
+    }
 }
 
 #[cfg(test)]

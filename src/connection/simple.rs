@@ -251,6 +251,17 @@ impl Queryable for SimpleConnection {
             TypeConnectionContainer::PureRust(c) => c.describe(sql),
         }
     }
+
+    fn plan(&mut self, sql: &str) -> Result<rsfbclient_core::StmtPlan, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.plan(sql),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.plan(sql),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.plan(sql),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@
 //! High level api
 //!
 
-use rsfbclient_core::{ColumnDesc, FbError, FromRow, IntoParams};
+use rsfbclient_core::{ColumnDesc, FbError, FromRow, IntoParams, StmtPlan};
 
 /// Implemented for types that can be used to execute sql queries
 pub trait Queryable {
@@ -77,6 +77,13 @@ pub trait Queryable {
     /// `query_iter` of the same text. With the pure-rust client the
     /// description itself is free: it is part of the prepare response.
     fn describe(&mut self, sql: &str) -> Result<Vec<ColumnDesc>, FbError>;
+
+    /// The access plan the server would use for `sql` (see [`StmtPlan`]):
+    /// the legacy `PLAN` line and, on Firebird 3+, the explained tree.
+    ///
+    /// Costs one prepare (cached like `describe`) and one info round trip.
+    /// The statement is never executed.
+    fn plan(&mut self, sql: &str) -> Result<StmtPlan, FbError>;
 }
 
 /// Implemented for types that can be used to execute sql statements

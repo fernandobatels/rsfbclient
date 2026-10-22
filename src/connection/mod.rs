@@ -5,7 +5,7 @@
 //!
 use rsfbclient_core::{
     ColumnDesc, Dialect, FbError, FirebirdClient, FirebirdClientDbEvents, FirebirdClientDbOps,
-    FromRow, IntoParams, TransactionConfiguration,
+    FromRow, IntoParams, StmtPlan, TransactionConfiguration,
 };
 use std::{marker, mem};
 
@@ -421,6 +421,10 @@ where
 
     fn describe(&mut self, sql: &str) -> Result<Vec<ColumnDesc>, FbError> {
         self.with_transaction(|tr| tr.describe(sql))
+    }
+
+    fn plan(&mut self, sql: &str) -> Result<StmtPlan, FbError> {
+        self.with_transaction(|tr| tr.plan(sql))
     }
 }
 
