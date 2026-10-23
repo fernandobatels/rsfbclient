@@ -84,7 +84,39 @@ pub trait Queryable {
     /// Costs one prepare (cached like `describe`) and one info round trip.
     /// The statement is never executed.
     fn plan(&mut self, sql: &str) -> Result<StmtPlan, FbError>;
+
+    /// [`query_iter`](Self::query_iter), plus the plan of the very statement
+    /// that runs: read from the prepared statement right before its cursor
+    /// opens, so it costs one info round trip on the same connection and no
+    /// second prepare. The plan comes back as its own `Result`: a failure to
+    /// read it (an old server, a transient info error) does not fail the
+    /// query, whose rows are already on their way.
+    fn query_iter_with_plan<'a, P, R>(
+        &'a mut self,
+        sql: &str,
+        params: P,
+    ) -> Result<(Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, PlanRead), FbError>
+    where
+        P: IntoParams,
+        R: FromRow + 'static;
+
+    /// [`query`](Self::query), plus the plan of the statement that ran (see
+    /// [`query_iter_with_plan`](Self::query_iter_with_plan)).
+    fn query_with_plan<P, R>(&mut self, sql: &str, params: P) -> Result<(Vec<R>, PlanRead), FbError>
+    where
+        P: IntoParams,
+        R: FromRow + 'static,
+    {
+        let (iter, plan) = self.query_iter_with_plan(sql, params)?;
+        let rows = iter.collect::<Result<Vec<R>, FbError>>()?;
+        Ok((rows, plan))
+    }
 }
+
+/// The plan read from a statement just before it ran, or why it could not
+/// be: the statement itself ran either way. See
+/// [`Queryable::query_iter_with_plan`] and [`Execute::execute_with_plan`].
+pub type PlanRead = Result<StmtPlan, FbError>;
 
 /// Implemented for types that can be used to execute sql statements
 pub trait Execute {
@@ -119,4 +151,13 @@ pub trait Execute {
     where
         P: IntoParams,
         R: FromRow + 'static;
+
+    /// [`execute`](Self::execute), plus the plan of the statement that ran
+    /// (an `UPDATE … WHERE` has one too): read from the prepared statement
+    /// right before it executes, one info round trip, no second prepare. As
+    /// with [`Queryable::query_iter_with_plan`], a plan that could not be
+    /// read does not fail the statement.
+    fn execute_with_plan<P>(&mut self, sql: &str, params: P) -> Result<(usize, PlanRead), FbError>
+    where
+        P: IntoParams;
 }

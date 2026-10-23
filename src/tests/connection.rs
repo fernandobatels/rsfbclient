@@ -9,6 +9,40 @@ mk_tests_default! {
     use crate::*;
     use std::time::SystemTime;
 
+    /// The plan of the statement that ran comes with its rows — one prepare,
+    /// read before the cursor opens — and once more on the cached statement.
+    #[test]
+    fn query_with_plan() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        let sql = "select rdb$relation_id from rdb$database";
+        let (rows, plan): (Vec<(i32,)>, _) = conn.query_with_plan(sql, ())?;
+        assert_eq!(rows.len(), 1);
+        let plan = plan?;
+        assert!(plan.plan.as_deref().unwrap_or_default().contains("RDB$DATABASE"), "{:?}", plan);
+
+        // The second run takes the statement from the cache: same plan.
+        let (_, again): (Vec<(i32,)>, _) = conn.query_with_plan(sql, ())?;
+        assert_eq!(again?, plan);
+
+        // Inside an explicit transaction, through `Transaction` too.
+        conn.with_transaction(|tr| {
+            let (rows, plan): (Vec<(i32,)>, _) = tr.query_with_plan(sql, ())?;
+            assert_eq!(rows.len(), 1);
+            assert!(plan?.plan.is_some());
+            Ok(())
+        })?;
+
+        // A statement without a cursor has a plan as well (nothing matches,
+        // nothing changes); DDL prepares without one.
+        let (n, plan) = conn.execute_with_plan("update rdb$database set rdb$description = ? where 1 = 0", ("",))?;
+        assert_eq!(n, 0);
+        assert!(plan?.plan.is_some());
+
+        conn.close()?;
+        Ok(())
+    }
+
     #[test]
     #[cfg(all(feature = "linking", not(feature = "embedded_tests"), not(feature = "pure_rust")))]
     fn string_conn1() -> Result<(), FbError> {

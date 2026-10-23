@@ -205,6 +205,20 @@ impl Execute for SimpleConnection {
         }
     }
 
+    fn execute_with_plan<P>(&mut self, sql: &str, params: P) -> Result<(usize, crate::PlanRead), FbError>
+    where
+        P: IntoParams,
+    {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.execute_with_plan(sql, params),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.execute_with_plan(sql, params),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.execute_with_plan(sql, params),
+        }
+    }
+
     fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
     where
         P: IntoParams,
@@ -238,6 +252,25 @@ impl Queryable for SimpleConnection {
             TypeConnectionContainer::NativeDynLoad(c) => c.query_iter(sql, params),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.query_iter(sql, params),
+        }
+    }
+
+    fn query_iter_with_plan<'a, P, R>(
+        &'a mut self,
+        sql: &str,
+        params: P,
+    ) -> Result<(Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, crate::PlanRead), FbError>
+    where
+        P: IntoParams,
+        R: FromRow + 'static,
+    {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.query_iter_with_plan(sql, params),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.query_iter_with_plan(sql, params),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.query_iter_with_plan(sql, params),
         }
     }
 
