@@ -633,6 +633,20 @@ pub fn prepare_statement(
 }
 
 /// Statement information request
+/// Database information request (`op_info_database`): same shape as
+/// `op_info_sql`, against the attachment handle.
+pub fn info_database(db_handle: u32, requested_items: &[u8]) -> Bytes {
+    let mut req = BytesMut::with_capacity(24 + requested_items.len());
+
+    req.put_u32(WireOp::InfoDatabase as u32);
+    req.put_u32(db_handle);
+    req.put_u32(0); // Incarnation of object
+    req.put_wire_bytes(requested_items);
+    req.put_u32(INFO_BUFFER_LENGTH);
+
+    req.freeze()
+}
+
 pub fn info_sql(stmt_handle: u32, requested_items: &[u8]) -> Bytes {
     let mut req = BytesMut::with_capacity(24 + requested_items.len());
 
@@ -1773,6 +1787,23 @@ pub fn parse_info_sql_affected_rows(data: &mut Bytes) -> Result<usize, FbError> 
 mod tests {
     use super::*;
     use rsfbclient_core::charset::UTF_8;
+
+    /// `op_info_database` has `op_info_sql`'s shape: opcode, handle,
+    /// incarnation, the items as a padded wire string, the buffer length.
+    #[test]
+    fn info_database_packet_layout() {
+        let items = [14u8, 104, 1];
+        let b = info_database(7, &items);
+        let mut want = BytesMut::new();
+        want.put_u32(WireOp::InfoDatabase as u32);
+        want.put_u32(7);
+        want.put_u32(0);
+        want.put_u32(3);
+        want.put_slice(&[14, 104, 1, 0]); // padded to 4
+        want.put_u32(INFO_BUFFER_LENGTH);
+        assert_eq!(&b[..], &want[..]);
+        assert_eq!(WireOp::InfoDatabase as u32, 40);
+    }
 
     /// Expected values from the system crypt(3) (`perl -e 'print crypt("masterkey","9z")'`),
     /// an implementation independent of the pwhash crate.

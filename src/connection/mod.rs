@@ -306,6 +306,20 @@ where
     C: FirebirdClientDbEvents,
 {
     /// Wait for an event to be posted on database
+    /// Database information (`isc_database_info`): the raw reply for the
+    /// item tags in `items` (end the list with `isc_info_end`). Decode it
+    /// with `rsfbclient_core::dbinfo`.
+    pub fn database_info(&mut self, items: &[u8]) -> Result<Vec<u8>, FbError> {
+        self.cli.database_info(&mut self.handle, items)
+    }
+
+    /// The header-page and live counters a health check wants, decoded —
+    /// one round trip, no transaction, nothing executed.
+    pub fn db_info(&mut self) -> Result<rsfbclient_core::dbinfo::DbInfo, FbError> {
+        let raw = self.database_info(&rsfbclient_core::dbinfo::health_items())?;
+        Ok(rsfbclient_core::dbinfo::DbInfo::parse(&raw))
+    }
+
     pub fn wait_for_event(&mut self, name: String) -> Result<(), FbError> {
         self.cli.wait_for_event(&mut self.handle, name)?;
 

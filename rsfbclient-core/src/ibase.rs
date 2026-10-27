@@ -2683,3 +2683,76 @@ pub const info_db_provider_isc_info_db_code_interbase: info_db_provider = 3;
 pub const info_db_provider_isc_info_db_code_firebird: info_db_provider = 4;
 pub const info_db_provider_isc_info_db_code_last_value: info_db_provider = 5;
 pub type info_db_provider = u32;
+
+// ── Services API items missing from the generated bindings (4.0+/5.0) ───────
+pub const isc_action_svc_nfix: u32 = 31;
+pub const isc_spb_nbk_guid: u32 = 8;
+pub const isc_spb_nbk_clean_history: u32 = 9;
+pub const isc_spb_nbk_keep_days: u32 = 10;
+pub const isc_spb_nbk_keep_rows: u32 = 11;
+pub const isc_spb_nbk_inplace: u32 = 0x02;
+pub const isc_spb_nbk_sequence: u32 = 0x04;
+pub const isc_spb_prp_replica_mode: u32 = 46;
+pub const isc_spb_prp_rm_none: u32 = 0;
+pub const isc_spb_prp_rm_readonly: u32 = 1;
+pub const isc_spb_prp_rm_readwrite: u32 = 2;
+pub const isc_spb_rpr_par_workers: u32 = 52;
+pub const isc_spb_rpr_upgrade_db: u32 = 0x1000;
+
+// ── Database information items (`isc_database_info` / `op_info_database`) ──
+// The bindings carry them as `db_info_types_*`; these are the plain names.
+pub const isc_info_db_id: u8 = 4;
+pub const isc_info_reads: u8 = 5;
+pub const isc_info_writes: u8 = 6;
+pub const isc_info_fetches: u8 = 7;
+pub const isc_info_marks: u8 = 8;
+pub const isc_info_page_size: u8 = 14;
+pub const isc_info_num_buffers: u8 = 15;
+pub const isc_info_limbo: u8 = 16;
+pub const isc_info_allocation: u8 = 21;
+pub const isc_info_attachment_id: u8 = 22;
+pub const isc_info_read_seq_count: u8 = 23;
+pub const isc_info_read_idx_count: u8 = 24;
+pub const isc_info_insert_count: u8 = 25;
+pub const isc_info_update_count: u8 = 26;
+pub const isc_info_delete_count: u8 = 27;
+pub const isc_info_backout_count: u8 = 28;
+pub const isc_info_purge_count: u8 = 29;
+pub const isc_info_expunge_count: u8 = 30;
+pub const isc_info_sweep_interval: u8 = 31;
+pub const isc_info_ods_version: u8 = 32;
+pub const isc_info_ods_minor_version: u8 = 33;
+pub const isc_info_no_reserve: u8 = 34;
+pub const isc_info_forced_writes: u8 = 52;
+pub const isc_info_user_names: u8 = 53;
+pub const isc_info_page_errors: u8 = 54;
+pub const isc_info_record_errors: u8 = 55;
+pub const isc_info_bpage_errors: u8 = 56;
+pub const isc_info_dpage_errors: u8 = 57;
+pub const isc_info_ipage_errors: u8 = 58;
+pub const isc_info_ppage_errors: u8 = 59;
+pub const isc_info_tpage_errors: u8 = 60;
+pub const isc_info_set_page_buffers: u8 = 61;
+pub const isc_info_db_sql_dialect: u8 = 62;
+pub const isc_info_db_read_only: u8 = 63;
+pub const isc_info_db_size_in_pages: u8 = 64;
+pub const isc_info_firebird_version: u8 = 103;
+pub const isc_info_oldest_transaction: u8 = 104;
+pub const isc_info_oldest_active: u8 = 105;
+pub const isc_info_oldest_snapshot: u8 = 106;
+pub const isc_info_next_transaction: u8 = 107;
+pub const isc_info_active_transactions: u8 = 109;
+pub const isc_info_active_tran_count: u8 = 110;
+pub const isc_info_creation_date: u8 = 111;
+pub const isc_info_db_file_size: u8 = 112;
+pub const fb_info_pages_used: u8 = 124;
+pub const fb_info_pages_free: u8 = 125;
+/// 4.0+: 0x01 encrypted, 0x02 crypt process running. (3.0 numbered the
+/// item 126; ask MON$DATABASE there.)
+pub const fb_info_crypt_state_v4: u8 = 134;
+pub const fb_info_next_attachment: u8 = 142;
+pub const fb_info_next_statement: u8 = 143;
+pub const fb_info_db_guid: u8 = 144;
+pub const fb_info_db_file_id: u8 = 145;
+pub const fb_info_replica_mode: u8 = 146;
+pub const fb_info_parallel_workers: u8 = 149;

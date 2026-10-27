@@ -7,6 +7,7 @@ pub mod date_time;
 pub(crate) mod error;
 pub mod ibase;
 pub mod services;
+pub mod dbinfo;
 mod params;
 mod plan;
 mod row;

@@ -46,6 +46,11 @@ pub trait FirebirdClientDbOps: Send {
     /// Drop the database
     fn drop_database(&mut self, db_handle: &mut Self::DbHandle) -> Result<(), FbError>;
 
+    /// Database information (`isc_database_info`): `items` is the list of
+    /// item tags to ask for, ending in `isc_info_end`; the answer is the raw
+    /// reply stream (see `crate::dbinfo`).
+    fn database_info(&mut self, db_handle: &mut Self::DbHandle, items: &[u8]) -> Result<Vec<u8>, FbError>;
+
     /// Create the database and attach
     /// Returns a database handle on success
     fn create_database(

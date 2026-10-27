@@ -355,6 +355,26 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
         Ok(())
     }
 
+    fn database_info(&mut self, db_handle: &mut NativeDbHandle, items: &[u8]) -> Result<Vec<u8>, FbError> {
+        // isc_database_info takes 16-bit lengths: the buffer is as large as
+        // that allows, the reply ends with isc_info_end or isc_info_truncated.
+        let mut buffer = vec![0u8; i16::MAX as usize];
+        let code = unsafe {
+            self.ibase.isc_database_info()(
+                &mut self.status[0],
+                db_handle,
+                items.len() as i16,
+                items.as_ptr().cast(),
+                buffer.len() as i16,
+                buffer.as_mut_ptr().cast(),
+            )
+        };
+        if code != 0 {
+            return Err(self.status.as_error(&self.ibase));
+        }
+        Ok(buffer)
+    }
+
     fn drop_database(&mut self, db_handle: &mut NativeDbHandle) -> Result<(), FbError> {
         unsafe {
             if self.ibase.isc_drop_database()(&mut self.status[0], db_handle) != 0 {

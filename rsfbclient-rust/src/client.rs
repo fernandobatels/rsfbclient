@@ -258,6 +258,13 @@ impl FirebirdClientDbOps for RustFbClient {
             .unwrap_or_else(err_client_not_connected)
     }
 
+    fn database_info(&mut self, db_handle: &mut RustDbHandle, items: &[u8]) -> Result<Vec<u8>, FbError> {
+        self.conn
+            .as_mut()
+            .map(|conn| conn.database_info(db_handle, items).map(|b| b.to_vec()))
+            .unwrap_or_else(err_client_not_connected)
+    }
+
     fn create_database(
         &mut self,
         config: &Self::AttachmentConfig,
@@ -763,6 +770,17 @@ impl FirebirdWireConnection {
         self.read_response()?;
 
         Ok(())
+    }
+
+    /// Database information (`op_info_database`): the raw reply stream for
+    /// `items` (see `rsfbclient_core::dbinfo`).
+    pub fn database_info(&mut self, db_handle: &mut DbHandle, items: &[u8]) -> Result<Bytes, FbError> {
+        self.socket.write_all(&info_database(db_handle.0, items))?;
+        self.socket.flush()?;
+
+        let resp = self.read_response()?;
+
+        Ok(resp.data)
     }
 
     /// Attach to the service manager of the connected server. The connection
