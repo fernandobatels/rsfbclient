@@ -36,6 +36,14 @@ pub struct SvcRestoreOptions {
     /// Page size of the restored database (`gbak -p`); `None` keeps
     /// the page size recorded in the backup
     pub page_size: Option<u32>,
+    /// Restore every index inactive (`gbak -i`): a salvage restore whose
+    /// unique / foreign keys would otherwise fail on damaged data.
+    pub deactivate_indexes: bool,
+    /// Do not recreate shadow files (`gbak -k`).
+    pub no_shadow: bool,
+    /// Commit after each table (`gbak -o`): one table that cannot be
+    /// restored no longer loses the others.
+    pub one_at_a_time: bool,
 }
 
 /// Version-2 attach SPB with legacy credentials: version tags, then the
@@ -78,6 +86,12 @@ pub fn push_u32_arg(req: &mut Vec<u8>, tag: u8, value: u32) {
 /// The start request for a verbose backup of `db_name` (a SERVER path or
 /// alias) into `backup_file` (a SERVER path).
 pub fn backup_request(db_name: &str, backup_file: &str, options: SvcBackupOptions) -> Vec<u8> {
+    backup_request_skipping(db_name, backup_file, options, None)
+}
+
+/// `backup_request` that leaves out the data of the tables whose names
+/// match `skip_data` (a SIMILAR TO pattern; `gbak -skip_data`, 3.0+).
+pub fn backup_request_skipping(db_name: &str, backup_file: &str, options: SvcBackupOptions, skip_data: Option<&str>) -> Vec<u8> {
     let mut flags = 0u32;
     if options.metadata_only {
         flags |= ibase::isc_spb_bkp_metadata_only;
@@ -95,6 +109,9 @@ pub fn backup_request(db_name: &str, backup_file: &str, options: SvcBackupOption
     let mut req = vec![ibase::isc_action_svc_backup as u8];
     push_string_arg(&mut req, ibase::isc_spb_dbname as u8, db_name);
     push_string_arg(&mut req, ibase::isc_spb_bkp_file as u8, backup_file);
+    if let Some(pattern) = skip_data.map(str::trim).filter(|p| !p.is_empty()) {
+        push_string_arg(&mut req, ibase::isc_spb_bkp_skip_data as u8, pattern);
+    }
     push_u32_arg(&mut req, ibase::isc_spb_options as u8, flags);
     req.push(ibase::isc_spb_verbose as u8);
     req
@@ -103,11 +120,20 @@ pub fn backup_request(db_name: &str, backup_file: &str, options: SvcBackupOption
 /// The start request for a verbose restore of `backup_file` (a SERVER
 /// path) into `db_name` (a SERVER path).
 pub fn restore_request(backup_file: &str, db_name: &str, options: SvcRestoreOptions) -> Vec<u8> {
-    let flags = if options.replace {
+    let mut flags = if options.replace {
         ibase::isc_spb_res_replace
     } else {
         ibase::isc_spb_res_create
     };
+    if options.deactivate_indexes {
+        flags |= ibase::isc_spb_res_deactivate_idx;
+    }
+    if options.no_shadow {
+        flags |= ibase::isc_spb_res_no_shadow;
+    }
+    if options.one_at_a_time {
+        flags |= ibase::isc_spb_res_one_at_a_time;
+    }
 
     let mut req = vec![ibase::isc_action_svc_restore as u8];
     push_string_arg(&mut req, ibase::isc_spb_bkp_file as u8, backup_file);
@@ -1096,11 +1122,27 @@ mod tests {
             SvcRestoreOptions {
                 replace: true,
                 page_size: Some(16384),
+                ..Default::default()
             },
         );
         assert_eq!(&replace[opts_at..opts_at + 5], &[108, 0, 0x10, 0, 0]); // isc_spb_res_replace = 0x1000
         assert_eq!(&replace[opts_at + 5..opts_at + 10], &[10, 0, 0x40, 0, 0]); // page size 16384
         assert_eq!(replace[opts_at + 10], 107);
+    }
+
+    #[test]
+    fn salvage_restore_flags_and_skip_data() {
+        let req = restore_request("/d/a.fbk", "/d/b.fdb", SvcRestoreOptions { deactivate_indexes: true, no_shadow: true, one_at_a_time: true, ..Default::default() });
+        let opts_at = 1 + 3 + 8 + 3 + 8;
+        // create 0x2000 | deactivate_idx 0x100 | no_shadow 0x200 | one_at_a_time 0x800
+        assert_eq!(&req[opts_at..opts_at + 5], &[108, 0x00, 0x2B, 0, 0]);
+
+        let plain = backup_request("/d/a.fdb", "/d/a.fbk", SvcBackupOptions::default());
+        let skip = backup_request_skipping("/d/a.fdb", "/d/a.fbk", SvcBackupOptions { ignore_checksums: true, ignore_limbo: true, ..Default::default() }, Some("LOG%"));
+        let at = 1 + 3 + 8 + 3 + 8;
+        assert_eq!(&skip[at..at + 6], &[8, 4, 0, b'L', b'O', b'G']); // isc_spb_bkp_skip_data, then "LOG%"
+        assert_eq!(skip.len(), plain.len() + 3 + 4);
+        assert_eq!(backup_request_skipping("/d/a.fdb", "/d/a.fbk", SvcBackupOptions::default(), Some("  ")), plain);
     }
 
     #[test]
