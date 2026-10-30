@@ -49,7 +49,21 @@ pub trait FirebirdClientDbOps: Send {
     /// Database information (`isc_database_info`): `items` is the list of
     /// item tags to ask for, ending in `isc_info_end`; the answer is the raw
     /// reply stream (see `crate::dbinfo`).
-    fn database_info(&mut self, db_handle: &mut Self::DbHandle, items: &[u8]) -> Result<Vec<u8>, FbError>;
+    fn database_info(
+        &mut self,
+        db_handle: &mut Self::DbHandle,
+        items: &[u8],
+    ) -> Result<Vec<u8>, FbError>;
+
+    /// Bound every socket read and write of the attachment by `timeout`
+    /// (`None`: wait as long as it takes, the default). A read or write that
+    /// runs out fails with an io error and leaves the attachment unusable: it
+    /// is for asking whether the server is still there, then dropping it if
+    /// not. False when the client can't (the native one: fbclient owns its
+    /// socket).
+    fn set_io_timeout(&mut self, _timeout: Option<std::time::Duration>) -> Result<bool, FbError> {
+        Ok(false)
+    }
 
     /// Create the database and attach
     /// Returns a database handle on success

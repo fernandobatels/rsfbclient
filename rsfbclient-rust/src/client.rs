@@ -5,7 +5,8 @@ use std::{
     collections::VecDeque,
     env,
     io::{Read, Write},
-    net::{SocketAddr, TcpStream},
+    net::{SocketAddr, TcpStream, ToSocketAddrs},
+    time::Duration,
 };
 
 use crate::{
@@ -258,7 +259,23 @@ impl FirebirdClientDbOps for RustFbClient {
             .unwrap_or_else(err_client_not_connected)
     }
 
-    fn database_info(&mut self, db_handle: &mut RustDbHandle, items: &[u8]) -> Result<Vec<u8>, FbError> {
+    fn set_io_timeout(&mut self, timeout: Option<Duration>) -> Result<bool, FbError> {
+        match self.conn.as_ref() {
+            Some(conn) => {
+                let tcp = conn.socket.tcp();
+                tcp.set_read_timeout(timeout)?;
+                tcp.set_write_timeout(timeout)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    fn database_info(
+        &mut self,
+        db_handle: &mut RustDbHandle,
+        items: &[u8],
+    ) -> Result<Vec<u8>, FbError> {
         self.conn
             .as_mut()
             .map(|conn| conn.database_info(db_handle, items).map(|b| b.to_vec()))
@@ -493,7 +510,7 @@ impl FirebirdWireConnection {
         pass: &str,
         charset: Charset,
     ) -> Result<Self, FbError> {
-        let socket = TcpStream::connect((host, port))?;
+        let socket = connect_tcp(host, port)?;
         // The wire protocol is request/response with small writes, so Nagle has
         // nothing to coalesce and every statement waits out a delayed ACK
         // (~40ms). Measured against Firebird 2.5: SELECT 1 FROM RDB$DATABASE
@@ -774,7 +791,11 @@ impl FirebirdWireConnection {
 
     /// Database information (`op_info_database`): the raw reply stream for
     /// `items` (see `rsfbclient_core::dbinfo`).
-    pub fn database_info(&mut self, db_handle: &mut DbHandle, items: &[u8]) -> Result<Bytes, FbError> {
+    pub fn database_info(
+        &mut self,
+        db_handle: &mut DbHandle,
+        items: &[u8],
+    ) -> Result<Bytes, FbError> {
         self.socket.write_all(&info_database(db_handle.0, items))?;
         self.socket.flush()?;
 
@@ -2244,6 +2265,54 @@ impl FbStream {
             FbStream::Arc4(s) => s.peer_addr(),
         }
     }
+
+    fn tcp(&self) -> &TcpStream {
+        match self {
+            FbStream::Plain(s) => s,
+            FbStream::Arc4(s) => s.get_ref(),
+        }
+    }
+}
+
+/// How long opening the socket may take before the server counts as
+/// unreachable. The system's own limit is a minute or more.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Open the socket to `host:port`, trying each address it resolves to, each
+/// bounded by [`CONNECT_TIMEOUT`], with keep alive tuned (see [`keep_alive`]).
+fn connect_tcp(host: &str, port: u16) -> Result<TcpStream, FbError> {
+    let mut last = None;
+    for addr in (host, port).to_socket_addrs()? {
+        match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
+            Ok(socket) => {
+                keep_alive(&socket);
+                return Ok(socket);
+            }
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last
+        .unwrap_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("{host} resolves to no address"),
+            )
+        })
+        .into())
+}
+
+/// Probe an idle connection after 30 s, every 10 s, three times: a server
+/// that vanished without closing the socket (a dropped VPN, a NAT entry that
+/// expired, a host that went to sleep) is noticed within about a minute while
+/// waiting on a long query, instead of after the system's two hours. A live
+/// server answers the probes from its TCP stack, so a long query is not cut.
+/// Best effort, like firebird's own `setKeepAlive`.
+fn keep_alive(socket: &TcpStream) {
+    let ka = socket2::TcpKeepalive::new()
+        .with_time(Duration::from_secs(30))
+        .with_interval(Duration::from_secs(10))
+        .with_retries(3);
+    let _ = socket2::SockRef::from(socket).set_tcp_keepalive(&ka);
 }
 
 impl Read for FbStream {
@@ -2926,4 +2995,66 @@ fn connection_test() {
     }
 
     std::thread::sleep(std::time::Duration::from_millis(100));
+}
+
+#[cfg(test)]
+mod io_timeout_tests {
+    use super::*;
+    use std::net::TcpListener;
+    use std::time::Instant;
+
+    /// A server that accepts and then never says a word: what a vanished host
+    /// looks like from the client until TCP gives up.
+    fn silent_server() -> (SocketAddr, std::sync::mpsc::Sender<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (hold, release) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            let _ = release.recv();
+        });
+        (addr, hold)
+    }
+
+    #[test]
+    fn a_bounded_read_on_a_silent_server_fails_in_time() {
+        let (addr, _hold) = silent_server();
+        let socket = connect_tcp(&addr.ip().to_string(), addr.port()).unwrap();
+        let mut cli = RustFbClient {
+            conn: Some(FirebirdWireConnection::test_over_socket(
+                socket,
+                ProtocolVersion::V13,
+            )),
+            charset: rsfbclient_core::charset::UTF_8,
+        };
+        assert!(cli
+            .set_io_timeout(Some(Duration::from_millis(200)))
+            .unwrap());
+        let t = Instant::now();
+        let r = cli.database_info(&mut DbHandle(0), &[1]);
+        assert!(r.is_err(), "a silent server can't answer");
+        assert!(
+            t.elapsed() < Duration::from_secs(5),
+            "took {:?}",
+            t.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_client_without_a_connection_says_it_cannot() {
+        let mut cli = RustFbClient {
+            conn: None,
+            charset: rsfbclient_core::charset::UTF_8,
+        };
+        assert!(!cli.set_io_timeout(Some(Duration::from_secs(1))).unwrap());
+    }
+
+    #[test]
+    fn connecting_to_a_closed_port_fails_instead_of_hanging() {
+        let port = {
+            let l = TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        assert!(connect_tcp("127.0.0.1", port).is_err());
+    }
 }

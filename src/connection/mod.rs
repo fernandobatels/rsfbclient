@@ -327,6 +327,14 @@ where
     }
 }
 
+impl<C: FirebirdClient> Connection<C> {
+    /// Bound every socket read and write of this connection (see
+    /// `FirebirdClientDbOps::set_io_timeout`). False when the client can't.
+    pub fn set_io_timeout(&mut self, timeout: Option<std::time::Duration>) -> Result<bool, FbError> {
+        self.cli.set_io_timeout(timeout)
+    }
+}
+
 impl<C: FirebirdClient> Drop for Connection<C> {
     fn drop(&mut self) {
         // Ignore the possible error value
