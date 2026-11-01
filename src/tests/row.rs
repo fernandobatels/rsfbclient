@@ -11,6 +11,18 @@ mk_tests_default! {
     use std::str;
     use rand::{distributions::Standard, Rng};
 
+    #[test]
+    fn long_sql_is_never_truncated_to_a_u16_length() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+        if conn.server_engine()? <= EngineVersion::V2 { return Ok(()); }
+        for padding in [65535, 65536, 200000] {
+            let sql = format!("{}SELECT 42 FROM RDB$DATABASE", " ".repeat(padding));
+            assert_eq!(conn.query_first::<_, (i32,)>(&sql, ())?, Some((42,)));
+            conn.with_transaction(|tr| tr.execute_immediate(&format!("{}EXECUTE BLOCK AS BEGIN END", " ".repeat(padding))))?;
+        }
+        Ok(())
+    }
+
     // Batch-fetch regression (FB_FETCH_BATCH in the pure_rust backend): fetch
     // more rows than one batch to CROSS batch boundaries. Validates count AND
     // order — order catches any framing drift between op_fetch responses

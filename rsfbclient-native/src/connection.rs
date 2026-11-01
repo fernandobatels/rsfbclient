@@ -13,6 +13,76 @@ use std::ffi::CString;
 use std::os::raw::c_char;
 use std::{convert::TryFrom, io::Cursor, ptr, str};
 
+/// Legacy DSQL uses a 16-bit length; zero selects a NUL-terminated string.
+/// Keep explicit lengths for ordinary SQL and never truncate a larger source.
+struct SqlInput<'a> {
+    bytes: std::borrow::Cow<'a, [u8]>,
+    length: u16,
+}
+impl<'a> SqlInput<'a> {
+    fn new(bytes: std::borrow::Cow<'a, [u8]>) -> Result<Self, FbError> {
+        if bytes.is_empty() {
+            return Ok(Self {
+                bytes: std::borrow::Cow::Owned(vec![0]),
+                length: 0,
+            });
+        }
+        if let Ok(length) = u16::try_from(bytes.len()) {
+            return Ok(Self { bytes, length });
+        }
+        if bytes.contains(&0) {
+            return Err("SQL larger than 65535 encoded bytes cannot contain an embedded NUL; use a parameter for that value".into());
+        }
+        let mut terminated = bytes.into_owned();
+        terminated.push(0);
+        Ok(Self {
+            bytes: std::borrow::Cow::Owned(terminated),
+            length: 0,
+        })
+    }
+}
+
+#[cfg(test)]
+mod sql_input_tests {
+    use super::*;
+    #[test]
+    fn short_and_boundary_sources_keep_explicit_lengths() {
+        for n in [1, 65534, 65535] {
+            let bytes = vec![b' '; n];
+            let input = SqlInput::new(std::borrow::Cow::Borrowed(&bytes)).unwrap();
+            assert_eq!(input.length as usize, n);
+            assert_eq!(input.bytes.len(), n);
+        }
+    }
+    #[test]
+    fn long_sources_use_complete_terminated_buffers() {
+        for n in [65536, 72031, 200000] {
+            let bytes = vec![b' '; n];
+            let input = SqlInput::new(bytes.clone().into()).unwrap();
+            assert_eq!(input.length, 0);
+            assert_eq!(&input.bytes[..n], &bytes);
+            assert_eq!(input.bytes[n], 0);
+        }
+    }
+    #[test]
+    fn long_embedded_nul_is_refused_without_sending_a_prefix() {
+        let mut bytes = vec![b' '; 72000];
+        bytes[69000] = 0;
+        assert!(SqlInput::new(bytes.into()).is_err());
+    }
+    #[test]
+    fn empty_source_has_a_terminated_buffer() {
+        let input = SqlInput::new(Vec::new().into()).unwrap();
+        assert_eq!(input.length, 0);
+        assert_eq!(input.bytes.as_ref(), &[0]);
+    }
+    #[test]
+    fn short_embedded_nul_keeps_the_explicit_count() {
+        let input = SqlInput::new(vec![39, 0, 39].into()).unwrap();
+        assert_eq!(input.length, 3);
+    }
+}
+
 type NativeDbHandle = ibase::isc_db_handle;
 type NativeTrHandle = ibase::isc_tr_handle;
 type NativeStmtHandle = ibase::isc_stmt_handle;
@@ -291,15 +361,15 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         dialect: Dialect,
         sql: &str,
     ) -> Result<(), FbError> {
-        let sql = self.charset.encode(sql)?;
+        let sql = SqlInput::new(self.charset.encode(sql)?)?;
 
         unsafe {
             if self.ibase.isc_dsql_execute_immediate()(
                 &mut self.status[0],
                 db_handle,
                 tr_handle,
-                sql.len() as u16,
-                sql.as_ptr() as *const _,
+                sql.length,
+                sql.bytes.as_ptr() as *const _,
                 dialect as u16,
                 ptr::null(),
             ) != 0
@@ -317,7 +387,7 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         dialect: Dialect,
         sql: &str,
     ) -> Result<(StmtType, Self::StmtHandle), FbError> {
-        let sql = self.charset.encode(sql)?;
+        let sql = SqlInput::new(self.charset.encode(sql)?)?;
 
         let mut handle = 0;
 
@@ -336,8 +406,8 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
                 &mut self.status[0],
                 tr_handle,
                 &mut handle,
-                sql.len() as u16,
-                sql.as_ptr() as *const _,
+                sql.length,
+                sql.bytes.as_ptr() as *const _,
                 dialect as u16,
                 &mut *xsqlda,
             ) != 0
