@@ -1057,7 +1057,8 @@ impl RowSink for ParsedColumnSink<'_> {
     }
 
     fn blob(&mut self, var: &XSqlVar, sqltype: u32, id: BlobId) -> Result<(), FbError> {
-        let binary = var.sqlsubtype == 0;
+        // Negative subtypes are user-defined binary BLOBs, including inline data.
+        let binary = var.sqlsubtype <= 0;
 
         // Inlined by the server: complete right here, zero extra round trips.
         if let Some(inlined) = self.inline.iter().find(|b| b.id == id.0) {
@@ -1988,6 +1989,72 @@ mod page_size_tests {
             assert_eq!(dpb[1], ibase::isc_dpb_page_size as u8);
             assert_eq!(dpb[2], 4);
             assert_eq!(&dpb[3..7], &size.to_le_bytes());
+        }
+    }
+}
+
+#[cfg(test)]
+mod custom_blob_tests {
+    use super::*;
+    #[test]
+    fn custom_negative_blob_subtypes_are_binary() {
+        for subtype in [i16::MIN, -1, 0, 1] {
+            let column = XSqlVar {
+                sqltype: ibase::SQL_BLOB as i16,
+                sqlsubtype: subtype,
+                ..Default::default()
+            };
+            let mut packet = BytesMut::new();
+            packet.put_u32(1); // one output message
+            packet.put_u32(0); // protocol 13 null bitmap
+            packet.put_u64(42); // BLOB id
+            let columns = parse_sql_response(
+                &mut packet.freeze(),
+                &[column],
+                ProtocolVersion::V13,
+                &rsfbclient_core::charset::UTF_8,
+                &[],
+            )
+            .unwrap();
+            assert!(
+                matches!(&columns[0], ParsedColumn::Blob { binary, .. }
+                if *binary == (subtype <= 0)),
+                "subtype {subtype}"
+            );
+            // Protocol 19 may send BLOB data inline instead of returning a handle.
+            let data = if subtype <= 0 {
+                &b"\0\xff\x80"[..]
+            } else {
+                &b"text"[..]
+            };
+            let inline = [InlineBlob {
+                id: 42,
+                data: Bytes::copy_from_slice(data),
+            }];
+            let mut packet = BytesMut::new();
+            packet.put_u32(1);
+            packet.put_u32(0);
+            packet.put_u64(42);
+            let columns = parse_sql_response(
+                &mut packet.freeze(),
+                &[XSqlVar {
+                    sqltype: ibase::SQL_BLOB as i16,
+                    sqlsubtype: subtype,
+                    ..Default::default()
+                }],
+                ProtocolVersion::V19,
+                &rsfbclient_core::charset::UTF_8,
+                &inline,
+            )
+            .unwrap();
+            match &columns[0] {
+                ParsedColumn::Complete(column) => match &column.value {
+                    SqlType::Binary(value) if subtype <= 0 => assert_eq!(value, data),
+                    SqlType::Text(value) if subtype == 1 => assert_eq!(value.as_bytes(), data),
+                    value => panic!("subtype {subtype}: {value:?}"),
+                },
+                _ => panic!("inline BLOB was not resolved"),
+            }
         }
     }
 }
