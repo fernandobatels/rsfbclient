@@ -104,6 +104,26 @@ mk_tests_default! {
     }
 
     #[test]
+    fn native_error_messages_keep_the_complete_utf8_text() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+        let message = format!("{}-END", "Ж".repeat(300));
+        // Firebird 2.5 truncates its PSQL stack server-side at 1 KiB.
+        // Newer engines must still exercise fb_interpret buffer growth past 1 KiB.
+        let depth = if conn.server_engine()? <= EngineVersion::V2 { 8 } else { 30 };
+        conn.with_transaction(|tr| {
+            tr.execute_immediate("CREATE EXCEPTION LONG_MESSAGE_TEST 'test'")?;
+            let error = tr.execute_immediate(&format!("EXECUTE BLOCK AS BEGIN EXCEPTION LONG_MESSAGE_TEST '{message}'; END")).unwrap_err();
+            assert!(error.to_string().contains(&message), "{error}");
+            tr.execute_immediate("CREATE PROCEDURE NATIVE_LONG_STACK_TEST (N INTEGER) AS BEGIN IF (N = 0) THEN EXCEPTION LONG_MESSAGE_TEST; ELSE EXECUTE PROCEDURE NATIVE_LONG_STACK_TEST (N - 1); END")?;
+            let error = tr.execute_immediate(&format!("EXECUTE PROCEDURE NATIVE_LONG_STACK_TEST({depth})")).unwrap_err().to_string();
+            assert!(error.matches("NATIVE_LONG_STACK_TEST").count() == depth + 1, "{error}");
+            tr.execute_immediate("DROP PROCEDURE NATIVE_LONG_STACK_TEST")?;
+            tr.execute_immediate("DROP EXCEPTION LONG_MESSAGE_TEST")?;
+            Ok(())
+        })
+    }
+
+    #[test]
     fn execute_procedure() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
