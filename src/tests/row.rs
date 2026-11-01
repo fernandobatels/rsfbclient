@@ -12,6 +12,18 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
+    fn complete_column_aliases() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+        if conn.server_engine()? < EngineVersion::V4 { return Ok(()); }
+        for alias in ["a".repeat(31), "a".repeat(63), "Ж".repeat(63), format!("{}Ж", "a".repeat(30))] {
+            let row: Row = conn.query_first(&format!("SELECT 1 AS \"{alias}\", 2 AS \"{alias}\" FROM RDB$DATABASE"), ())?.unwrap();
+            assert_eq!(row.cols.len(), 2);
+            for column in row.cols { assert_eq!(&*column.name, alias); }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn execute2_without_output_keeps_the_connection_synchronized() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
         let row: Row = conn.execute_returnable("EXECUTE BLOCK AS BEGIN END", ())?;
