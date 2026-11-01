@@ -12,6 +12,17 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
+    fn execute2_without_output_keeps_the_connection_synchronized() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+        let row: Row = conn.execute_returnable("EXECUTE BLOCK AS BEGIN END", ())?;
+        assert!(row.cols.is_empty());
+        let failure = conn.execute_returnable::<_, Row>("EXECUTE BLOCK RETURNS (N INT) AS BEGIN N=1/0; END", ());
+        assert!(matches!(failure, Err(FbError::Sql { .. })));
+        assert_eq!(conn.query_first::<_, (i32,)>("SELECT 42 FROM RDB$DATABASE", ())?, Some((42,)));
+        Ok(())
+    }
+
+    #[test]
     fn long_sql_is_never_truncated_to_a_u16_length() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
         if conn.server_engine()? <= EngineVersion::V2 { return Ok(()); }

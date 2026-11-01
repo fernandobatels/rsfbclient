@@ -1104,35 +1104,7 @@ impl FirebirdWireConnection {
             &mut self.buff,
             &mut self.pending,
             &mut self.lazy_count,
-            |resp, lazy_count| {
-                // Protocol 19+: the server may inline the row's blobs first.
-                // Collected per attempt — `read_with` may re-run this closure
-                // from the start of the buffer when the response is incomplete.
-                let mut inline = Vec::new();
-                let op_code = skip_lazy_responses(resp, lazy_count)?;
-                let op_code = read_inline_blobs(resp, op_code, &mut inline)?;
-
-                if op_code == WireOp::Response as u32 {
-                    // An error ocurred
-                    parse_response(resp)?;
-                }
-
-                if op_code != WireOp::SqlResponse as u32 {
-                    return err_conn_rejected(op_code);
-                }
-
-                let parsed_cols = parse_sql_response(resp, xsqlda, version, &charset, &inline)?;
-
-                // The sql response is followed by its own op_response, framed with
-                // its own op_code just like every other response on the wire.
-                let op_code = next_op_code(resp)?;
-                if op_code != WireOp::Response as u32 {
-                    return err_conn_rejected(op_code);
-                }
-                parse_response(resp)?;
-
-                Ok(parsed_cols)
-            },
+            |resp, lazy_count| parse_execute2_response(resp, lazy_count, xsqlda, version, &charset),
         )?;
 
         // Only now, with the response above fully consumed, is it safe to run the
@@ -1721,6 +1693,41 @@ fn read_with<T>(
     }
 }
 
+fn parse_execute2_response(
+    resp: &mut Bytes,
+    lazy_count: &mut u32,
+    xsqlda: &[XSqlVar],
+    version: ProtocolVersion,
+    charset: &Charset,
+) -> Result<Vec<ParsedColumn>, FbError> {
+    // Collected per attempt: read_with retries from the start on incomplete data.
+    let mut inline = Vec::new();
+    let op_code = skip_lazy_responses(resp, lazy_count)?;
+    let op_code = read_inline_blobs(resp, op_code, &mut inline)?;
+    if op_code == WireOp::Response as u32 {
+        parse_response(resp)?;
+    }
+    if op_code != WireOp::SqlResponse as u32 {
+        return err_conn_rejected(op_code);
+    }
+    // op_execute2 sends zero output messages on failure (and for a void
+    // procedure). Its following op_response owns the actual SQL status.
+    let mut header = resp.clone();
+    let parsed_cols = if header.get_u32()? == 0 {
+        *resp = header;
+        Vec::new()
+    } else {
+        parse_sql_response(resp, xsqlda, version, charset, &inline)?
+    };
+    // SQL output is followed by a complete op_response, including its opcode.
+    let final_op = next_op_code(resp)?;
+    if final_op != WireOp::Response as u32 {
+        return err_conn_rejected(final_op);
+    }
+    parse_response(resp)?;
+    Ok(parsed_cols)
+}
+
 /// Reads the next op code, skipping `op_dummy` keepalives.
 fn next_op_code(resp: &mut Bytes) -> Result<u32, FbError> {
     loop {
@@ -2098,6 +2105,196 @@ mod read_tests {
 
         let resp = read_response(&mut socket, &mut buff, &mut pending, &mut 0);
         (resp, pending)
+    }
+
+    #[test]
+    fn execute2_zero_output_consumes_server_error_and_preserves_next_packet() {
+        check_zero_output_response(true);
+    }
+
+    #[test]
+    fn execute2_zero_output_success_preserves_next_packet() {
+        check_zero_output_response(false);
+    }
+
+    fn check_zero_output_response(failed: bool) {
+        let mut packet = BytesMut::new();
+        packet.put_u32(WireOp::SqlResponse as u32);
+        packet.put_u32(0);
+        let mut response = op_response(0);
+        if failed {
+            response.truncate(response.len() - 4);
+            let mut status = BytesMut::new();
+            status.put_u32(ibase::isc_arg_gds);
+            status.put_u32(335544321);
+            status.put_u32(ibase::isc_arg_sql_state);
+            status.put_wire_bytes(b"22012");
+            status.put_u32(ibase::isc_arg_end);
+            response.extend_from_slice(&status);
+        }
+        packet.extend_from_slice(&response);
+        packet.extend_from_slice(&op_response(123));
+        let packet = packet.to_vec();
+        for chunk in [1, 2, 3, 7, packet.len()] {
+            let mut socket = Chunked {
+                data: packet.clone(),
+                pos: 0,
+                chunk,
+            };
+            let mut buffer = [0u8; 2048];
+            let mut pending = Bytes::new();
+            let mut lazy = 0;
+            let result = read_with(
+                &mut socket,
+                &mut buffer,
+                &mut pending,
+                &mut lazy,
+                |bytes, lazy| {
+                    parse_execute2_response(bytes, lazy, &[], ProtocolVersion::V13, &UTF_8)
+                },
+            );
+            if failed {
+                let error = match result {
+                    Err(ref error) => error.to_string(),
+                    Ok(_) => panic!("Expected native SQL error"),
+                };
+                assert!(
+                    matches!(&result, Err(FbError::Sql { .. })),
+                    "chunk {chunk}: {error}"
+                );
+            } else {
+                assert!(result
+                    .unwrap_or_else(|error| panic!("chunk {chunk}: {error}"))
+                    .is_empty());
+            }
+            let next = read_response(&mut socket, &mut buffer, &mut pending, &mut lazy).unwrap();
+            assert_eq!(next.handle, 123, "chunk {chunk}");
+            assert!(pending.is_empty());
+        }
+    }
+
+    #[test]
+    fn execute2_consumes_its_final_response_and_preserves_the_next_packet() {
+        let columns = [XSqlVar {
+            sqltype: ibase::SQL_INT64 as i16,
+
+            data_length: 8,
+            alias_name: "V".into(),
+            ..Default::default()
+        }];
+        let mut packet = BytesMut::new();
+        packet.put_u32(WireOp::SqlResponse as u32);
+        packet.put_u32(1);
+        packet.put_u32(0);
+        packet.put_i64(21);
+        packet.extend_from_slice(&op_response(0));
+        packet.extend_from_slice(&op_response(123));
+        let packet = packet.to_vec();
+        for chunk in [1, 3, 7, packet.len()] {
+            let mut socket = Chunked {
+                data: packet.clone(),
+                pos: 0,
+                chunk,
+            };
+            let mut buffer = [0u8; 2048];
+            let mut pending = Bytes::new();
+            let mut lazy = 0;
+            let parsed = read_with(
+                &mut socket,
+                &mut buffer,
+                &mut pending,
+                &mut lazy,
+                |bytes, lazy| {
+                    parse_execute2_response(bytes, lazy, &columns, ProtocolVersion::V13, &UTF_8)
+                },
+            )
+            .unwrap();
+            assert!(
+                matches!(&parsed[0],ParsedColumn::Complete(column) if matches!(&column.value,SqlType::Integer(21)))
+            );
+            let response = read_response(&mut socket, &mut buffer, &mut pending, &mut lazy)
+                .unwrap_or_else(|error| panic!("chunk {chunk}: {error}"));
+            assert_eq!(response.handle, 123);
+            assert!(pending.is_empty());
+        }
+    }
+    #[test]
+    fn execute2_preserves_protocol19_inline_blobs_across_fragmented_reads() {
+        let columns = [XSqlVar {
+            sqltype: ibase::SQL_BLOB as i16,
+            sqlsubtype: 1,
+            alias_name: "B".into(),
+            ..Default::default()
+        }];
+        let mut packet = BytesMut::new();
+        packet.put_u32(WireOp::InlineBlob as u32);
+        packet.put_u32(1);
+        packet.put_u64(42);
+        packet.put_wire_bytes(&[]);
+        packet.put_wire_bytes(b"\x04\0memo");
+        packet.put_u32(WireOp::SqlResponse as u32);
+        packet.put_u32(1);
+        packet.put_u32(0);
+        packet.put_u64(42);
+        packet.extend_from_slice(&op_response(0));
+        packet.extend_from_slice(&op_response(123));
+        let packet = packet.to_vec();
+        for chunk in [1, 3, 7, packet.len()] {
+            let mut socket = Chunked {
+                data: packet.clone(),
+                pos: 0,
+                chunk,
+            };
+            let mut buffer = [0u8; 2048];
+            let mut pending = Bytes::new();
+            let mut lazy = 0;
+            let parsed = read_with(
+                &mut socket,
+                &mut buffer,
+                &mut pending,
+                &mut lazy,
+                |bytes, lazy| {
+                    parse_execute2_response(bytes, lazy, &columns, ProtocolVersion::V19, &UTF_8)
+                },
+            )
+            .unwrap();
+            assert!(matches!(&parsed[0], ParsedColumn::Complete(column)
+                if matches!(&column.value, SqlType::Text(value) if value == "memo")));
+            assert_eq!(
+                read_response(&mut socket, &mut buffer, &mut pending, &mut lazy)
+                    .unwrap()
+                    .handle,
+                123
+            );
+            assert!(pending.is_empty());
+        }
+    }
+
+    #[test]
+    fn execute2_rejects_an_unexpected_final_packet() {
+        let columns = [XSqlVar {
+            sqltype: ibase::SQL_INT64 as i16,
+
+            data_length: 8,
+            alias_name: "V".into(),
+            ..Default::default()
+        }];
+        let mut packet = BytesMut::new();
+        packet.put_u32(WireOp::SqlResponse as u32);
+        packet.put_u32(1);
+        packet.put_u32(0);
+        packet.put_i64(21);
+        let mut wrong = op_response(0);
+        wrong[..4].copy_from_slice(&(WireOp::FetchResponse as u32).to_be_bytes());
+        packet.extend_from_slice(&wrong);
+        assert!(parse_execute2_response(
+            &mut packet.freeze(),
+            &mut 0,
+            &columns,
+            ProtocolVersion::V13,
+            &UTF_8
+        )
+        .is_err());
     }
 
     /// A response delivered one byte at a time must be reassembled, not
