@@ -461,6 +461,17 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
             self.drop_statement_after_prepare_error(&mut handle, error)
         })?;
 
+        let needs_full_names = (0..xsqlda.sqld).any(|col| {
+            let var = xsqlda.get_xsqlvar_mut(col as usize).unwrap();
+            usize::min(var.aliasname_length as usize, var.aliasname.len()) >= 31
+        });
+        let mut names = if needs_full_names {
+            self.full_column_names(&mut handle, xsqlda.sqld as usize)
+                .map_err(|error| self.drop_statement_after_prepare_error(&mut handle, error))?
+        } else {
+            Vec::new()
+        };
+
         // Create the column buffers and set the xsqlda conercions
         let col_buffers = (0..xsqlda.sqld)
             .map(|col| {
@@ -469,9 +480,17 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
                     .ok_or_else(|| FbError::from("Error getting the xsqlvar"))?;
 
                 if self.text_rows {
-                    ColumnBuffer::from_xsqlvar_text(xcol)
+                    ColumnBuffer::from_xsqlvar_text(
+                        xcol,
+                        names.get_mut(col as usize).and_then(Option::take),
+                        &self.charset,
+                    )
                 } else {
-                    ColumnBuffer::from_xsqlvar(xcol)
+                    ColumnBuffer::from_xsqlvar_with_name(
+                        xcol,
+                        names.get_mut(col as usize).and_then(Option::take),
+                        &self.charset,
+                    )
                 }
             })
             .collect::<Result<_, _>>()
@@ -752,6 +771,52 @@ impl<T: LinkageMarker> FirebirdClientDbEvents for NativeFbClient<T> {
 }
 
 impl<T: LinkageMarker> NativeFbClient<T> {
+    fn full_column_names(
+        &mut self,
+        handle: &mut NativeStmtHandle,
+        count: usize,
+    ) -> Result<Vec<Option<String>>, FbError> {
+        let mut names = vec![None; count];
+        while let Some(start) = names.iter().position(Option::is_none) {
+            let first = ((start + 1) as u16).to_le_bytes();
+            let request = [
+                ibase::isc_info_sql_sqlda_start as c_char,
+                2,
+                first[0] as c_char,
+                first[1] as c_char,
+                ibase::isc_info_sql_select as c_char,
+                ibase::isc_info_sql_describe_vars as c_char,
+                ibase::isc_info_sql_sqlda_seq as c_char,
+                ibase::isc_info_sql_alias as c_char,
+                ibase::isc_info_sql_describe_end as c_char,
+            ];
+            let mut buffer = vec![0u8; 16_384];
+            if unsafe {
+                self.ibase.isc_dsql_sql_info()(
+                    &mut self.status[0],
+                    handle,
+                    request.len() as i16,
+                    request.as_ptr(),
+                    buffer.len() as i16,
+                    buffer.as_mut_ptr() as *mut c_char,
+                )
+            } != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+            let truncated = crate::column_names::parse_aliases_with_charset(
+                &buffer,
+                &mut names,
+                &self.charset,
+            )?;
+            match names.iter().position(Option::is_none) {
+                None => break,
+                Some(next) if truncated && next > start => {},
+                _ => return Err("Incomplete native column-name metadata; no progress while reading full aliases".into()),
+            }
+        }
+        Ok(names)
+    }
     /// Build the dpb and the connection string
     ///
     /// Used by attach database operations
