@@ -17,7 +17,9 @@ use crate::{
     srp::*,
     util::*,
     wire::*,
-    xsqlda::{parse_xsqlda, xsqlda_to_blr, PrepareInfo, XSqlVar, XSQLDA_DESCRIBE_VARS},
+    xsqlda::{
+        parse_xsqlda_with_charset, xsqlda_to_blr, PrepareInfo, XSqlVar, XSQLDA_DESCRIBE_VARS,
+    },
 };
 use rsfbclient_core::*;
 
@@ -946,7 +948,7 @@ impl FirebirdWireConnection {
             stmt_type,
             mut param_count,
             mut truncated,
-        } = parse_xsqlda(&mut prepare_data, &mut xsqlda)?;
+        } = parse_xsqlda_with_charset(&mut prepare_data, &mut xsqlda, &self.charset)?;
 
         while truncated {
             // Get more info on the types
@@ -969,7 +971,7 @@ impl FirebirdWireConnection {
 
             let mut data = self.read_response()?.data;
 
-            let parse_resp = parse_xsqlda(&mut data, &mut xsqlda)?;
+            let parse_resp = parse_xsqlda_with_charset(&mut data, &mut xsqlda, &self.charset)?;
             truncated = parse_resp.truncated;
             param_count = parse_resp.param_count;
         }
