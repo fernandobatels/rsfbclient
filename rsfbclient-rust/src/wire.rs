@@ -736,17 +736,30 @@ pub fn get_segment(blob_handle: u32, buffer_length: u32) -> Bytes {
 /// Unpacks the segment framing of blob data as the server ships it in an
 /// `op_get_segment` response and in an `op_inline_blob` packet: a run of
 /// `u16le length + bytes`.
-pub fn unframe_segments(mut data: Bytes) -> Result<Bytes, FbError> {
+pub fn unframe_segments(data: Bytes) -> Result<Bytes, FbError> {
+    unframe_counted(data).map(|(data, _)| data)
+}
+
+/// A segment length that runs past the end of its (complete) buffer
+pub const ERR_SEGMENT_FRAMING: &str =
+    "Invalid server response, blob segment framing overruns its buffer";
+
+/// [`unframe_segments`], also counting the segments. The buffer is complete, so
+/// a length that overruns it is corrupt framing, reported as [`ERR_SEGMENT_FRAMING`]
+/// and not as "missing bytes": `read_with` must not wait for data that will
+/// never come.
+fn unframe_counted(mut data: Bytes) -> Result<(Bytes, u64), FbError> {
     // A single segment (the usual case) is handed back without copying.
     if data.remaining() >= 2 {
         let len = u16::from_le_bytes([data[0], data[1]]) as usize;
         if data.remaining() == 2 + len {
             data.advance(2)?;
-            return Ok(data);
+            return Ok((data, 1));
         }
     }
 
     let mut blob_data = BytesMut::with_capacity(data.remaining());
+    let mut segments = 0;
 
     loop {
         if data.remaining() < 2 {
@@ -754,13 +767,14 @@ pub fn unframe_segments(mut data: Bytes) -> Result<Bytes, FbError> {
         }
         let len = data.get_u16_le()? as usize;
         if data.remaining() < len {
-            return err_invalid_response();
+            return Err(ERR_SEGMENT_FRAMING.into());
         }
         blob_data.put_slice(&data[..len]);
         data.advance(len)?;
+        segments += 1;
     }
 
-    Ok(blob_data.freeze())
+    Ok((blob_data.freeze(), segments))
 }
 
 #[derive(Debug, Clone)]
@@ -775,17 +789,91 @@ pub struct InlineBlob {
     pub data: Bytes,
 }
 
+/// What the `p_blob_info` of an inlined blob says about it
+#[derive(Debug, Default, PartialEq, Eq)]
+struct InlineBlobInfo {
+    /// `isc_info_blob_total_length`
+    total_length: Option<u64>,
+    /// `isc_info_blob_num_segments`
+    num_segments: Option<u64>,
+    /// `isc_info_blob_type` is 0 (segmented) rather than 1 (stream)
+    segmented: Option<bool>,
+}
+
+/// Decodes the `isc_info_blob_*` clumplets: a tag, a `u16le` length and a
+/// little-endian integer each, up to `isc_info_end` or `isc_info_truncated`.
+/// Items that are missing, unknown or oversized stay `None`.
+fn parse_inline_blob_info(info: &[u8]) -> InlineBlobInfo {
+    let mut parsed = InlineBlobInfo::default();
+    let mut pos = 0;
+
+    while let Some(&tag) = info.get(pos) {
+        pos += 1;
+        let tag = tag as u32;
+        if tag == ibase::isc_info_end || tag == ibase::isc_info_truncated {
+            break;
+        }
+
+        let len = match info.get(pos..pos + 2) {
+            Some(len) => u16::from_le_bytes([len[0], len[1]]) as usize,
+            None => break,
+        };
+        pos += 2;
+
+        let value = match info.get(pos..pos + len) {
+            Some(bytes) if len <= 8 => Some(
+                bytes
+                    .iter()
+                    .rev()
+                    .fold(0_u64, |acc, b| (acc << 8) | u64::from(*b)),
+            ),
+            Some(_) => None,
+            None => break,
+        };
+        pos += len;
+
+        match (tag, value) {
+            (ibase::isc_info_blob_total_length, Some(v)) => parsed.total_length = Some(v),
+            (ibase::isc_info_blob_num_segments, Some(v)) => parsed.num_segments = Some(v),
+            (ibase::isc_info_blob_type, Some(v)) => parsed.segmented = Some(v == 0),
+            _ => {}
+        }
+    }
+
+    parsed
+}
+
 /// Parse the body of an `op_inline_blob` packet (op code already consumed):
 /// `p_tran_id` (XDR short), `p_blob_id` (quad), `p_blob_info` (counted
-/// bytes: the isc_info_blob_* clumplets, not needed here), `p_blob_data`
-/// (counted bytes, segment framed).
-pub fn parse_inline_blob(resp: &mut Bytes) -> Result<InlineBlob, FbError> {
+/// bytes: the isc_info_blob_* clumplets), `p_blob_data` (counted bytes,
+/// segment framed).
+///
+/// `None` when the data does not match the info. Firebird 5.0.3 and 5.0.4
+/// size the inlined buffer by `isc_info_blob_total_length`, which for a text
+/// blob the server transliterates is an estimate above the real size, and
+/// ship the real segments followed by uninitialised memory
+/// (FirebirdSQL/firebird#9234). Such a blob is left to the open/get_segment
+/// path, which serves it whole; the packet is consumed either way, so the
+/// stream stays in sync.
+pub fn parse_inline_blob(resp: &mut Bytes) -> Result<Option<InlineBlob>, FbError> {
     let _tr_handle = resp.get_u32()?; // ids are unique per connection, tx not needed
     let id = resp.get_u64()?;
-    let _info = resp.get_wire_bytes()?;
-    let data = unframe_segments(resp.get_wire_bytes()?)?;
+    let info = parse_inline_blob_info(&resp.get_wire_bytes()?);
+    let framed = resp.get_wire_bytes()?;
 
-    Ok(InlineBlob { id, data })
+    let (data, segments) = match unframe_counted(framed) {
+        Ok(unframed) => unframed,
+        Err(e) if is_incomplete(&e) => return Err(e),
+        Err(_) => return Ok(None),
+    };
+
+    let consistent = info
+        .total_length
+        .is_none_or(|total| total == data.len() as u64)
+        && (info.segmented != Some(true)
+            || info.num_segments.is_none_or(|count| count == segments));
+
+    Ok(consistent.then_some(InlineBlob { id, data }))
 }
 
 /// Put blob segment request
@@ -1811,35 +1899,71 @@ mod tests {
         let mut cut = BytesMut::new();
         cut.put_u16_le(9);
         cut.put_slice(b"ab");
-        assert!(unframe_segments(cut.freeze()).is_err());
+        let err = unframe_segments(cut.freeze()).unwrap_err();
+        assert!(!crate::util::is_incomplete(&err), "{err}");
     }
 
-    /// Body of an op_inline_blob as the server encodes it (op code excluded).
-    fn inline_blob_body(tr_id: u32, blob_id: u64, segments: &[&[u8]]) -> Bytes {
+    /// `u16le length + bytes` per segment, as the server frames blob data.
+    fn frame_segments(segments: &[&[u8]]) -> Vec<u8> {
         let mut data = BytesMut::new();
         for seg in segments {
             data.put_u16_le(seg.len() as u16);
             data.put_slice(seg);
         }
+        data.to_vec()
+    }
+
+    /// `isc_info_blob_*` clumplets as `rem_port::sendInlineBlob` sends them:
+    /// segment count, longest segment and total length as 4-byte values, the
+    /// type (0, segmented) as 1 byte, then `isc_info_end`.
+    fn blob_info_clumplets(total: usize, segments: usize, max_segment: usize) -> Vec<u8> {
+        let mut b = Vec::new();
+        for (tag, value) in [
+            (ibase::isc_info_blob_num_segments, segments),
+            (ibase::isc_info_blob_max_segment, max_segment),
+            (ibase::isc_info_blob_total_length, total),
+        ] {
+            b.push(tag as u8);
+            b.extend_from_slice(&4u16.to_le_bytes());
+            b.extend_from_slice(&(value as u32).to_le_bytes());
+        }
+        b.extend_from_slice(&[ibase::isc_info_blob_type as u8, 1, 0, 0]);
+        b.push(ibase::isc_info_end as u8);
+        b
+    }
+
+    /// Body of an op_inline_blob as the server encodes it (op code excluded).
+    fn inline_blob_body_with(tr_id: u32, blob_id: u64, info: &[u8], data: &[u8]) -> Bytes {
         let mut b = BytesMut::new();
         b.put_u32(tr_id);
         b.put_u64(blob_id);
-        // isc_info_blob_* clumplets; opaque to the client
-        b.put_wire_bytes(&[4, 2, 0, 1, 0, 6, 4, 0, 5, 0, 0, 0, 1]);
-        b.put_wire_bytes(&data);
+        b.put_wire_bytes(info);
+        b.put_wire_bytes(data);
         b.freeze()
+    }
+
+    /// Body of an op_inline_blob whose info matches its data.
+    fn inline_blob_body(tr_id: u32, blob_id: u64, segments: &[&[u8]]) -> Bytes {
+        let total = segments.iter().map(|s| s.len()).sum();
+        let max_segment = segments.iter().map(|s| s.len()).max().unwrap_or(0);
+        inline_blob_body_with(
+            tr_id,
+            blob_id,
+            &blob_info_clumplets(total, segments.len(), max_segment),
+            &frame_segments(segments),
+        )
     }
 
     #[test]
     fn parse_inline_blob_reads_the_p_inline_blob_layout() {
         let mut body = inline_blob_body(3, 0x0000_0007_0000_0009, &[b"hel", b"lo"]);
-        let blob = parse_inline_blob(&mut body).unwrap();
+        let blob = parse_inline_blob(&mut body).unwrap().expect("inlined");
         assert_eq!(blob.id, 0x0000_0007_0000_0009);
         assert_eq!(&blob.data[..], b"hello");
         assert!(body.is_empty(), "{} bytes left", body.len());
 
         let mut empty = inline_blob_body(3, 1, &[]);
-        let blob = parse_inline_blob(&mut empty).unwrap();
+        let blob = parse_inline_blob(&mut empty).unwrap().expect("inlined");
         assert!(blob.data.is_empty());
         assert!(empty.is_empty());
 
@@ -1849,6 +1973,78 @@ mod tests {
         assert!(crate::util::is_incomplete(
             &parse_inline_blob(&mut cut).unwrap_err()
         ));
+    }
+
+    /// Firebird 5.0.4 inlines a transliterated text blob with the filter's
+    /// length estimate (40 for these 10 bytes): the buffer is sized by it and
+    /// the real segment is followed by uninitialised memory
+    /// (FirebirdSQL/firebird#9234). The packet is consumed; the blob is not
+    /// taken, so the caller reads it through open/get_segment instead.
+    #[test]
+    fn parse_inline_blob_rejects_data_that_does_not_match_its_info() {
+        // Exactly what the server sent in fernandobatels/rsfbclient#197.
+        let mut data = frame_segments(&[b"ABCDEFGHIJ"]);
+        data.extend_from_slice(&[
+            0, 0, 0, 8, 5, 2, 4, 0, 0, 0, 0xff, 0x4c, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0,
+        ]);
+        assert_eq!(data.len(), 42);
+        let mut body = inline_blob_body_with(3, 9, &blob_info_clumplets(40, 1, 40), &data);
+        assert!(parse_inline_blob(&mut body).unwrap().is_none());
+        assert!(body.is_empty(), "{} bytes left", body.len());
+
+        // Garbage whose framing overruns the buffer is as untrusted, and is not
+        // mistaken for a packet still in flight (that would block read_with).
+        let mut data = frame_segments(&[b"ABCDEFGHIJ"]);
+        data.extend_from_slice(&[0xA5; 30]);
+        let mut body = inline_blob_body_with(3, 9, &blob_info_clumplets(40, 1, 40), &data);
+        assert!(parse_inline_blob(&mut body).unwrap().is_none());
+        assert!(body.is_empty());
+
+        // Well-framed data with one segment more than announced.
+        let mut body = inline_blob_body_with(
+            3,
+            9,
+            &blob_info_clumplets(5, 1, 5),
+            &frame_segments(&[b"hel", b"lo"]),
+        );
+        assert!(parse_inline_blob(&mut body).unwrap().is_none());
+        assert!(body.is_empty());
+
+        // Info without the items the check needs: the data is taken as it is.
+        let mut body = inline_blob_body_with(
+            3,
+            9,
+            &[ibase::isc_info_end as u8],
+            &frame_segments(&[b"hel", b"lo"]),
+        );
+        let blob = parse_inline_blob(&mut body).unwrap().expect("inlined");
+        assert_eq!(&blob.data[..], b"hello");
+    }
+
+    #[test]
+    fn parse_inline_blob_info_reads_the_clumplets() {
+        assert_eq!(
+            parse_inline_blob_info(&blob_info_clumplets(131070, 4, 65532)),
+            InlineBlobInfo {
+                total_length: Some(131070),
+                num_segments: Some(4),
+                segmented: Some(true),
+            }
+        );
+        // A stream blob, then a truncated answer, then nothing at all.
+        let mut stream = blob_info_clumplets(10, 1, 10);
+        let type_pos = stream.len() - 2;
+        stream[type_pos] = 1;
+        assert_eq!(parse_inline_blob_info(&stream).segmented, Some(false));
+        assert_eq!(
+            parse_inline_blob_info(&[6, 4, 0, 10, 0, 0, 0, 2, 4, 4, 0, 1, 0, 0, 0]),
+            InlineBlobInfo {
+                total_length: Some(10),
+                ..InlineBlobInfo::default()
+            }
+        );
+        assert_eq!(parse_inline_blob_info(&[]), InlineBlobInfo::default());
     }
 
     fn blob_var(name: &str, subtype: i16) -> XSqlVar {

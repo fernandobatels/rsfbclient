@@ -1742,7 +1742,9 @@ fn read_inline_blobs(
     inline: &mut Vec<InlineBlob>,
 ) -> Result<u32, FbError> {
     while op_code == WireOp::InlineBlob as u32 {
-        inline.push(parse_inline_blob(resp)?);
+        // `None`: the server's buffer does not match its info, so the blob is
+        // read through open/get_segment instead (FirebirdSQL/firebird#9234).
+        inline.extend(parse_inline_blob(resp)?);
         op_code = next_op_code(resp)?;
     }
 
@@ -2209,6 +2211,11 @@ mod pipeline_tests {
         batches: Vec<Batch>,
         /// Largest framed blob inlined ahead of a row (0 = never, protocol < 19).
         inline_size: usize,
+        /// Inline blobs the way Firebird 5.0.4 inlines a transliterated text
+        /// blob: the info carries the filter's estimate (4× the data) and the
+        /// buffer, sized by it, holds the real segments followed by garbage
+        /// (FirebirdSQL/firebird#9234).
+        inline_overstate: bool,
         /// Longest segment the fake engine stores (forces multi-segment responses).
         seg_max: usize,
         stats: Arc<Mutex<Stats>>,
@@ -2266,6 +2273,23 @@ mod pipeline_tests {
         data.to_vec()
     }
 
+    /// `isc_info_blob_*` clumplets as `rem_port::sendInlineBlob` sends them
+    fn blob_info(total: usize, segments: usize, max_segment: usize) -> Vec<u8> {
+        let mut b = Vec::new();
+        for (tag, value) in [
+            (ibase::isc_info_blob_num_segments, segments),
+            (ibase::isc_info_blob_max_segment, max_segment),
+            (ibase::isc_info_blob_total_length, total),
+        ] {
+            b.push(tag as u8);
+            b.extend_from_slice(&4u16.to_le_bytes());
+            b.extend_from_slice(&(value as u32).to_le_bytes());
+        }
+        b.extend_from_slice(&[ibase::isc_info_blob_type as u8, 1, 0, 0]);
+        b.push(ibase::isc_info_end as u8);
+        b
+    }
+
     impl FakeServer {
         fn serve(mut self, stream: TcpStream) {
             let mut rd = BufReader::new(stream.try_clone().unwrap());
@@ -2300,12 +2324,25 @@ mod pipeline_tests {
                                 let Some(data) = self.blobs.get(id) else {
                                     continue;
                                 };
-                                let framed = self.framed_whole(data);
+                                let segments = data.chunks(self.seg_max.max(1)).count();
+                                let mut total = data.len();
+                                let mut max_segment = data.len().min(self.seg_max);
+                                let mut framed = self.framed_whole(data);
+                                if self.inline_overstate && total > 0 {
+                                    total *= 4;
+                                    max_segment *= 4;
+                                    // What followed the real segment on the wire in
+                                    // fernandobatels/rsfbclient#197
+                                    let garbage = [0, 0, 0, 8, 5, 2, 4, 0, 0, 0, 0xff, 0x4c];
+                                    while framed.len() < total + 2 * segments {
+                                        framed.push(garbage[framed.len() % garbage.len()]);
+                                    }
+                                }
                                 if framed.len() <= self.inline_size {
                                     out.put_u32(WireOp::InlineBlob as u32);
                                     out.put_u32(1); // transaction id
                                     out.put_u64(*id);
-                                    out.put_wire_bytes(&[6, 4, 0, 0, 0, 0, 0, 1]);
+                                    out.put_wire_bytes(&blob_info(total, segments, max_segment));
                                     out.put_wire_bytes(&framed);
                                     self.stats.lock().unwrap().inlined += 1;
                                 }
@@ -2513,6 +2550,7 @@ mod pipeline_tests {
                 },
             ],
             inline_size: 0,
+            inline_overstate: false,
             seg_max: 30_000,
             stats: stats.clone(),
         };
@@ -2571,6 +2609,7 @@ mod pipeline_tests {
                 status: 100,
             }],
             inline_size: 65535,
+            inline_overstate: false,
             seg_max: 65535,
             stats: stats.clone(),
         };
@@ -2594,6 +2633,54 @@ mod pipeline_tests {
             "only the 100 KB blob went through open/get_segment/close"
         );
         assert_eq!(s.closes, 1);
+    }
+
+    /// Firebird 5.0.3 and 5.0.4 inline a transliterated text blob with the
+    /// filter's length estimate: the buffer is bigger than the data and ends in
+    /// garbage (FirebirdSQL/firebird#9234, fernandobatels/rsfbclient#197). Such
+    /// a blob is not trusted: it goes through open/get_segment/close, which
+    /// serves it whole, and the stream stays in sync for the commit.
+    #[test]
+    fn inconsistent_inline_blobs_fall_back_to_the_blob_round_trips() {
+        let stats = Arc::new(Mutex::new(Stats::default()));
+        let mut blobs = HashMap::new();
+        blobs.insert(1, "ABCDEFGHIJ".as_bytes().to_vec());
+        blobs.insert(2, big_text(1000));
+        blobs.insert(4, Vec::new()); // empty: nothing to overstate, inlined as is
+        let server = FakeServer {
+            blobs,
+            batches: vec![Batch {
+                rows: vec![
+                    vec![Cell::Blob(Some(1)), Cell::Blob(Some(2))],
+                    vec![Cell::Blob(Some(4)), Cell::Blob(None)],
+                ],
+                status: 100,
+            }],
+            inline_size: 65535,
+            inline_overstate: true,
+            seg_max: 65535,
+            stats: stats.clone(),
+        };
+        let mut conn = connect_to(server, ProtocolVersion::V19);
+        let mut st = stmt(&[("MEMO", 1), ("DOC", 1)]);
+
+        let rows = fetch_all(&mut conn, &mut st);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(text(&rows[0][0]), "ABCDEFGHIJ");
+        assert_eq!(text(&rows[0][1]).as_bytes(), &big_text(1000)[..]);
+        assert_eq!(text(&rows[1][0]), "");
+        assert!(rows[1][1].value.is_null());
+
+        conn.transaction_operation(&mut TrHandle(1), TrOp::Commit)
+            .unwrap();
+
+        let s = stats.lock().unwrap();
+        assert_eq!(s.inlined, 3, "the server inlined every non-NULL blob");
+        assert_eq!(
+            s.opens, 2,
+            "the two overstated blobs went through open/get_segment/close"
+        );
+        assert_eq!(s.closes, 2);
     }
 
     /// A server error on one blob of the window (here an invalid id) fails the
@@ -2622,6 +2709,7 @@ mod pipeline_tests {
                 },
             ],
             inline_size: 0,
+            inline_overstate: false,
             seg_max: 65535,
             stats: stats.clone(),
         };
