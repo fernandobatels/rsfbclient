@@ -12,11 +12,13 @@
 //! [ServiceManager::restore] are server paths, and the files they
 //! produce are owned by the server process.
 //!
-//! Only the NATIVE client (`linking` or `dynamic_loading` features)
-//! can speak to the service manager — the service protocol is carried
-//! by dedicated opcodes that the pure-rust wire implementation does not
-//! implement, so this module is not available with only the
-//! `pure_rust` feature.
+//! Both clients speak to the service manager: the native one
+//! (`linking` / `dynamic_loading`) through `isc_service_*`, and the
+//! pure-rust one (`pure_rust`) over the wire protocol's
+//! `op_service_*` opcodes, with the same SRP handshake and wire
+//! encryption as a database connection. The builder picks the native
+//! client when it is compiled in, else the pure-rust one;
+//! [ServiceManagerBuilder::pure_rust] forces the latter.
 //!
 //! # Example
 //!
@@ -48,49 +50,27 @@
 //! svc.restore("/data/mydb.fbk", "/data/mydb-copy.fdb", opts)?;
 //! ```
 
-use rsfbclient_core::{ibase, FbError};
+use rsfbclient_core::{ibase, services, FbError};
+
+pub use rsfbclient_core::services::{SvcBackupOptions, SvcRestoreOptions};
 
 #[cfg(feature = "linking")]
 use rsfbclient_native::DynLink;
 #[cfg(feature = "dynamic_loading")]
 use rsfbclient_native::DynLoad;
+#[cfg(feature = "native_client")]
 use rsfbclient_native::NativeServiceManager;
-
-/// Options for [ServiceManager::backup] /
-/// [ServiceManager::backup_with_output]. All default to `false`,
-/// matching `gbak`'s defaults.
-#[derive(Clone, Copy, Default)]
-pub struct SvcBackupOptions {
-    /// Back up metadata only, no table data (`gbak -m`)
-    pub metadata_only: bool,
-    /// Ignore checksum errors while reading (`gbak -ig`)
-    pub ignore_checksums: bool,
-    /// Ignore in-limbo transactions (`gbak -l`)
-    pub ignore_limbo: bool,
-    /// Do not run garbage collection during the backup (`gbak -g`);
-    /// commonly enabled for faster backups of busy databases
-    pub no_garbage_collect: bool,
-}
-
-/// Options for [ServiceManager::restore] /
-/// [ServiceManager::restore_with_output].
-#[derive(Clone, Copy, Default)]
-pub struct SvcRestoreOptions {
-    /// Replace the target database if it already exists (`gbak -rep`).
-    /// When `false` (the default) the restore fails if the target
-    /// exists — the safe behaviour, same as `gbak -c`.
-    pub replace: bool,
-    /// Page size of the restored database (`gbak -p`); `None` keeps
-    /// the page size recorded in the backup
-    pub page_size: Option<u32>,
-}
+#[cfg(feature = "pure_rust")]
+use rsfbclient_rust::RustServiceManager;
 
 /// Builder for a [ServiceManager] attachment.
 ///
 /// Mirrors the connection builders in miniature: host/port/user/pass
-/// plus the choice between the dynamically linked fbclient (the
-/// default when the `linking` feature is on) and a dynamically loaded
-/// one ([ServiceManagerBuilder::with_dyn_load]).
+/// plus the choice of client — the dynamically linked fbclient (the
+/// default when the `linking` feature is on), a dynamically loaded one
+/// ([ServiceManagerBuilder::with_dyn_load]), or the pure-rust wire
+/// client ([ServiceManagerBuilder::pure_rust], the default when no
+/// native client is compiled in).
 #[derive(Clone)]
 pub struct ServiceManagerBuilder {
     host: String,
@@ -98,6 +78,8 @@ pub struct ServiceManagerBuilder {
     user: String,
     pass: String,
     lib_path: Option<String>,
+    force_pure_rust: bool,
+    expected_db: Option<String>,
 }
 
 impl Default for ServiceManagerBuilder {
@@ -108,6 +90,8 @@ impl Default for ServiceManagerBuilder {
             user: "SYSDBA".to_string(),
             pass: "masterkey".to_string(),
             lib_path: None,
+            force_pure_rust: false,
+            expected_db: None,
         }
     }
 }
@@ -145,45 +129,73 @@ impl ServiceManagerBuilder {
         self
     }
 
+    /// Use the pure-rust wire client even when a native client is
+    /// compiled in (requires the `pure_rust` feature).
+    pub fn pure_rust(&mut self) -> &mut Self {
+        self.force_pure_rust = true;
+        self
+    }
+
+    /// The database the coming actions concern (a server path or
+    /// alias). Servers configured with a per-database security database
+    /// need it to know where to authenticate; pure-rust client only.
+    pub fn expected_db<S: Into<String>>(&mut self, db: S) -> &mut Self {
+        self.expected_db = Some(db.into());
+        self
+    }
+
     /// Attach to the server's service manager.
     pub fn attach(&self) -> Result<ServiceManager, FbError> {
-        let spb = build_attach_spb(&self.user, &self.pass);
-
-        match &self.lib_path {
-            None => {
-                #[cfg(feature = "linking")]
-                {
-                    let inner = NativeServiceManager::<DynLink>::attach_dyn_link(
-                        &self.host, self.port, &spb,
-                    )?;
-                    Ok(ServiceManager {
-                        inner: SvcContainer::Linking(inner),
-                    })
-                }
-                #[cfg(not(feature = "linking"))]
-                Err(FbError::from(
-                    "The 'linking' feature is disabled; use with_dyn_load() to load a client library by path",
-                ))
+        if let Some(lib_path) = &self.lib_path {
+            #[cfg(feature = "dynamic_loading")]
+            {
+                let spb = services::attach_spb_legacy(&self.user, &self.pass);
+                let inner = NativeServiceManager::<DynLoad>::attach_dyn_load(
+                    lib_path, &self.host, self.port, &spb,
+                )?;
+                return Ok(ServiceManager {
+                    inner: SvcContainer::DynLoad(inner),
+                });
             }
-            Some(lib_path) => {
-                #[cfg(feature = "dynamic_loading")]
-                {
-                    let inner = NativeServiceManager::<DynLoad>::attach_dyn_load(
-                        lib_path, &self.host, self.port, &spb,
-                    )?;
-                    Ok(ServiceManager {
-                        inner: SvcContainer::DynLoad(inner),
-                    })
-                }
-                #[cfg(not(feature = "dynamic_loading"))]
-                {
-                    let _ = lib_path;
-                    Err(FbError::from(
-                        "with_dyn_load() requires the 'dynamic_loading' feature",
-                    ))
-                }
+            #[cfg(not(feature = "dynamic_loading"))]
+            {
+                let _ = lib_path;
+                return Err(FbError::from(
+                    "with_dyn_load() requires the 'dynamic_loading' feature",
+                ));
             }
         }
+
+        if !self.force_pure_rust {
+            #[cfg(feature = "linking")]
+            {
+                let spb = services::attach_spb_legacy(&self.user, &self.pass);
+                let inner =
+                    NativeServiceManager::<DynLink>::attach_dyn_link(&self.host, self.port, &spb)?;
+                return Ok(ServiceManager {
+                    inner: SvcContainer::Linking(inner),
+                });
+            }
+        }
+
+        #[cfg(feature = "pure_rust")]
+        {
+            let inner = RustServiceManager::attach(
+                &self.host,
+                self.port,
+                &self.user,
+                &self.pass,
+                self.expected_db.as_deref(),
+            )?;
+            return Ok(ServiceManager {
+                inner: SvcContainer::PureRust(inner),
+            });
+        }
+
+        #[cfg(not(feature = "pure_rust"))]
+        Err(FbError::from(
+            "No service client available: enable the 'linking' feature, use with_dyn_load(), or enable 'pure_rust'",
+        ))
     }
 }
 
@@ -192,6 +204,8 @@ enum SvcContainer {
     Linking(NativeServiceManager<DynLink>),
     #[cfg(feature = "dynamic_loading")]
     DynLoad(NativeServiceManager<DynLoad>),
+    #[cfg(feature = "pure_rust")]
+    PureRust(RustServiceManager),
 }
 
 /// An attachment to a Firebird server's service manager.
@@ -212,12 +226,8 @@ impl ServiceManager {
         let receive = [ibase::isc_info_svc_server_version as u8];
         let mut buffer = [0u8; 1024];
         self.query(&[], &receive, &mut buffer)?;
-
-        if buffer[0] != ibase::isc_info_svc_server_version as u8 {
-            return Err(FbError::from("Unexpected service version reply"));
-        }
-        let len = u16::from_le_bytes([buffer[1], buffer[2]]) as usize;
-        Ok(String::from_utf8_lossy(&buffer[3..3 + len]).to_string())
+        services::parse_svc_string(&buffer, ibase::isc_info_svc_server_version as u8)
+            .ok_or_else(|| FbError::from("Unexpected service version reply"))
     }
 
     /// Run a `gbak`-style backup of `db_name` (a SERVER path) into
@@ -244,27 +254,7 @@ impl ServiceManager {
         options: SvcBackupOptions,
         on_line: F,
     ) -> Result<(), FbError> {
-        let mut flags = 0u32;
-        if options.metadata_only {
-            flags |= ibase::isc_spb_bkp_metadata_only;
-        }
-        if options.ignore_checksums {
-            flags |= ibase::isc_spb_bkp_ignore_checksums;
-        }
-        if options.ignore_limbo {
-            flags |= ibase::isc_spb_bkp_ignore_limbo;
-        }
-        if options.no_garbage_collect {
-            flags |= ibase::isc_spb_bkp_no_garbage_collect;
-        }
-
-        let mut req = vec![ibase::isc_action_svc_backup as u8];
-        push_string_arg(&mut req, ibase::isc_spb_dbname as u8, db_name);
-        push_string_arg(&mut req, ibase::isc_spb_bkp_file as u8, backup_file);
-        push_u32_arg(&mut req, ibase::isc_spb_options as u8, flags);
-        req.push(ibase::isc_spb_verbose as u8);
-
-        self.start(&req)?;
+        self.start(&services::backup_request(db_name, backup_file, options))?;
         self.drain_output(on_line)
     }
 
@@ -291,22 +281,7 @@ impl ServiceManager {
         options: SvcRestoreOptions,
         on_line: F,
     ) -> Result<(), FbError> {
-        let flags = if options.replace {
-            ibase::isc_spb_res_replace
-        } else {
-            ibase::isc_spb_res_create
-        };
-
-        let mut req = vec![ibase::isc_action_svc_restore as u8];
-        push_string_arg(&mut req, ibase::isc_spb_bkp_file as u8, backup_file);
-        push_string_arg(&mut req, ibase::isc_spb_dbname as u8, db_name);
-        push_u32_arg(&mut req, ibase::isc_spb_options as u8, flags);
-        if let Some(page_size) = options.page_size {
-            push_u32_arg(&mut req, ibase::isc_spb_res_page_size as u8, page_size);
-        }
-        req.push(ibase::isc_spb_verbose as u8);
-
-        self.start(&req)?;
+        self.start(&services::restore_request(backup_file, db_name, options))?;
         self.drain_output(on_line)
     }
 
@@ -318,24 +293,35 @@ impl ServiceManager {
             SvcContainer::Linking(s) => s.detach(),
             #[cfg(feature = "dynamic_loading")]
             SvcContainer::DynLoad(s) => s.detach(),
+            #[cfg(feature = "pure_rust")]
+            SvcContainer::PureRust(s) => s.detach(),
         }
     }
 
-    fn start(&mut self, request: &[u8]) -> Result<(), FbError> {
+    /// Start a raw service action: `request` is the action byte and its
+    /// arguments (`rsfbclient_core::services` builds the common ones).
+    /// Read its output with [ServiceManager::query].
+    pub fn start(&mut self, request: &[u8]) -> Result<(), FbError> {
         match &mut self.inner {
             #[cfg(feature = "linking")]
             SvcContainer::Linking(s) => s.start(request),
             #[cfg(feature = "dynamic_loading")]
             SvcContainer::DynLoad(s) => s.start(request),
+            #[cfg(feature = "pure_rust")]
+            SvcContainer::PureRust(s) => s.start(request),
         }
     }
 
-    fn query(&mut self, send: &[u8], receive: &[u8], buffer: &mut [u8]) -> Result<(), FbError> {
+    /// Raw service query (`isc_service_query`): `send` / `receive` items,
+    /// reply written into `buffer`.
+    pub fn query(&mut self, send: &[u8], receive: &[u8], buffer: &mut [u8]) -> Result<(), FbError> {
         match &mut self.inner {
             #[cfg(feature = "linking")]
             SvcContainer::Linking(s) => s.query(send, receive, buffer),
             #[cfg(feature = "dynamic_loading")]
             SvcContainer::DynLoad(s) => s.query(send, receive, buffer),
+            #[cfg(feature = "pure_rust")]
+            SvcContainer::PureRust(s) => s.query(send, receive, buffer),
         }
     }
 
@@ -347,48 +333,10 @@ impl ServiceManager {
         loop {
             let mut buffer = [0u8; 4096];
             self.query(&[], &receive, &mut buffer)?;
-
-            if buffer[0] != ibase::isc_info_svc_line as u8 {
-                // isc_info_end or anything unexpected: the action is over
-                return Ok(());
+            match services::parse_svc_line(&buffer) {
+                Some(line) => on_line(&line),
+                None => return Ok(()),
             }
-            let len = u16::from_le_bytes([buffer[1], buffer[2]]) as usize;
-            if len == 0 {
-                // an empty line ends the stream
-                return Ok(());
-            }
-            on_line(&String::from_utf8_lossy(&buffer[3..3 + len]));
         }
     }
-}
-
-/// Version-2 attach SPB: version tags + credentials, each argument a
-/// tag byte, a ONE-byte length and the bytes.
-fn build_attach_spb(user: &str, pass: &str) -> Vec<u8> {
-    let mut spb = vec![
-        ibase::isc_spb_version as u8,
-        ibase::isc_spb_current_version as u8,
-    ];
-    spb.push(ibase::isc_spb_user_name as u8);
-    spb.push(user.len() as u8);
-    spb.extend_from_slice(user.as_bytes());
-    spb.push(ibase::isc_spb_password as u8);
-    spb.push(pass.len() as u8);
-    spb.extend_from_slice(pass.as_bytes());
-    spb
-}
-
-/// Start-request string argument: tag, TWO-byte little-endian length,
-/// bytes. (Attach and start blocks use different length encodings —
-/// one of the classic Services API traps.)
-fn push_string_arg(req: &mut Vec<u8>, tag: u8, value: &str) {
-    req.push(tag);
-    req.extend_from_slice(&(value.len() as u16).to_le_bytes());
-    req.extend_from_slice(value.as_bytes());
-}
-
-/// Start-request numeric argument: tag + four-byte little-endian value.
-fn push_u32_arg(req: &mut Vec<u8>, tag: u8, value: u32) {
-    req.push(tag);
-    req.extend_from_slice(&value.to_le_bytes());
 }

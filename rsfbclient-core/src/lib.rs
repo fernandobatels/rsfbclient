@@ -6,6 +6,7 @@ mod connection;
 pub mod date_time;
 pub(crate) mod error;
 pub mod ibase;
+pub mod services;
 mod params;
 mod row;
 mod transaction;

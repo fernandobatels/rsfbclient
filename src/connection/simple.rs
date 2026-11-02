@@ -240,6 +240,17 @@ impl Queryable for SimpleConnection {
             TypeConnectionContainer::PureRust(c) => c.query_iter(sql, params),
         }
     }
+
+    fn describe(&mut self, sql: &str) -> Result<Vec<rsfbclient_core::ColumnDesc>, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.describe(sql),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.describe(sql),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.describe(sql),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -34,10 +34,13 @@ pub const BLOB_SEGMENT_BUFFER: u32 = 65535;
 
 /// Connection request.
 ///
-/// `max_protocol` caps the protocol versions offered (see
-/// [`ProtocolVersion::OFFERED`]); the server answers with the highest offered
-/// version it supports.
+/// `operation` is what the connection is for — `op_attach` / `op_create`
+/// for a database, `op_service_attach` for the service manager — and
+/// `db_name` the database path (or `service_mgr`). `max_protocol` caps the
+/// protocol versions offered (see [`ProtocolVersion::OFFERED`]); the server
+/// answers with the highest offered version it supports.
 pub fn connect(
+    operation: WireOp,
     db_name: &str,
     user: &str,
     username: &str,
@@ -57,7 +60,7 @@ pub fn connect(
     let mut connect = BytesMut::with_capacity(256);
 
     connect.put_u32(WireOp::Connect as u32);
-    connect.put_u32(WireOp::Attach as u32);
+    connect.put_u32(operation as u32);
     connect.put_u32(3); // CONNECT_VERSION
     connect.put_u32(1); // arch_generic
 
@@ -406,6 +409,146 @@ pub fn drop_database(db_handle: u32) -> Bytes {
     tr.put_u32(db_handle);
 
     tr.freeze()
+}
+
+/// Name of the service manager endpoint, the "database" a service
+/// connection attaches to.
+pub const SERVICE_MGR: &str = "service_mgr";
+
+/// Service manager attach request (`op_service_attach`): like `op_attach`,
+/// but the "database" is `service_mgr` and the parameter block an SPB.
+pub fn service_attach(
+    user: &str,
+    pass: &str,
+    protocol: ProtocolVersion,
+    expected_db: Option<&str>,
+    auth_plugin: Option<&AuthPlugin>,
+    srp_key: &[u8; 32],
+) -> Result<Bytes, FbError> {
+    let spb = build_spb(user, pass, protocol, expected_db, auth_plugin, srp_key)?;
+
+    let mut req = BytesMut::with_capacity(16 + SERVICE_MGR.len() + spb.len());
+
+    req.put_u32(WireOp::ServiceAttach as u32);
+    req.put_u32(0); // Object ID
+
+    req.put_wire_bytes(SERVICE_MGR.as_bytes());
+
+    req.put_wire_bytes(&spb);
+
+    Ok(req.freeze())
+}
+
+/// Service manager detach request
+pub fn service_detach(svc_handle: u32) -> Bytes {
+    let mut req = BytesMut::with_capacity(8);
+
+    req.put_u32(WireOp::ServiceDetach as u32);
+    req.put_u32(svc_handle);
+
+    req.freeze()
+}
+
+/// Start a service action (`op_service_start`): `request` is the action
+/// byte followed by its arguments (see `rsfbclient_core::services`).
+pub fn service_start(svc_handle: u32, request: &[u8]) -> Bytes {
+    let mut req = BytesMut::with_capacity(16 + request.len());
+
+    req.put_u32(WireOp::ServiceStart as u32);
+    req.put_u32(svc_handle);
+    req.put_u32(0); // Incarnation of object
+    req.put_wire_bytes(request);
+
+    req.freeze()
+}
+
+/// Service information request (`op_service_info`). `send_items` are the
+/// `isc_service_query` send items (usually empty), `receive_items` what
+/// to read back (`isc_info_svc_line`, `isc_info_svc_server_version`, …);
+/// the server answers with an `op_response` whose data is the info
+/// buffer, at most `buffer_length` bytes.
+pub fn service_info(svc_handle: u32, send_items: &[u8], receive_items: &[u8], buffer_length: u32) -> Bytes {
+    let mut req = BytesMut::with_capacity(24 + send_items.len() + receive_items.len());
+
+    req.put_u32(WireOp::ServiceInfo as u32);
+    req.put_u32(svc_handle);
+    req.put_u32(0); // Incarnation of object
+    req.put_wire_bytes(send_items);
+    req.put_wire_bytes(receive_items);
+    req.put_u32(buffer_length);
+
+    req.freeze()
+}
+
+/// Attach SPB builder (version 2: a one-byte length per argument).
+///
+/// The credentials follow the same rules as the DPB: a plaintext password
+/// on protocol 10, a hashed one on 11/12, and on 13+ the SRP proof (when
+/// the password was not already verified on `op_cont_auth`). The service
+/// manager accepts exactly the `isc_spb_*` twins of the `isc_dpb_*` auth
+/// tags, so the same handshake state drives both.
+fn build_spb(
+    user: &str,
+    pass: &str,
+    protocol: ProtocolVersion,
+    expected_db: Option<&str>,
+    auth_plugin: Option<&AuthPlugin>,
+    srp_key: &[u8; 32],
+) -> Result<Bytes, FbError> {
+    use rsfbclient_core::services::push_attach_arg;
+
+    let mut spb = vec![
+        ibase::isc_spb_version as u8,
+        ibase::isc_spb_current_version as u8,
+    ];
+
+    push_attach_arg(&mut spb, ibase::isc_spb_user_name as u8, user.as_bytes());
+
+    if let Some(db) = expected_db {
+        push_attach_arg(&mut spb, ibase::isc_spb_expected_db as u8, db.as_bytes());
+    }
+
+    match protocol {
+        ProtocolVersion::V10 => {
+            push_attach_arg(&mut spb, ibase::isc_spb_password as u8, pass.as_bytes());
+        }
+
+        ProtocolVersion::V11 | ProtocolVersion::V12 => {
+            #[allow(deprecated)]
+            let enc_pass = pwhash::unix_crypt::hash_with("9z", pass).unwrap();
+            push_attach_arg(&mut spb, ibase::isc_spb_password_enc as u8, enc_pass[2..].as_bytes());
+        }
+
+        _ => {
+            if let Some(auth) = auth_plugin {
+                if let Some(auth_data) = &auth.data {
+                    push_attach_arg(&mut spb, ibase::isc_spb_auth_plugin_name as u8, auth.kind.name().as_bytes());
+                    push_attach_arg(
+                        &mut spb,
+                        ibase::isc_spb_auth_plugin_list as u8,
+                        AuthPluginType::plugin_list().as_bytes(),
+                    );
+
+                    let proof = match auth.kind {
+                        AuthPluginType::Srp => {
+                            let srp = SrpClient::<sha1::Sha1>::new(srp_key, &SRP_GROUP);
+                            let verifier = crate::client::srp_verifier(srp, user, pass, auth_data)?;
+                            hex::encode(verifier.get_proof())
+                        }
+                        AuthPluginType::Srp256 => {
+                            let srp = SrpClient::<sha2::Sha256>::new(srp_key, &SRP_GROUP);
+                            let verifier = crate::client::srp_verifier(srp, user, pass, auth_data)?;
+                            hex::encode(verifier.get_proof())
+                        }
+                    };
+
+                    push_attach_arg(&mut spb, ibase::isc_spb_specific_auth_data as u8, proof.as_bytes());
+                }
+            }
+        }
+    }
+
+    Ok(Bytes::from(spb))
 }
 
 /// Begin transaction request
@@ -1657,6 +1800,7 @@ mod tests {
     fn offered_versions(max_protocol: u16) -> Vec<(u32, u32)> {
         let srp_key: [u8; 32] = rand::random();
         let mut b = connect(
+            WireOp::Attach,
             "db.fdb",
             "SYSDBA",
             "me",

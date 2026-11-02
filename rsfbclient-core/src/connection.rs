@@ -136,6 +136,74 @@ pub trait FirebirdClientSqlOps {
         tr_handle: &mut Self::TrHandle,
         stmt_handle: &mut Self::StmtHandle,
     ) -> Result<Option<Vec<Column>>, FbError>;
+
+    /// Describe the output columns of a prepared statement: result-set name,
+    /// source relation / context alias / field, and type.
+    ///
+    /// The pure-rust client answers from the prepare response it already
+    /// parsed, so asking costs no round trip; the native client reads the
+    /// XSQLDA and asks the library for the context aliases.
+    fn describe_statement(
+        &mut self,
+        stmt_handle: &mut Self::StmtHandle,
+    ) -> Result<Vec<ColumnDesc>, FbError>;
+}
+
+/// What the server knows about one output column of a prepared statement:
+/// where it comes from and how it is typed. Obtained on request through
+/// [`FirebirdClientSqlOps::describe_statement`].
+///
+/// For `SELECT c.cli_nom AS nom FROM clients c`, the column describes as
+/// `name = "NOM"`, `field = Some("CLI_NOM")`, `relation = Some("CLIENTS")`,
+/// `relation_alias = Some("C")`. An expression such as `1 + 1` has no
+/// field, relation or alias.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ColumnDesc {
+    /// Name in the result set: the alias when one was given, else the field name.
+    pub name: String,
+    /// The underlying column (`RDB$FIELD_NAME`); `None` for an expression.
+    pub field: Option<String>,
+    /// The relation (table, view or procedure) the column comes from; `None`
+    /// for an expression.
+    pub relation: Option<String>,
+    /// The context alias the relation has in the statement: `C` for
+    /// `FROM clients c`, the relation name itself when none was written.
+    /// `None` when the client could not find out.
+    pub relation_alias: Option<String>,
+    /// The relation's owner.
+    pub owner: Option<String>,
+    /// Firebird SQL type code (`SQL_TEXT`, `SQL_BLOB`, …) without the
+    /// nullable bit.
+    pub sql_type: u32,
+    /// BLOB sub-type (0 binary, 1 text), or the character set id for text.
+    pub sub_type: i16,
+    /// Decimal scale (negative for fixed-point numbers).
+    pub scale: i16,
+    /// Length of the column data in bytes.
+    pub length: i16,
+    /// Whether the column can be NULL.
+    pub nullable: bool,
+}
+
+impl ColumnDesc {
+    /// The column is a BLOB (binary or text).
+    pub fn is_blob(&self) -> bool {
+        self.sql_type == ibase::SQL_BLOB
+    }
+
+    /// The column is computed, not read from a relation.
+    pub fn is_expression(&self) -> bool {
+        self.relation.is_none()
+    }
+}
+
+/// Firebird hands back empty strings for the parts an expression does not have.
+pub fn non_empty(s: String) -> Option<String> {
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
 
 /// Firebird base event API
