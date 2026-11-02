@@ -2,7 +2,6 @@
 
 use super::query_builder::FbQueryBuilder;
 use super::types::SupportedType;
-use super::value::FbValue;
 use diesel::backend::*;
 use diesel::query_builder::bind_collector::RawBytesBindCollector;
 use diesel::sql_types::TypeMetadata;

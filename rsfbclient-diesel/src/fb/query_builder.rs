@@ -1,7 +1,14 @@
 //! The Firebird query builder
 
 use super::backend::{Fb, FbReturningClause};
+use diesel::backend::sql_dialect::default_keyword_for_insert::DoesNotSupportDefaultKeyword;
+use diesel::insertable::ColumnInsertValue;
+use diesel::insertable::DefaultableColumnInsertValue;
+use diesel::insertable::InsertValues;
 use diesel::query_builder::*;
+use diesel::AppearsOnTable;
+use diesel::Column;
+use diesel::Expression;
 use diesel::QueryResult;
 
 pub struct FbQueryBuilder {
@@ -124,6 +131,23 @@ where
         self.group_by.walk_ast(out.reborrow())?;
         self.having.walk_ast(out.reborrow())?;
         self.order.walk_ast(out.reborrow())?;
+        Ok(())
+    }
+}
+
+impl<Col, Expr> QueryFragment<Fb, DoesNotSupportDefaultKeyword>
+    for DefaultableColumnInsertValue<ColumnInsertValue<Col, Expr>>
+where
+    Expr: QueryFragment<Fb>,
+{
+    fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, Fb>) -> QueryResult<()> {
+        // Firebird does not support the DEFAULT keyword.
+        // When the value is None (DefaultableColumnInsertValue::Default),
+        // the column_names method already excluded it from the column list,
+        // so we simply skip emitting anything.
+        if let Self::Expression(ref inner) = *self {
+            inner.walk_ast(out.reborrow())?;
+        }
         Ok(())
     }
 }
