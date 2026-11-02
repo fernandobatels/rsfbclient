@@ -26,13 +26,6 @@ impl SimpleConnection for FbConnection {
     }
 }
 
-impl<'conn, 'query> ConnectionGatWorkaround<'conn, 'query, Fb, DefaultLoadingMode>
-    for FbConnection
-{
-    type Cursor = Box<dyn Iterator<Item = QueryResult<Self::Row>>>;
-    type Row = FbRow;
-}
-
 impl Connection for FbConnection {
     type TransactionManager = FbTransactionManager;
     type Backend = Fb;
@@ -83,6 +76,39 @@ impl Connection for FbConnection {
     ) -> &mut <Self::TransactionManager as TransactionManager<Self>>::TransactionStateData {
         &mut self.tr_manager
     }
+
+    fn instrumentation(&mut self) -> &mut (dyn Instrumentation + 'static) {
+        self.tr_manager.instrumentation()
+    }
+
+    fn set_instrumentation(&mut self, instrumentation: impl Instrumentation) {
+        self.tr_manager.set_instrumentation(instrumentation);
+    }
+
+    fn set_prepared_statement_cache_size(&mut self, _cache_size: CacheSize) {
+        // Firebird doesn't have a prepared statement cache
+    }
+}
+
+impl diesel::connection::ConnectionSealed for FbConnection {}
+
+impl LoadConnection<DefaultLoadingMode> for FbConnection
+where
+    (): Helper,
+{
+    type Cursor<'conn, 'query> = Box<dyn Iterator<Item = QueryResult<FbRow>> + 'query>;
+    type Row<'conn, 'query> = FbRow;
+
+    fn load<'conn, 'query, T>(
+        &'conn mut self,
+        source: T,
+    ) -> QueryResult<<Self as LoadConnection<DefaultLoadingMode>>::Cursor<'conn, 'query>>
+    where
+        T: Query + QueryFragment<Self::Backend> + QueryId + 'query,
+        Self::Backend: diesel::expression::QueryMetadata<T::SqlType>,
+    {
+        <() as Helper>::load(self, source)
+    }
 }
 
 trait Helper {
@@ -95,10 +121,7 @@ trait Helper {
         Fb: diesel::expression::QueryMetadata<T::SqlType>;
 }
 
-impl Helper for ()
-where
-    for<'b> Fb: diesel::backend::HasBindCollector<'b, BindCollector = RawBytesBindCollector<Fb>>,
-{
+impl Helper for () {
     fn load<'conn, 'query, T>(
         conn: &'conn mut FbConnection,
         source: T,
@@ -142,24 +165,6 @@ where
                 .map(FbRow::new)
                 .map(Ok),
         ))
-    }
-}
-
-impl LoadConnection<DefaultLoadingMode> for FbConnection
-where
-    // this additional trait is somehow required
-    // because rustc fails to understand the bound here
-    (): Helper,
-{
-    fn load<'conn, 'query, T>(
-        &'conn mut self,
-        source: T,
-    ) -> QueryResult<LoadRowIter<'conn, 'query, Self, Self::Backend, DefaultLoadingMode>>
-    where
-        T: Query + QueryFragment<Self::Backend> + QueryId + 'query,
-        Self::Backend: diesel::expression::QueryMetadata<T::SqlType>,
-    {
-        <() as Helper>::load(self, source)
     }
 }
 

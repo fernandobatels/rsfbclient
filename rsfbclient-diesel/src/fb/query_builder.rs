@@ -135,27 +135,16 @@ where
     }
 }
 
-impl<Col, Expr> InsertValues<Col::Table, Fb>
-    for DefaultableColumnInsertValue<ColumnInsertValue<Col, Expr>>
-where
-    Col: Column,
-    Expr: Expression<SqlType = Col::SqlType> + AppearsOnTable<NoFromClause>,
-    Self: QueryFragment<Fb>,
-{
-    fn column_names(&self, mut out: AstPass<'_, '_, Fb>) -> QueryResult<()> {
-        if let Self::Expression(..) = *self {
-            out.push_identifier(Col::NAME)?;
-        }
-        Ok(())
-    }
-}
-
 impl<Col, Expr> QueryFragment<Fb, DoesNotSupportDefaultKeyword>
     for DefaultableColumnInsertValue<ColumnInsertValue<Col, Expr>>
 where
     Expr: QueryFragment<Fb>,
 {
     fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, Fb>) -> QueryResult<()> {
+        // Firebird does not support the DEFAULT keyword.
+        // When the value is None (DefaultableColumnInsertValue::Default),
+        // the column_names method already excluded it from the column list,
+        // so we simply skip emitting anything.
         if let Self::Expression(ref inner) = *self {
             inner.walk_ast(out.reborrow())?;
         }
