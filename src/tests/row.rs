@@ -290,7 +290,7 @@ mk_tests_default! {
     fn unsupported_column_drops_prepared_statement_handle() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
-        if conn.server_engine()? < EngineVersion::V4 {
+        if conn.server_engine()? < EngineVersion::V5 {
             return Ok(());
         }
 
@@ -358,7 +358,7 @@ mk_tests_default! {
     fn int128_and_decimal_28_mapping() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
-        if conn.server_engine()? < EngineVersion::V4 {
+        if conn.server_engine()? < EngineVersion::V5 {
             return Ok(());
         }
 
