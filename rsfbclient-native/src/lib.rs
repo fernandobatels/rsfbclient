@@ -1,5 +1,6 @@
 //! `FirebirdConnection` implementation for the native fbclient
 
+mod column_names;
 mod connection;
 pub(crate) mod ibase;
 pub(crate) mod params;

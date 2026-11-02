@@ -66,7 +66,11 @@ pub struct ColumnBuffer {
 impl ColumnBuffer {
     /// Ask Firebird to format scalar columns as text without floating-point loss.
     /// Blobs are returned byte-for-byte, irrespective of their declared subtype.
-    pub(crate) fn from_xsqlvar_text(var: &mut ibase::XSQLVAR) -> Result<Self, FbError> {
+    pub(crate) fn from_xsqlvar_text(
+        var: &mut ibase::XSQLVAR,
+        name: Option<String>,
+        charset: &Charset,
+    ) -> Result<Self, FbError> {
         let original_type = var.sqltype & !1;
         if original_type as u32 == ibase::SQL_BLOB {
             var.sqlsubtype = 0;
@@ -78,13 +82,21 @@ impl ColumnBuffer {
             var.sqlscale = 0;
             var.sqlsubtype = 0;
         }
-        let mut buffer = Self::from_xsqlvar(var)?;
+        let mut buffer = Self::from_xsqlvar_with_name(var, name, charset)?;
         buffer.raw_type = original_type;
         Ok(buffer)
     }
 
     /// Allocate a buffer from an output (column) XSQLVAR, coercing the data types as necessary
     pub fn from_xsqlvar(var: &mut ibase::XSQLVAR) -> Result<Self, FbError> {
+        Self::from_xsqlvar_with_name(var, None, &rsfbclient_core::charset::UTF_8)
+    }
+
+    pub(crate) fn from_xsqlvar_with_name(
+        var: &mut ibase::XSQLVAR,
+        name: Option<String>,
+        charset: &Charset,
+    ) -> Result<Self, FbError> {
         // Remove nullable type indicator
         let sqltype = var.sqltype & (!1);
         let sqlsubtype = var.sqlsubtype;
@@ -182,14 +194,16 @@ impl ColumnBuffer {
 
         var.sqldata = buffer.as_mut_ptr();
 
-        let col_name: Arc<str> = {
+        let col_name: Arc<str> = if let Some(name) = name {
+            name.into()
+        } else {
             let len = usize::min(var.aliasname_length as usize, var.aliasname.len());
             let bname = var.aliasname[..len]
                 .iter()
                 .map(|b| *b as u8)
                 .collect::<Vec<u8>>();
 
-            String::from_utf8(bname)?.into()
+            charset.decode(bname)?.into()
         };
 
         Ok(ColumnBuffer {
