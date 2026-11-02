@@ -30,12 +30,20 @@ pub fn parse_db_info(buffer: &[u8]) -> Vec<DbInfoItem> {
         if tag as u32 == ibase::isc_info_end || tag as u32 == ibase::isc_info_truncated {
             break;
         }
-        let Some(len) = buffer.get(i..i + 2).map(|s| u16::from_le_bytes([s[0], s[1]]) as usize) else { break };
+        let Some(len) = buffer
+            .get(i..i + 2)
+            .map(|s| u16::from_le_bytes([s[0], s[1]]) as usize)
+        else {
+            break;
+        };
         let end = i + 2 + len;
         if end > buffer.len() {
             break;
         }
-        out.push(DbInfoItem { tag, data: buffer[i + 2..end].to_vec() });
+        out.push(DbInfoItem {
+            tag,
+            data: buffer[i + 2..end].to_vec(),
+        });
         i = end;
     }
     out
@@ -171,17 +179,19 @@ impl DbInfo {
                     if d.len() >= 8 {
                         let date = i32::from_le_bytes([d[0], d[1], d[2], d[3]]);
                         let time = u32::from_le_bytes([d[4], d[5], d[6], d[7]]);
-                        info.creation_date = Some(crate::date_time::decode_timestamp(ibase::ISC_TIMESTAMP {
-                            timestamp_date: date,
-                            timestamp_time: time,
-                        }));
+                        info.creation_date =
+                            Some(crate::date_time::decode_timestamp(ibase::ISC_TIMESTAMP {
+                                timestamp_date: date,
+                                timestamp_time: time,
+                            }));
                     }
                 }
                 ibase::isc_info_user_names => {
                     // The payload is one name: a one-byte length, then the bytes.
                     if let Some(&n) = d.first() {
                         let end = (1 + n as usize).min(d.len());
-                        info.user_names.push(String::from_utf8_lossy(&d[1..end]).trim_end().to_string());
+                        info.user_names
+                            .push(String::from_utf8_lossy(&d[1..end]).trim_end().to_string());
                     }
                 }
                 ibase::isc_info_firebird_version => {
@@ -191,7 +201,8 @@ impl DbInfo {
                     for _ in 0..count {
                         let Some(&len) = d.get(i) else { break };
                         let end = (i + 1 + len as usize).min(d.len());
-                        info.versions.push(String::from_utf8_lossy(&d[i + 1..end]).to_string());
+                        info.versions
+                            .push(String::from_utf8_lossy(&d[i + 1..end]).to_string());
                         i = end;
                     }
                 }
@@ -228,12 +239,21 @@ mod tests {
         b.extend(item(ibase::isc_info_page_size, &8192u32.to_le_bytes()));
         b.extend(item(ibase::isc_info_ods_version, &13u32.to_le_bytes()));
         b.extend(item(ibase::isc_info_ods_minor_version, &1u32.to_le_bytes()));
-        b.extend(item(ibase::isc_info_oldest_transaction, &100u32.to_le_bytes()));
+        b.extend(item(
+            ibase::isc_info_oldest_transaction,
+            &100u32.to_le_bytes(),
+        ));
         b.extend(item(ibase::isc_info_oldest_active, &150u32.to_le_bytes()));
         b.extend(item(ibase::isc_info_oldest_snapshot, &150u32.to_le_bytes()));
         // 3.0+: an id beyond i32 arrives as 8 bytes.
-        b.extend(item(ibase::isc_info_next_transaction, &5_000_000_000u64.to_le_bytes()));
-        b.extend(item(ibase::isc_info_sweep_interval, &20000u32.to_le_bytes()));
+        b.extend(item(
+            ibase::isc_info_next_transaction,
+            &5_000_000_000u64.to_le_bytes(),
+        ));
+        b.extend(item(
+            ibase::isc_info_sweep_interval,
+            &20000u32.to_le_bytes(),
+        ));
         b.extend(item(ibase::isc_info_forced_writes, &[1]));
         b.extend(item(ibase::isc_info_no_reserve, &[0]));
         b.extend(item(ibase::isc_info_db_read_only, &[0]));

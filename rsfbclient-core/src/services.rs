@@ -91,7 +91,12 @@ pub fn backup_request(db_name: &str, backup_file: &str, options: SvcBackupOption
 
 /// `backup_request` that leaves out the data of the tables whose names
 /// match `skip_data` (a SIMILAR TO pattern; `gbak -skip_data`, 3.0+).
-pub fn backup_request_skipping(db_name: &str, backup_file: &str, options: SvcBackupOptions, skip_data: Option<&str>) -> Vec<u8> {
+pub fn backup_request_skipping(
+    db_name: &str,
+    backup_file: &str,
+    options: SvcBackupOptions,
+    skip_data: Option<&str>,
+) -> Vec<u8> {
     let mut flags = 0u32;
     if options.metadata_only {
         flags |= ibase::isc_spb_bkp_metadata_only;
@@ -319,9 +324,18 @@ pub fn limbo_resolve_request(db_name: &str, id: u64, action: LimboAction) -> Vec
     let mut req = vec![ibase::isc_action_svc_repair as u8];
     push_string_arg(&mut req, ibase::isc_spb_dbname as u8, db_name);
     let (tag32, tag64) = match action {
-        LimboAction::Commit => (ibase::isc_spb_rpr_commit_trans, ibase::isc_spb_rpr_commit_trans_64),
-        LimboAction::Rollback => (ibase::isc_spb_rpr_rollback_trans, ibase::isc_spb_rpr_rollback_trans_64),
-        LimboAction::TwoPhase => (ibase::isc_spb_rpr_recover_two_phase, ibase::isc_spb_rpr_recover_two_phase_64),
+        LimboAction::Commit => (
+            ibase::isc_spb_rpr_commit_trans,
+            ibase::isc_spb_rpr_commit_trans_64,
+        ),
+        LimboAction::Rollback => (
+            ibase::isc_spb_rpr_rollback_trans,
+            ibase::isc_spb_rpr_rollback_trans_64,
+        ),
+        LimboAction::TwoPhase => (
+            ibase::isc_spb_rpr_recover_two_phase,
+            ibase::isc_spb_rpr_recover_two_phase_64,
+        ),
     };
     if id <= i32::MAX as u64 {
         push_u32_arg(&mut req, tag32 as u8, id as u32);
@@ -372,7 +386,8 @@ pub struct LimboTransaction {
 }
 
 fn take_u32(b: &[u8], at: usize) -> Option<u32> {
-    b.get(at..at + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+    b.get(at..at + 4)
+        .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
 }
 
 fn take_u64(b: &[u8], at: usize) -> Option<u64> {
@@ -384,7 +399,9 @@ fn take_u64(b: &[u8], at: usize) -> Option<u64> {
 }
 
 fn take_string(b: &[u8], at: usize) -> Option<(String, usize)> {
-    let len = b.get(at..at + 2).map(|s| u16::from_le_bytes([s[0], s[1]]) as usize)?;
+    let len = b
+        .get(at..at + 2)
+        .map(|s| u16::from_le_bytes([s[0], s[1]]) as usize)?;
     let text = b.get(at + 2..at + 2 + len)?;
     Some((String::from_utf8_lossy(text).into_owned(), at + 2 + len))
 }
@@ -400,8 +417,13 @@ pub fn parse_limbo_list(payload: &[u8]) -> Vec<LimboTransaction> {
         let tag = payload[i] as u32;
         i += 1;
         match tag {
-            t if t == ibase::isc_spb_single_tra_id || t == ibase::isc_spb_multi_tra_id || t == ibase::isc_spb_single_tra_id_64 || t == ibase::isc_spb_multi_tra_id_64 => {
-                let wide = t == ibase::isc_spb_single_tra_id_64 || t == ibase::isc_spb_multi_tra_id_64;
+            t if t == ibase::isc_spb_single_tra_id
+                || t == ibase::isc_spb_multi_tra_id
+                || t == ibase::isc_spb_single_tra_id_64
+                || t == ibase::isc_spb_multi_tra_id_64 =>
+            {
+                let wide =
+                    t == ibase::isc_spb_single_tra_id_64 || t == ibase::isc_spb_multi_tra_id_64;
                 let id = if wide {
                     match take_u64(payload, i) {
                         Some(v) => {
@@ -421,7 +443,8 @@ pub fn parse_limbo_list(payload: &[u8]) -> Vec<LimboTransaction> {
                 };
                 out.push(LimboTransaction {
                     id,
-                    multi_database: t == ibase::isc_spb_multi_tra_id || t == ibase::isc_spb_multi_tra_id_64,
+                    multi_database: t == ibase::isc_spb_multi_tra_id
+                        || t == ibase::isc_spb_multi_tra_id_64,
                     host_site: None,
                     participants: Vec::new(),
                     advice: None,
@@ -446,7 +469,12 @@ pub fn parse_limbo_list(payload: &[u8]) -> Vec<LimboTransaction> {
                     }
                 };
                 match out.last_mut() {
-                    Some(tx) => tx.participants.push(LimboParticipant { id, state: LimboState::Unknown, remote_site: None, db_path: None }),
+                    Some(tx) => tx.participants.push(LimboParticipant {
+                        id,
+                        state: LimboState::Unknown,
+                        remote_site: None,
+                        db_path: None,
+                    }),
                     None => break,
                 }
             }
@@ -463,8 +491,13 @@ pub fn parse_limbo_list(payload: &[u8]) -> Vec<LimboTransaction> {
                     p.state = state;
                 }
             }
-            t if t == ibase::isc_spb_tra_host_site || t == ibase::isc_spb_tra_remote_site || t == ibase::isc_spb_tra_db_path => {
-                let Some((text, next)) = take_string(payload, i) else { break };
+            t if t == ibase::isc_spb_tra_host_site
+                || t == ibase::isc_spb_tra_remote_site
+                || t == ibase::isc_spb_tra_db_path =>
+            {
+                let Some((text, next)) = take_string(payload, i) else {
+                    break;
+                };
                 i = next;
                 let Some(tx) = out.last_mut() else { break };
                 if t == ibase::isc_spb_tra_host_site {
@@ -641,10 +674,19 @@ pub enum SvcShutdownKind {
 
 /// `gfix -shut <mode> -force|-attach|-tran <seconds>`. The timeout must
 /// be 0–32767.
-pub fn shutdown_request(db_name: &str, mode: SvcShutdownMode, kind: SvcShutdownKind, timeout_seconds: u32) -> Vec<u8> {
+pub fn shutdown_request(
+    db_name: &str,
+    mode: SvcShutdownMode,
+    kind: SvcShutdownKind,
+    timeout_seconds: u32,
+) -> Vec<u8> {
     let mut req = vec![ibase::isc_action_svc_properties as u8];
     push_string_arg(&mut req, ibase::isc_spb_dbname as u8, db_name);
-    push_byte_arg(&mut req, ibase::isc_spb_prp_shutdown_mode as u8, mode.byte());
+    push_byte_arg(
+        &mut req,
+        ibase::isc_spb_prp_shutdown_mode as u8,
+        mode.byte(),
+    );
     let tag = match kind {
         SvcShutdownKind::Force => ibase::isc_spb_prp_force_shutdown,
         SvcShutdownKind::DenyAttachments => ibase::isc_spb_prp_attachments_shutdown,
@@ -717,7 +759,12 @@ pub fn db_stats_request(db_name: &str, options: &SvcStatsOptions) -> Vec<u8> {
     push_u32_arg(&mut req, ibase::isc_spb_options as u8, flags);
     if !options.tables.is_empty() {
         if options.tables_on_command_line {
-            let line = options.tables.iter().map(|t| format!("-t {t}")).collect::<Vec<_>>().join(" ");
+            let line = options
+                .tables
+                .iter()
+                .map(|t| format!("-t {t}"))
+                .collect::<Vec<_>>()
+                .join(" ");
             push_string_arg(&mut req, ibase::isc_spb_command_line as u8, &line);
         } else {
             for t in &options.tables {
@@ -811,12 +858,22 @@ pub fn parse_svc_users(payload: &[u8]) -> Vec<SvcUser> {
         i += 1;
         match tag {
             t if t == ibase::isc_spb_sec_username => {
-                let Some((s, next)) = take_string(payload, i) else { break };
+                let Some((s, next)) = take_string(payload, i) else {
+                    break;
+                };
                 i = next;
-                out.push(SvcUser { name: s, ..Default::default() });
+                out.push(SvcUser {
+                    name: s,
+                    ..Default::default()
+                });
             }
-            t if t == ibase::isc_spb_sec_firstname || t == ibase::isc_spb_sec_middlename || t == ibase::isc_spb_sec_lastname => {
-                let Some((s, next)) = take_string(payload, i) else { break };
+            t if t == ibase::isc_spb_sec_firstname
+                || t == ibase::isc_spb_sec_middlename
+                || t == ibase::isc_spb_sec_lastname =>
+            {
+                let Some((s, next)) = take_string(payload, i) else {
+                    break;
+                };
                 i = next;
                 if let Some(u) = out.last_mut() {
                     if t == ibase::isc_spb_sec_firstname {
@@ -828,7 +885,10 @@ pub fn parse_svc_users(payload: &[u8]) -> Vec<SvcUser> {
                     }
                 }
             }
-            t if t == ibase::isc_spb_sec_userid || t == ibase::isc_spb_sec_groupid || t == ibase::isc_spb_sec_admin => {
+            t if t == ibase::isc_spb_sec_userid
+                || t == ibase::isc_spb_sec_groupid
+                || t == ibase::isc_spb_sec_admin =>
+            {
                 let Some(v) = take_u32(payload, i) else { break };
                 i += 4;
                 if let Some(u) = out.last_mut() {
@@ -880,14 +940,26 @@ pub fn nbak_request(db_name: &str, options: &SvcNbakOptions) -> Vec<u8> {
     if let Some(g) = &options.guid {
         push_string_arg(&mut req, ibase::isc_spb_nbk_guid as u8, g);
     } else {
-        push_u32_arg(&mut req, ibase::isc_spb_nbk_level as u8, options.level.unwrap_or(0));
+        push_u32_arg(
+            &mut req,
+            ibase::isc_spb_nbk_level as u8,
+            options.level.unwrap_or(0),
+        );
     }
     push_string_arg(&mut req, ibase::isc_spb_nbk_file as u8, &options.file);
     if options.no_triggers {
-        push_u32_arg(&mut req, ibase::isc_spb_options as u8, ibase::isc_spb_nbk_no_triggers);
+        push_u32_arg(
+            &mut req,
+            ibase::isc_spb_options as u8,
+            ibase::isc_spb_nbk_no_triggers,
+        );
     }
     if let Some(d) = options.direct {
-        push_string_arg(&mut req, ibase::isc_spb_nbk_direct as u8, if d { "on" } else { "off" });
+        push_string_arg(
+            &mut req,
+            ibase::isc_spb_nbk_direct as u8,
+            if d { "on" } else { "off" },
+        );
     }
     if let Some(keep) = options.clean_history {
         req.push(ibase::isc_spb_nbk_clean_history as u8);
@@ -927,7 +999,11 @@ pub fn nfix_request(db_name: &str, sequence: bool) -> Vec<u8> {
     let mut req = vec![ibase::isc_action_svc_nfix as u8];
     push_string_arg(&mut req, ibase::isc_spb_dbname as u8, db_name);
     if sequence {
-        push_u32_arg(&mut req, ibase::isc_spb_options as u8, ibase::isc_spb_nbk_sequence);
+        push_u32_arg(
+            &mut req,
+            ibase::isc_spb_options as u8,
+            ibase::isc_spb_nbk_sequence,
+        );
     }
     req
 }
@@ -949,7 +1025,11 @@ pub enum SvcInfoItem {
     /// not always UTF-8).
     Bytes { tag: u8, data: Vec<u8> },
     /// `isc_info_svc_svr_db_info`: attachments, databases, names.
-    ServerDbInfo { attachments: u32, databases: u32, names: Vec<String> },
+    ServerDbInfo {
+        attachments: u32,
+        databases: u32,
+        names: Vec<String>,
+    },
     /// The action's output is longer than the buffer: ask again.
     Truncated,
     /// The per-query timeout elapsed before the action produced anything.
@@ -976,15 +1056,29 @@ pub fn parse_svc_items(buffer: &[u8]) -> Vec<SvcInfoItem> {
             t if t == ibase::isc_info_truncated => out.push(SvcInfoItem::Truncated),
             t if t == ibase::isc_info_svc_timeout => out.push(SvcInfoItem::Timeout),
             t if t == ibase::isc_info_data_not_ready => out.push(SvcInfoItem::NotReady),
-            t if t == ibase::isc_info_svc_version || t == ibase::isc_info_svc_capabilities || t == ibase::isc_info_svc_running => {
+            t if t == ibase::isc_info_svc_version
+                || t == ibase::isc_info_svc_capabilities
+                || t == ibase::isc_info_svc_running =>
+            {
                 let Some(v) = take_u32(buffer, i) else { break };
                 i += 4;
                 out.push(SvcInfoItem::Number { tag, value: v });
             }
-            t if t == ibase::isc_info_svc_limbo_trans || t == ibase::isc_info_svc_get_users || t == ibase::isc_info_svc_to_eof => {
-                let Some(len) = buffer.get(i..i + 2).map(|s| u16::from_le_bytes([s[0], s[1]]) as usize) else { break };
+            t if t == ibase::isc_info_svc_limbo_trans
+                || t == ibase::isc_info_svc_get_users
+                || t == ibase::isc_info_svc_to_eof =>
+            {
+                let Some(len) = buffer
+                    .get(i..i + 2)
+                    .map(|s| u16::from_le_bytes([s[0], s[1]]) as usize)
+                else {
+                    break;
+                };
                 let end = (i + 2 + len).min(buffer.len());
-                out.push(SvcInfoItem::Bytes { tag, data: buffer[i + 2..end].to_vec() });
+                out.push(SvcInfoItem::Bytes {
+                    tag,
+                    data: buffer[i + 2..end].to_vec(),
+                });
                 i = end;
             }
             t if t == ibase::isc_info_svc_svr_db_info => {
@@ -1006,18 +1100,26 @@ pub fn parse_svc_items(buffer: &[u8]) -> Vec<SvcInfoItem> {
                             databases = v;
                         }
                         s if s == ibase::isc_spb_dbname => {
-                            let Some((name, next)) = take_string(buffer, i) else { break };
+                            let Some((name, next)) = take_string(buffer, i) else {
+                                break;
+                            };
                             i = next;
                             names.push(name);
                         }
                         _ => break, // isc_info_flag_end, or anything unexpected
                     }
                 }
-                out.push(SvcInfoItem::ServerDbInfo { attachments, databases, names });
+                out.push(SvcInfoItem::ServerDbInfo {
+                    attachments,
+                    databases,
+                    names,
+                });
             }
             _ => {
                 // Every other item the server answers with is a string.
-                let Some((text, next)) = take_string(buffer, i) else { break };
+                let Some((text, next)) = take_string(buffer, i) else {
+                    break;
+                };
                 i = next;
                 out.push(SvcInfoItem::Text { tag, text });
             }
@@ -1044,7 +1146,11 @@ pub fn parse_svc_line_reply(buffer: &[u8]) -> SvcLineReply {
     for it in &items {
         match it {
             SvcInfoItem::Text { tag, text } if *tag == ibase::isc_info_svc_line as u8 => {
-                return if text.is_empty() { SvcLineReply::End } else { SvcLineReply::Line(text.clone()) };
+                return if text.is_empty() {
+                    SvcLineReply::End
+                } else {
+                    SvcLineReply::Line(text.clone())
+                };
             }
             SvcInfoItem::Timeout => return SvcLineReply::Timeout,
             _ => {}
@@ -1066,7 +1172,9 @@ pub fn parse_svc_to_eof(buffer: &[u8]) -> SvcChunk {
     let mut chunk = SvcChunk::default();
     for it in parse_svc_items(buffer) {
         match it {
-            SvcInfoItem::Bytes { tag, data } if tag == ibase::isc_info_svc_to_eof as u8 => chunk.data = data,
+            SvcInfoItem::Bytes { tag, data } if tag == ibase::isc_info_svc_to_eof as u8 => {
+                chunk.data = data
+            }
             SvcInfoItem::Truncated => chunk.more = true,
             _ => {}
         }
@@ -1132,22 +1240,56 @@ mod tests {
 
     #[test]
     fn salvage_restore_flags_and_skip_data() {
-        let req = restore_request("/d/a.fbk", "/d/b.fdb", SvcRestoreOptions { deactivate_indexes: true, no_shadow: true, one_at_a_time: true, ..Default::default() });
+        let req = restore_request(
+            "/d/a.fbk",
+            "/d/b.fdb",
+            SvcRestoreOptions {
+                deactivate_indexes: true,
+                no_shadow: true,
+                one_at_a_time: true,
+                ..Default::default()
+            },
+        );
         let opts_at = 1 + 3 + 8 + 3 + 8;
         // create 0x2000 | deactivate_idx 0x100 | no_shadow 0x200 | one_at_a_time 0x800
         assert_eq!(&req[opts_at..opts_at + 5], &[108, 0x00, 0x2B, 0, 0]);
 
         let plain = backup_request("/d/a.fdb", "/d/a.fbk", SvcBackupOptions::default());
-        let skip = backup_request_skipping("/d/a.fdb", "/d/a.fbk", SvcBackupOptions { ignore_checksums: true, ignore_limbo: true, ..Default::default() }, Some("LOG%"));
+        let skip = backup_request_skipping(
+            "/d/a.fdb",
+            "/d/a.fbk",
+            SvcBackupOptions {
+                ignore_checksums: true,
+                ignore_limbo: true,
+                ..Default::default()
+            },
+            Some("LOG%"),
+        );
         let at = 1 + 3 + 8 + 3 + 8;
         assert_eq!(&skip[at..at + 6], &[8, 4, 0, b'L', b'O', b'G']); // isc_spb_bkp_skip_data, then "LOG%"
         assert_eq!(skip.len(), plain.len() + 3 + 4);
-        assert_eq!(backup_request_skipping("/d/a.fdb", "/d/a.fbk", SvcBackupOptions::default(), Some("  ")), plain);
+        assert_eq!(
+            backup_request_skipping(
+                "/d/a.fdb",
+                "/d/a.fbk",
+                SvcBackupOptions::default(),
+                Some("  ")
+            ),
+            plain
+        );
     }
 
     #[test]
     fn repair_request_flags_and_workers() {
-        let req = repair_request("/d/a.fdb", SvcRepairOptions { validate: true, full: true, ignore_checksums: true, ..Default::default() });
+        let req = repair_request(
+            "/d/a.fdb",
+            SvcRepairOptions {
+                validate: true,
+                full: true,
+                ignore_checksums: true,
+                ..Default::default()
+            },
+        );
         let mut want = vec![3u8, 106, 8, 0];
         want.extend_from_slice(b"/d/a.fdb");
         want.extend_from_slice(&[108, 0xa1, 0, 0, 0]); // 1 | 0x80 | 0x20
@@ -1155,7 +1297,10 @@ mod tests {
 
         let sweep = sweep_request("DB", Some(4));
         assert_eq!(&sweep[..1], &[3]);
-        assert_eq!(&sweep[sweep.len() - 10..], &[108, 2, 0, 0, 0, 52, 4, 0, 0, 0]);
+        assert_eq!(
+            &sweep[sweep.len() - 10..],
+            &[108, 2, 0, 0, 0, 52, 4, 0, 0, 0]
+        );
 
         let list = limbo_list_request("DB");
         assert_eq!(&list[list.len() - 5..], &[108, 8, 0, 0, 0]);
@@ -1205,13 +1350,30 @@ mod tests {
 
         let list = parse_limbo_list(&p);
         assert_eq!(list.len(), 2);
-        assert_eq!(list[0], LimboTransaction { id: 41, multi_database: false, host_site: None, participants: vec![], advice: Some(LimboAdvice::Rollback) });
+        assert_eq!(
+            list[0],
+            LimboTransaction {
+                id: 41,
+                multi_database: false,
+                host_site: None,
+                participants: vec![],
+                advice: Some(LimboAdvice::Rollback)
+            }
+        );
         let m = &list[1];
         assert_eq!(m.id, 6_000_000_000);
         assert!(m.multi_database);
         assert_eq!(m.host_site.as_deref(), Some("linux"));
         assert_eq!(m.participants.len(), 2);
-        assert_eq!(m.participants[0], LimboParticipant { id: 67, state: LimboState::Limbo, remote_site: Some("remote".into()), db_path: Some("/x.fdb".into()) });
+        assert_eq!(
+            m.participants[0],
+            LimboParticipant {
+                id: 67,
+                state: LimboState::Limbo,
+                remote_site: Some("remote".into()),
+                db_path: Some("/x.fdb".into())
+            }
+        );
         assert_eq!(m.participants[1].state, LimboState::Committed);
         assert_eq!(m.advice, Some(LimboAdvice::Commit));
 
@@ -1242,27 +1404,58 @@ mod tests {
         want.extend_from_slice(&[46, 1]); // replica read-only
         want.extend_from_slice(&[108, 0, 4, 0, 0]); // nolinger 0x400
         assert_eq!(req, want);
-        assert_eq!(properties_request("DB", &SvcProperties::default()), vec![8u8, 106, 2, 0, b'D', b'B']);
+        assert_eq!(
+            properties_request("DB", &SvcProperties::default()),
+            vec![8u8, 106, 2, 0, b'D', b'B']
+        );
     }
 
     #[test]
     fn shutdown_and_online_requests() {
-        let req = shutdown_request("DB", SvcShutdownMode::Single, SvcShutdownKind::DenyTransactions, 60);
-        assert_eq!(req, vec![8u8, 106, 2, 0, b'D', b'B', 44, 2, 43, 60, 0, 0, 0]);
+        let req = shutdown_request(
+            "DB",
+            SvcShutdownMode::Single,
+            SvcShutdownKind::DenyTransactions,
+            60,
+        );
+        assert_eq!(
+            req,
+            vec![8u8, 106, 2, 0, b'D', b'B', 44, 2, 43, 60, 0, 0, 0]
+        );
         let forced = shutdown_request("DB", SvcShutdownMode::Full, SvcShutdownKind::Force, 100_000);
-        assert_eq!(&forced[6..], &[44, 3, 41, 0xff, 0x7f, 0, 0], "timeout clamped to 32767");
-        assert_eq!(online_request("DB", SvcShutdownMode::Normal), vec![8u8, 106, 2, 0, b'D', b'B', 45, 0]);
+        assert_eq!(
+            &forced[6..],
+            &[44, 3, 41, 0xff, 0x7f, 0, 0],
+            "timeout clamped to 32767"
+        );
+        assert_eq!(
+            online_request("DB", SvcShutdownMode::Normal),
+            vec![8u8, 106, 2, 0, b'D', b'B', 45, 0]
+        );
     }
 
     #[test]
     fn db_stats_request_tables_as_string_tags_or_command_line() {
-        let opts = SvcStatsOptions { header: true, data_pages: true, index_pages: true, record_versions: true, tables: vec!["T1".into(), "T2".into()], ..Default::default() };
+        let opts = SvcStatsOptions {
+            header: true,
+            data_pages: true,
+            index_pages: true,
+            record_versions: true,
+            tables: vec!["T1".into(), "T2".into()],
+            ..Default::default()
+        };
         let req = db_stats_request("DB", &opts);
         let mut want = vec![11u8, 106, 2, 0, b'D', b'B', 108, 0x2d, 0, 0, 0];
         want.extend_from_slice(&[64, 2, 0, b'T', b'1', 64, 2, 0, b'T', b'2']);
         assert_eq!(req, want);
 
-        let old = db_stats_request("DB", &SvcStatsOptions { tables_on_command_line: true, ..opts });
+        let old = db_stats_request(
+            "DB",
+            &SvcStatsOptions {
+                tables_on_command_line: true,
+                ..opts
+            },
+        );
         let mut want = vec![11u8, 106, 2, 0, b'D', b'B', 108, 0x2d, 0, 0, 0, 105, 11, 0];
         want.extend_from_slice(b"-t T1 -t T2");
         assert_eq!(old, want);
@@ -1270,7 +1463,14 @@ mod tests {
 
     #[test]
     fn validate_request_layout() {
-        let req = validate_request("DB", &SvcValidateOptions { tables_include: Some("(CUST|ORD)%".into()), lock_timeout: Some(0), ..Default::default() });
+        let req = validate_request(
+            "DB",
+            &SvcValidateOptions {
+                tables_include: Some("(CUST|ORD)%".into()),
+                lock_timeout: Some(0),
+                ..Default::default()
+            },
+        );
         let mut want = vec![30u8, 106, 2, 0, b'D', b'B', 1, 11, 0];
         want.extend_from_slice(b"(CUST|ORD)%");
         want.extend_from_slice(&[5, 0, 0, 0, 0]);
@@ -1280,25 +1480,54 @@ mod tests {
 
     #[test]
     fn nbackup_requests() {
-        let req = nbak_request("DB", &SvcNbakOptions { level: Some(1), file: "/b/l1.nbk".into(), no_triggers: true, direct: Some(true), clean_history: Some(SvcNbakKeep::Days(7)), ..Default::default() });
+        let req = nbak_request(
+            "DB",
+            &SvcNbakOptions {
+                level: Some(1),
+                file: "/b/l1.nbk".into(),
+                no_triggers: true,
+                direct: Some(true),
+                clean_history: Some(SvcNbakKeep::Days(7)),
+                ..Default::default()
+            },
+        );
         let mut want = vec![20u8, 106, 2, 0, b'D', b'B', 5, 1, 0, 0, 0, 6, 9, 0];
         want.extend_from_slice(b"/b/l1.nbk");
         want.extend_from_slice(&[108, 1, 0, 0, 0, 7, 2, 0, b'o', b'n', 9, 10, 7, 0, 0, 0]);
         assert_eq!(req, want);
 
-        let by_guid = nbak_request("DB", &SvcNbakOptions { guid: Some("{G}".into()), file: "f".into(), ..Default::default() });
+        let by_guid = nbak_request(
+            "DB",
+            &SvcNbakOptions {
+                guid: Some("{G}".into()),
+                file: "f".into(),
+                ..Default::default()
+            },
+        );
         assert_eq!(&by_guid[6..11], &[8, 3, 0, b'{', b'G']);
 
         let rest = nrest_request("DB", &["l0", "l1"], true, false);
-        assert_eq!(rest, vec![21u8, 106, 2, 0, b'D', b'B', 6, 2, 0, b'l', b'0', 6, 2, 0, b'l', b'1', 108, 2, 0, 0, 0]);
-        assert_eq!(nfix_request("DB", true), vec![31u8, 106, 2, 0, b'D', b'B', 108, 4, 0, 0, 0]);
+        assert_eq!(
+            rest,
+            vec![
+                21u8, 106, 2, 0, b'D', b'B', 6, 2, 0, b'l', b'0', 6, 2, 0, b'l', b'1', 108, 2, 0,
+                0, 0
+            ]
+        );
+        assert_eq!(
+            nfix_request("DB", true),
+            vec![31u8, 106, 2, 0, b'D', b'B', 108, 4, 0, 0, 0]
+        );
     }
 
     #[test]
     fn users_request_and_reply() {
         assert_eq!(display_users_request(None, None), vec![7u8]);
         let req = display_users_request(Some("DB"), Some("JOHN"));
-        assert_eq!(req, vec![7u8, 7, 4, 0, b'J', b'O', b'H', b'N', 106, 2, 0, b'D', b'B']);
+        assert_eq!(
+            req,
+            vec![7u8, 7, 4, 0, b'J', b'O', b'H', b'N', 106, 2, 0, b'D', b'B']
+        );
 
         let mut p = vec![7u8, 6, 0];
         p.extend_from_slice(b"SYSDBA");
@@ -1330,19 +1559,38 @@ mod tests {
         assert_eq!(
             items,
             vec![
-                SvcInfoItem::Text { tag: 55, text: "LI-V5".into() },
+                SvcInfoItem::Text {
+                    tag: 55,
+                    text: "LI-V5".into()
+                },
                 SvcInfoItem::Number { tag: 57, value: 2 },
                 SvcInfoItem::Number { tag: 67, value: 1 },
-                SvcInfoItem::ServerDbInfo { attachments: 3, databases: 1, names: vec!["DB".into()] },
-                SvcInfoItem::Bytes { tag: 66, data: vec![19, 41, 0, 0, 0] },
-                SvcInfoItem::Bytes { tag: 63, data: vec![0xe9, b'a', b'b'] },
+                SvcInfoItem::ServerDbInfo {
+                    attachments: 3,
+                    databases: 1,
+                    names: vec!["DB".into()]
+                },
+                SvcInfoItem::Bytes {
+                    tag: 66,
+                    data: vec![19, 41, 0, 0, 0]
+                },
+                SvcInfoItem::Bytes {
+                    tag: 63,
+                    data: vec![0xe9, b'a', b'b']
+                },
                 SvcInfoItem::Truncated,
                 SvcInfoItem::Timeout,
                 SvcInfoItem::End,
             ]
         );
         let chunk = parse_svc_to_eof(&b[b.len() - 10..]);
-        assert_eq!(chunk, SvcChunk { data: vec![0xe9, b'a', b'b'], more: true });
+        assert_eq!(
+            chunk,
+            SvcChunk {
+                data: vec![0xe9, b'a', b'b'],
+                more: true
+            }
+        );
     }
 
     #[test]
@@ -1366,6 +1614,9 @@ mod tests {
         assert_eq!(parse_svc_line(&[1]), None);
         assert_eq!(parse_svc_line(&[]), None);
         // Truncated buffer: take what is there.
-        assert_eq!(parse_svc_string(&[55, 9, 0, b'a', b'b'], 55), Some("ab".to_string()));
+        assert_eq!(
+            parse_svc_string(&[55, 9, 0, b'a', b'b'], 55),
+            Some("ab".to_string())
+        );
     }
 }

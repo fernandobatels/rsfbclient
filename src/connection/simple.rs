@@ -205,7 +205,11 @@ impl Execute for SimpleConnection {
         }
     }
 
-    fn execute_with_plan<P>(&mut self, sql: &str, params: P) -> Result<(usize, crate::PlanRead), FbError>
+    fn execute_with_plan<P>(
+        &mut self,
+        sql: &str,
+        params: P,
+    ) -> Result<(usize, crate::PlanRead), FbError>
     where
         P: IntoParams,
     {
@@ -259,7 +263,13 @@ impl Queryable for SimpleConnection {
         &'a mut self,
         sql: &str,
         params: P,
-    ) -> Result<(Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, crate::PlanRead), FbError>
+    ) -> Result<
+        (
+            Box<dyn Iterator<Item = Result<R, FbError>> + 'a>,
+            crate::PlanRead,
+        ),
+        FbError,
+    >
     where
         P: IntoParams,
         R: FromRow + 'static,

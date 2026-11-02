@@ -480,7 +480,12 @@ pub fn service_start(svc_handle: u32, request: &[u8]) -> Bytes {
 /// to read back (`isc_info_svc_line`, `isc_info_svc_server_version`, …);
 /// the server answers with an `op_response` whose data is the info
 /// buffer, at most `buffer_length` bytes.
-pub fn service_info(svc_handle: u32, send_items: &[u8], receive_items: &[u8], buffer_length: u32) -> Bytes {
+pub fn service_info(
+    svc_handle: u32,
+    send_items: &[u8],
+    receive_items: &[u8],
+    buffer_length: u32,
+) -> Bytes {
     let mut req = BytesMut::with_capacity(24 + send_items.len() + receive_items.len());
 
     req.put_u32(WireOp::ServiceInfo as u32);
@@ -527,20 +532,32 @@ fn build_spb(
         }
 
         ProtocolVersion::V11 | ProtocolVersion::V12 => {
-            push_attach_arg(&mut spb, ibase::isc_spb_password_enc as u8, legacy_auth_data(pass).as_bytes());
+            push_attach_arg(
+                &mut spb,
+                ibase::isc_spb_password_enc as u8,
+                legacy_auth_data(pass).as_bytes(),
+            );
         }
 
         _ => {
             if let Some(auth) = auth_plugin {
                 if let Some(proof) = auth_proof(auth, user, pass, srp_key)? {
-                    push_attach_arg(&mut spb, ibase::isc_spb_auth_plugin_name as u8, auth.kind.name().as_bytes());
+                    push_attach_arg(
+                        &mut spb,
+                        ibase::isc_spb_auth_plugin_name as u8,
+                        auth.kind.name().as_bytes(),
+                    );
                     push_attach_arg(
                         &mut spb,
                         ibase::isc_spb_auth_plugin_list as u8,
                         AuthPluginType::plugin_list().as_bytes(),
                     );
 
-                    push_attach_arg(&mut spb, ibase::isc_spb_specific_auth_data as u8, proof.as_bytes());
+                    push_attach_arg(
+                        &mut spb,
+                        ibase::isc_spb_specific_auth_data as u8,
+                        proof.as_bytes(),
+                    );
                 }
             }
         }
@@ -1703,7 +1720,10 @@ pub struct SrpAuthData {
 /// the legacy plugin asks with an empty block, and whatever it sent must not
 /// be read as an SRP structure. The data comes before the plugin name on the
 /// wire, so callers read both and hand the raw block here.
-fn plugin_auth_data(plugin: AuthPluginType, raw: &mut Bytes) -> Result<Option<SrpAuthData>, FbError> {
+fn plugin_auth_data(
+    plugin: AuthPluginType,
+    raw: &mut Bytes,
+) -> Result<Option<SrpAuthData>, FbError> {
     match plugin {
         AuthPluginType::Legacy => Ok(None),
         AuthPluginType::Srp | AuthPluginType::Srp256 => parse_srp_auth_data(raw),
@@ -1839,27 +1859,56 @@ mod tests {
         assert!(auth.data.is_none());
 
         // Whatever data block comes with it is not parsed as SRP salt/key.
-        let r = parse_accept(&mut accept_naming(WireOp::AcceptData, "Legacy_Auth", b"\xff\xff")).unwrap();
+        let r = parse_accept(&mut accept_naming(
+            WireOp::AcceptData,
+            "Legacy_Auth",
+            b"\xff\xff",
+        ))
+        .unwrap();
         assert!(!r.continue_auth);
-        assert!(matches!(r.auth_plugin.unwrap().kind, AuthPluginType::Legacy));
+        assert!(matches!(
+            r.auth_plugin.unwrap().kind,
+            AuthPluginType::Legacy
+        ));
     }
 
     /// With WireCrypt = Disabled the legacy hash rides in the attach DPB.
     #[test]
     fn an_attach_left_to_legacy_auth_carries_the_hash() {
-        let auth = AuthPlugin { kind: AuthPluginType::Legacy, data: None, keys: Bytes::new() };
-        let req = attach("db", "SYSDBA", "masterkey", ProtocolVersion::V15, UTF_8, None, Dialect::D3, false, Some(&auth), &[0; 32])
-            .unwrap();
+        let auth = AuthPlugin {
+            kind: AuthPluginType::Legacy,
+            data: None,
+            keys: Bytes::new(),
+        };
+        let req = attach(
+            "db",
+            "SYSDBA",
+            "masterkey",
+            ProtocolVersion::V15,
+            UTF_8,
+            None,
+            Dialect::D3,
+            false,
+            Some(&auth),
+            &[0; 32],
+        )
+        .unwrap();
         let find = |needle: &[u8]| req.windows(needle.len()).any(|w| w == needle);
         assert!(find(b"Legacy_Auth"));
         assert!(find(b"QP3LMZ/MJh."));
-        assert!(!find(b"masterkey"), "the password itself never goes on the wire");
+        assert!(
+            !find(b"masterkey"),
+            "the password itself never goes on the wire"
+        );
     }
 
     #[test]
     fn the_client_never_offers_legacy_auth_itself() {
         assert_eq!(AuthPluginType::plugin_list(), "Srp256,Srp");
-        assert!(matches!(AuthPluginType::parse(b"Legacy_Auth"), Ok(AuthPluginType::Legacy)));
+        assert!(matches!(
+            AuthPluginType::parse(b"Legacy_Auth"),
+            Ok(AuthPluginType::Legacy)
+        ));
         assert!(AuthPluginType::parse(b"Win_Sspi").is_err());
     }
 

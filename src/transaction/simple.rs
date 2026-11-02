@@ -190,7 +190,11 @@ impl<'c> Execute for SimpleTransaction<'c> {
         }
     }
 
-    fn execute_with_plan<P>(&mut self, sql: &str, params: P) -> Result<(usize, crate::PlanRead), FbError>
+    fn execute_with_plan<P>(
+        &mut self,
+        sql: &str,
+        params: P,
+    ) -> Result<(usize, crate::PlanRead), FbError>
     where
         P: IntoParams,
     {
@@ -244,7 +248,13 @@ impl<'c> Queryable for SimpleTransaction<'c> {
         &'a mut self,
         sql: &str,
         params: P,
-    ) -> Result<(Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, crate::PlanRead), FbError>
+    ) -> Result<
+        (
+            Box<dyn Iterator<Item = Result<R, FbError>> + 'a>,
+            crate::PlanRead,
+        ),
+        FbError,
+    >
     where
         P: IntoParams,
         R: FromRow + 'static,

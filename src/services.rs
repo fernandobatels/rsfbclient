@@ -53,10 +53,10 @@
 use rsfbclient_core::{ibase, services, FbError};
 
 pub use rsfbclient_core::services::{
-    LimboAction, LimboAdvice, LimboParticipant, LimboState, LimboTransaction, SvcAccessMode, SvcBackupOptions,
-    SvcInfoItem, SvcLineReply, SvcNbakKeep, SvcNbakOptions, SvcProperties, SvcRepairOptions, SvcReplicaMode,
-    SvcReserveSpace, SvcRestoreOptions, SvcShutdownKind, SvcShutdownMode, SvcStatsOptions, SvcUser,
-    SvcValidateOptions, SvcWriteMode,
+    LimboAction, LimboAdvice, LimboParticipant, LimboState, LimboTransaction, SvcAccessMode,
+    SvcBackupOptions, SvcInfoItem, SvcLineReply, SvcNbakKeep, SvcNbakOptions, SvcProperties,
+    SvcRepairOptions, SvcReplicaMode, SvcReserveSpace, SvcRestoreOptions, SvcShutdownKind,
+    SvcShutdownMode, SvcStatsOptions, SvcUser, SvcValidateOptions, SvcWriteMode,
 };
 
 /// What [`ServiceManager::server_info`] reports.
@@ -387,26 +387,50 @@ impl ServiceManager {
                 })
             });
         let root_dir = self.info_text(ibase::isc_info_svc_get_env).ok().flatten();
-        let lock_dir = self.info_text(ibase::isc_info_svc_get_env_lock).ok().flatten();
-        let msg_dir = self.info_text(ibase::isc_info_svc_get_env_msg).ok().flatten();
-        let security_db = self.info_text(ibase::isc_info_svc_user_dbpath).ok().flatten();
-        let (attachments, databases) = match self.info_items(&[ibase::isc_info_svc_svr_db_info as u8]) {
-            Ok(items) => items
-                .into_iter()
-                .find_map(|it| match it {
-                    SvcInfoItem::ServerDbInfo { attachments, names, .. } => Some((Some(attachments), Some(names))),
-                    _ => None,
-                })
-                .unwrap_or((None, None)),
-            Err(_) => (None, None),
-        };
-        Ok(SvcServerInfo { version, implementation, capabilities, root_dir, lock_dir, msg_dir, security_db, attachments, databases })
+        let lock_dir = self
+            .info_text(ibase::isc_info_svc_get_env_lock)
+            .ok()
+            .flatten();
+        let msg_dir = self
+            .info_text(ibase::isc_info_svc_get_env_msg)
+            .ok()
+            .flatten();
+        let security_db = self
+            .info_text(ibase::isc_info_svc_user_dbpath)
+            .ok()
+            .flatten();
+        let (attachments, databases) =
+            match self.info_items(&[ibase::isc_info_svc_svr_db_info as u8]) {
+                Ok(items) => items
+                    .into_iter()
+                    .find_map(|it| match it {
+                        SvcInfoItem::ServerDbInfo {
+                            attachments, names, ..
+                        } => Some((Some(attachments), Some(names))),
+                        _ => None,
+                    })
+                    .unwrap_or((None, None)),
+                Err(_) => (None, None),
+            };
+        Ok(SvcServerInfo {
+            version,
+            implementation,
+            capabilities,
+            root_dir,
+            lock_dir,
+            msg_dir,
+            security_db,
+            attachments,
+            databases,
+        })
     }
 
     /// Is the started action still running (`isc_info_svc_running`)?
     pub fn is_running(&mut self) -> Result<bool, FbError> {
         let items = self.info_items(&[ibase::isc_info_svc_running as u8])?;
-        Ok(items.iter().any(|it| matches!(it, SvcInfoItem::Number { value, .. } if *value != 0)))
+        Ok(items
+            .iter()
+            .any(|it| matches!(it, SvcInfoItem::Number { value, .. } if *value != 0)))
     }
 
     /// One line of the running action's output. With a timeout the call
@@ -414,7 +438,9 @@ impl ServiceManager {
     /// instead of blocking — the way to keep a Stop button responsive on
     /// an action that prints nothing (sweep, validate, properties).
     pub fn next_line(&mut self, timeout_seconds: Option<u16>) -> Result<SvcLineReply, FbError> {
-        let send = timeout_seconds.map(services::svc_timeout_send_items).unwrap_or_default();
+        let send = timeout_seconds
+            .map(services::svc_timeout_send_items)
+            .unwrap_or_default();
         let mut buffer = vec![0u8; 8192];
         self.query(&send, &[ibase::isc_info_svc_line as u8], &mut buffer)?;
         Ok(services::parse_svc_line_reply(&buffer))
