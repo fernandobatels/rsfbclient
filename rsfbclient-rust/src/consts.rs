@@ -10,7 +10,46 @@ pub enum ProtocolVersion {
     V10 = 0x0000000A,
     V11 = 0xFFFF800B,
     V12 = 0xFFFF800C,
+    /// Firebird 3: auth plugins (op_cont_auth), packed (null-bitmap) rows.
     V13 = 0xFFFF800D,
+    /// Crypt-key callback fix. No client-visible change for this crate.
+    V14 = 0xFFFF800E,
+    /// Crypt-key callback at connect. No client-visible change for this crate.
+    /// Firebird 3 negotiates this one.
+    V15 = 0xFFFF800F,
+    /// Firebird 4: statement timeouts — op_execute/op_execute2 carry a
+    /// trailing `p_sqldata_timeout` (see `wire::put_execute_tail`).
+    V16 = 0xFFFF8010,
+    /// op_batch_sync / op_info_batch. Nothing this crate sends uses them.
+    V17 = 0xFFFF8011,
+    /// op_fetch_scroll — op_execute/op_execute2 gain `p_sqldata_cursor_flags`.
+    V18 = 0xFFFF8012,
+    /// Firebird 5.0.2+: `op_inline_blob` — the server ships small blobs with
+    /// the rows, announced through `p_sqldata_inline_blob_size` on execute.
+    V19 = 0xFFFF8013,
+}
+
+impl ProtocolVersion {
+    /// Protocol number without the `FB_PROTOCOL_FLAG` sign extension (10..=19).
+    pub fn number(self) -> u16 {
+        (self as u32 & 0xFFFF & !0x8000) as u16
+    }
+
+    /// Every version this crate can talk, oldest first. Versions 17 and 18
+    /// are deliberately not offered: nothing this crate sends uses their
+    /// features, and the server picks the highest *offered* version it
+    /// supports, so skipping them costs nothing (an FB 5.0.0/5.0.1 server,
+    /// which stops at 18, simply answers 16).
+    pub const OFFERED: [ProtocolVersion; 8] = [
+        ProtocolVersion::V10,
+        ProtocolVersion::V11,
+        ProtocolVersion::V12,
+        ProtocolVersion::V13,
+        ProtocolVersion::V14,
+        ProtocolVersion::V15,
+        ProtocolVersion::V16,
+        ProtocolVersion::V19,
+    ];
 }
 
 #[derive(Debug, TryFromPrimitive)]
@@ -104,6 +143,10 @@ pub enum WireOp {
 
     /// Response from execute, exec immed, insert
     SqlResponse = 78,
+
+    /// Protocol 19+: a blob the server inlined ahead of the row that
+    /// references it (`P_INLINE_BLOB`: tran id, blob id, blob info, data)
+    InlineBlob = 114,
     /// Drop database request
     DropDatabase = 81,
     ServiceAttach = 82,
