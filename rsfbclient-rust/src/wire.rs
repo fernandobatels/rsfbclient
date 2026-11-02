@@ -253,7 +253,7 @@ fn build_dpb(
     if let Some(ps) = page_size {
         params.push(DpbData {
             tag: ibase::isc_dpb_page_size as u8,
-            data: ps.to_be_bytes().to_vec().into(),
+            data: ps.to_le_bytes().to_vec().into(),
         });
     }
 
@@ -1961,6 +1961,33 @@ mod tests {
         match pc {
             ParsedColumn::Complete(c) => format!("complete {:?}", c.value),
             ParsedColumn::Blob { id, .. } => format!("pending blob {:#x}", id.0),
+        }
+    }
+}
+
+#[cfg(test)]
+mod page_size_tests {
+    use super::*;
+    #[test]
+    fn database_page_size_is_a_little_endian_dpb_integer() {
+        for size in [4096u32, 8192, 16384, 32768] {
+            let dpb = build_dpb(
+                "SYSDBA",
+                "test",
+                ProtocolVersion::V13,
+                rsfbclient_core::charset::UTF_8,
+                Some(size),
+                None,
+                Dialect::D3,
+                false,
+                None,
+                &[0; 32],
+            )
+            .unwrap();
+            assert_eq!(dpb[0], ibase::isc_dpb_version1 as u8);
+            assert_eq!(dpb[1], ibase::isc_dpb_page_size as u8);
+            assert_eq!(dpb[2], 4);
+            assert_eq!(&dpb[3..7], &size.to_le_bytes());
         }
     }
 }
