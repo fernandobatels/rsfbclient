@@ -12,6 +12,23 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
+    fn native_error_messages_keep_the_complete_utf8_text() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+        let message = format!("{}-END", "Ж".repeat(300));
+        conn.with_transaction(|tr| {
+            tr.execute_immediate("CREATE EXCEPTION LONG_MESSAGE_TEST 'test'")?;
+            let error = tr.execute_immediate(&format!("EXECUTE BLOCK AS BEGIN EXCEPTION LONG_MESSAGE_TEST '{message}'; END")).unwrap_err();
+            assert!(error.to_string().contains(&message), "{error}");
+            tr.execute_immediate("CREATE PROCEDURE NATIVE_LONG_STACK_TEST (N INTEGER) AS BEGIN IF (N = 0) THEN EXCEPTION LONG_MESSAGE_TEST; ELSE EXECUTE PROCEDURE NATIVE_LONG_STACK_TEST (N - 1); END")?;
+            let error = tr.execute_immediate("EXECUTE PROCEDURE NATIVE_LONG_STACK_TEST(30)").unwrap_err().to_string();
+            assert!(error.matches("NATIVE_LONG_STACK_TEST").count() >= 30, "{error}");
+            tr.execute_immediate("DROP PROCEDURE NATIVE_LONG_STACK_TEST")?;
+            tr.execute_immediate("DROP EXCEPTION LONG_MESSAGE_TEST")?;
+            Ok(())
+        })
+    }
+
+    #[test]
     fn long_sql_is_never_truncated_to_a_u16_length() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
         if conn.server_engine()? <= EngineVersion::V2 { return Ok(()); }
