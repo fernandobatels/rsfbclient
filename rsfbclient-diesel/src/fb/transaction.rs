@@ -1,22 +1,50 @@
 //! Firebird transaction
 
 use super::connection::FbConnection;
-use diesel::connection::TransactionManagerStatus;
+use diesel::connection::{Instrumentation, TransactionManagerStatus};
 use diesel::result::DatabaseErrorKind;
 use diesel::result::Error::DatabaseError;
 use diesel::QueryResult;
 use diesel::{connection::*, RunQueryDsl};
+use std::fmt;
+
+struct NoOpInstrumentation;
+
+impl Instrumentation for NoOpInstrumentation {
+    fn on_connection_event(&mut self, _event: diesel::connection::InstrumentationEvent<'_>) {}
+}
+
+impl fmt::Debug for NoOpInstrumentation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NoOpInstrumentation").finish()
+    }
+}
 
 /// Firebird transaction manager
 pub struct FbTransactionManager {
     status: TransactionManagerStatus,
+    instrumentation: Option<Box<dyn Instrumentation>>,
 }
 
 impl FbTransactionManager {
     pub fn new() -> Self {
         FbTransactionManager {
             status: Default::default(),
+            instrumentation: None,
         }
+    }
+
+    pub fn instrumentation(&mut self) -> &mut (dyn Instrumentation + 'static) {
+        self.instrumentation
+            .get_or_insert_with(|| {
+                diesel::connection::get_default_instrumentation()
+                    .unwrap_or_else(|| Box::new(NoOpInstrumentation))
+            })
+            .as_mut()
+    }
+
+    pub fn set_instrumentation(&mut self, inst: impl Instrumentation) {
+        self.instrumentation = Some(Box::new(inst));
     }
 
     fn get_transaction_state(

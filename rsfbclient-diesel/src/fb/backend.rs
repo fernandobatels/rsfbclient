@@ -12,18 +12,12 @@ pub struct Fb;
 
 impl Backend for Fb {
     type QueryBuilder = FbQueryBuilder;
+    type RawValue<'a> = super::value::FbValue<'a>;
+    type BindCollector<'a> = RawBytesBindCollector<Fb>;
 }
 
 impl TrustedBackend for Fb {}
 impl DieselReserveSpecialization for Fb {}
-
-impl<'a> HasBindCollector<'a> for Fb {
-    type BindCollector = RawBytesBindCollector<Fb>;
-}
-
-impl<'a> HasRawValue<'a> for Fb {
-    type RawValue = FbValue<'a>;
-}
 
 impl TypeMetadata for Fb {
     type TypeMetadata = SupportedType;
@@ -43,8 +37,7 @@ impl SqlDialect for Fb {
 
     type OnConflictClause = sql_dialect::on_conflict_clause::DoesNotSupportOnConflictClause;
 
-    type InsertWithDefaultKeyword =
-        sql_dialect::default_keyword_for_insert::DoesNotSupportDefaultKeyword;
+    type InsertWithDefaultKeyword = sql_dialect::default_keyword_for_insert::IsoSqlDefaultKeyword;
 
     type BatchInsertSupport = sql_dialect::batch_insert_support::DoesNotSupportBatchInsert;
 
@@ -56,4 +49,14 @@ impl SqlDialect for Fb {
 
     type ArrayComparison = sql_dialect::array_comparison::AnsiSqlArrayComparison;
     type SelectStatementSyntax = FbSelectStatementSyntax;
+
+    type AliasSyntax = sql_dialect::alias_syntax::AsAliasSyntax;
+    type WindowFrameClauseGroupSupport =
+        sql_dialect::window_frame_clause_group_support::NoGroupWindowFrameUnit;
+    type WindowFrameExclusionSupport =
+        sql_dialect::window_frame_exclusion_support::NoFrameFrameExclusionSupport;
+    type AggregateFunctionExpressions =
+        sql_dialect::aggregate_function_expressions::NoAggregateFunctionExpressions;
+    type BuiltInWindowFunctionRequireOrder =
+        sql_dialect::built_in_window_function_require_order::NoOrderRequired;
 }
