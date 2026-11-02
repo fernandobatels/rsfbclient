@@ -138,11 +138,15 @@ impl<'a, D: Digest> SrpClient<'a, D> {
                 BigUint::from_bytes_be(&Sha1::new().chain_update(g.to_bytes_be()).finalize())
             };
             // Firebird hashes this with SHA1 for some reason
+            // Firebird converts H(I) to BigInteger before makeProof/processInt.
+            // Its unsigned serialization removes leading zero bytes. Keeping
+            // the raw 20-byte digest rejects otherwise valid account names.
             let hu = Sha1::new().chain_update(user).finalize();
+            let first = hu.iter().position(|byte| *byte != 0).unwrap_or(hu.len());
 
             D::new()
                 .chain_update((hn.modpow(&hg, &self.params.n)).to_bytes_be())
-                .chain_update(hu)
+                .chain_update(&hu[first..])
                 .chain_update(salt)
                 .chain_update(&self.a_pub.to_bytes_be())
                 .chain_update(&b_pub.to_bytes_be())
@@ -239,6 +243,7 @@ impl SrpGroup {
 mod test {
     use super::SRP_GROUP;
     use crate::srp::{srp_private_key, SrpClient};
+    use digest::Digest;
     use num_bigint::BigUint;
     use sha1::Sha1;
     use sha2::Sha256;
@@ -289,7 +294,7 @@ mod test {
         // Real ones are received from server
         let salt = b"9\xe0\xee\x06\xa9]\xbe\xa7\xe4V\x08\xb1g\xa1\x93\x19\xf6\x11\xcb@\t\xeb\x9c\xf8\xe5K_;\xd1\xeb\x0f\xde";
         let serv_pub = BigUint::parse_bytes(
-            b"dc341bd8a8584dd0d69dda440550fb0f16c5b258f5b8fb422d5e2d92652006862cc6bb8dbd5fdd00f1744b75196a894dff7616742eb305ab1af96c39cbff4a80d088bf82c44e146cc176def524d700037608fd2c2bf193ffc59509d2cd3e1c792bfa9b623cbb3cf105b2ec0048f942f879253e0e3f26de88dd7a56e0a12d6fc", 
+            b"dc341bd8a8584dd0d69dda440550fb0f16c5b258f5b8fb422d5e2d92652006862cc6bb8dbd5fdd00f1744b75196a894dff7616742eb305ab1af96c39cbff4a80d088bf82c44e146cc176def524d700037608fd2c2bf193ffc59509d2cd3e1c792bfa9b623cbb3cf105b2ec0048f942f879253e0e3f26de88dd7a56e0a12d6fc",
             16
         ).unwrap().to_bytes_be();
 
@@ -313,6 +318,35 @@ mod test {
         );
     }
 
+    fn leading_zero_identity_proof<D: Digest>(expected: &str) {
+        let user = b"STUDIO_SRP_10";
+        let password = b"test_only_srp_password";
+        let salt = [b's'; 32];
+        assert_eq!(
+            hex::encode(Sha1::digest(user)),
+            "00c5a7f0ad7f1af4aef781422bbc21b892951d9b"
+        );
+        // Independent server-side SRP calculation using Firebird 5.0.4's
+        // group, a=[1;32], b=[2;32] and its unsigned-integer proof encoding.
+        let server=hex::decode("98f5e5f991374a24de27466282e2c734e51e91015e945a9cdfabd9b927943a55d938fc5e47912b817338e1858a141c96c4fdac3a8a3e377ca4dcce9702f2bb87a892e57b775cd20a07a42fe43c861e432252470bafd9515c2a52e7c2a70c7df341c9a49a7222b056fad6505d86223a93a593a8fc8130c7ec4c22cd0d78ecefa8").unwrap();
+        let private = srp_private_key::<Sha1>(user, password, &salt);
+        let verifier = SrpClient::<D>::new(&[1; 32], &SRP_GROUP)
+            .process_reply(user, &salt, &private, &server)
+            .unwrap();
+        assert_eq!(hex::encode(verifier.get_proof()), expected);
+        assert_eq!(
+            hex::encode(verifier.get_key()),
+            "1567088b6d80c5cdde45eee410d55063b972e847"
+        );
+    }
+    #[test]
+    fn leading_zero_identity_matches_firebird_srp_and_srp256_proofs() {
+        leading_zero_identity_proof::<Sha1>("30eaef727890c6e2203f73f3efec3320e6b45b9a");
+        leading_zero_identity_proof::<Sha256>(
+            "13039ab7d3d4457feecdbb74aa8ee7305cd35c2686eeea3074442ed8b6469010",
+        );
+    }
+
     #[test]
     fn srp256() {
         let user = b"SYSDBA";
@@ -326,7 +360,7 @@ mod test {
         // Real ones are received from server
         let salt = b"\x02\xe2h\x800\x00\x00\x00y\xa4x\xa7\x00\x00\x00\x02\xd1\xa6\x97\x90\x00\x00\x00&\xe1`\x1c\x00\x00\x00\x05O";
         let serv_pub = BigUint::parse_bytes(
-            b"57bcd7d4241869e616ed54b5ab1814ca7b97b04bc269c4054a1325708a9f80821efeade02b875d2bda35c7e1e217ff7ef432c77720aa57baa250bdfbca47de56cccdfa8a6e82c74a99e4ae3db3f07f88d4b583169180fc78e70672e10746da0a27c5709e9b67fab4eaa7b426ac1cebf506d6cdaec1c1a0ade0e9e63a4a89d80a", 
+            b"57bcd7d4241869e616ed54b5ab1814ca7b97b04bc269c4054a1325708a9f80821efeade02b875d2bda35c7e1e217ff7ef432c77720aa57baa250bdfbca47de56cccdfa8a6e82c74a99e4ae3db3f07f88d4b583169180fc78e70672e10746da0a27c5709e9b67fab4eaa7b426ac1cebf506d6cdaec1c1a0ade0e9e63a4a89d80a",
             16,
         ).unwrap().to_bytes_be();
 
