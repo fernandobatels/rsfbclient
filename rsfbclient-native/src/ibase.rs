@@ -194,16 +194,16 @@ parse_functions! {
     //         arg6: *mut ::std::os::raw::c_ushort,
     //     ) -> ISC_STATUS;
     // }
-    // extern "C" {
-    //     pub fn isc_blob_info(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_blob_handle,
-    //         arg3: ::std::os::raw::c_short,
-    //         arg4: *const ISC_SCHAR,
-    //         arg5: ::std::os::raw::c_short,
-    //         arg6: *mut ISC_SCHAR,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "system" {
+        pub fn isc_blob_info(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_blob_handle,
+            arg3: ::std::os::raw::c_short,
+            arg4: *const ISC_SCHAR,
+            arg5: ::std::os::raw::c_short,
+            arg6: *mut ISC_SCHAR,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_blob_lookup_desc(
     //         arg1: *mut ISC_STATUS,
