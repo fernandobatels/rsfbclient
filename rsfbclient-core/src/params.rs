@@ -1,7 +1,6 @@
 //! Sql parameter types and traits
 
 use crate::{error::FbError, ibase, SqlType};
-use regex::{Captures, Regex};
 use std::collections::HashMap;
 
 pub use SqlType::*;
@@ -139,18 +138,9 @@ pub enum ParamsType {
     ///
     /// Support for this kind of parameter is provided by this library.
     ///
-    /// Currently only a naive regex-based approach is used, to support very basic
-    /// select, insert, etc statements
-    ///
-    /// **CAUTION!**
-    /// Named parameter support is still very preliminary.
-    /// Use of named parameters may currently give unexpected results. Please test your queries carefully
-    /// when using this feature.
-    ///
-    /// In particular, the simple regex-based parser is known to definitely to have trouble with:
-    ///   * occurences of apostrophe (`'`) anywhere except as string literal delimiters (for example, in comments)
-    ///   * statements with closed variable bindings (which uses the `:var` syntax) (for example, in PSQL via `EXECUTE BLOCK` or `EXECUTE PROCEDURE`)
-    ///
+    /// Quoted strings, identifiers, alternative literals and SQL comments are
+    /// preserved. This mode is for DSQL parameters. Use positional parameters
+    /// when the statement contains PSQL-local `:variable` references.
     ///
     /// This crate provides a [derive macro](prelude/derive.IntoParams.html) for supplying arguments via the fields of a struct and their labels.
     Named(HashMap<String, SqlType>),
@@ -258,27 +248,18 @@ impl NamedParams {
     /// Parse the sql statement and return a
     /// structure representing the named parameters found
     pub fn parse(raw_sql: &str) -> Result<Self, FbError> {
-        let rparams = Regex::new(r#"('[^']*')|:\w+"#)
-            .map_err(|e| FbError::from(format!("Error on start the regex for named params: {}", e)))
-            .unwrap();
-
         let mut params_names = vec![];
-        let sql = rparams
-            .replace_all(raw_sql, |caps: &Captures| match caps.get(1) {
-                Some(same) => same.as_str().to_string(),
-                None => "?".to_string(),
-            })
-            .to_string();
-
-        for params in rparams.captures_iter(raw_sql) {
-            for param in params
-                .iter()
-                .filter_map(|p| p.map(|m| m.as_str()))
-                .filter(|p| p.starts_with(':'))
-            {
-                params_names.push(param.replace(':', ""));
+        let mut sql = String::with_capacity(raw_sql.len());
+        let mut start = 0;
+        for marker in crate::sql_params::sql_parameters(raw_sql)? {
+            if let Some(name) = marker.name {
+                sql.push_str(&raw_sql[start..marker.range.start]);
+                sql.push('?');
+                start = marker.range.end;
+                params_names.push(name);
             }
         }
+        sql.push_str(&raw_sql[start..]);
 
         Ok(NamedParams { sql, params_names })
     }
