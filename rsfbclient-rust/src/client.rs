@@ -370,6 +370,19 @@ impl FirebirdClientSqlOps for RustFbClient {
             .unwrap_or_else(err_client_not_connected)
     }
 
+    fn execute_cursor(
+        &mut self,
+        _db_handle: &mut Self::DbHandle,
+        tr_handle: &mut Self::TrHandle,
+        stmt_handle: &mut Self::StmtHandle,
+        params: Vec<SqlType>,
+    ) -> Result<(), FbError> {
+        self.conn
+            .as_mut()
+            .map(|conn| conn.execute_cursor(tr_handle, stmt_handle, &params))
+            .unwrap_or_else(err_client_not_connected)
+    }
+
     fn execute2(
         &mut self,
         _db_handle: &mut Self::DbHandle,
@@ -1013,12 +1026,12 @@ impl FirebirdWireConnection {
     }
 
     /// Execute the prepared statement with parameters
-    pub fn execute(
+    pub fn execute_cursor(
         &mut self,
         tr_handle: &mut TrHandle,
         stmt_handle: &mut StmtHandleData,
         params: &[SqlType],
-    ) -> Result<usize, FbError> {
+    ) -> Result<(), FbError> {
         if params.len() != stmt_handle.param_count {
             return Err(format!(
                 "Tried to execute a statement that has {} parameters while providing {}",
@@ -1048,6 +1061,18 @@ impl FirebirdWireConnection {
         self.socket.flush()?;
 
         self.read_response()?;
+
+        Ok(())
+    }
+
+    /// Execute and request the affected-row count for non-cursor callers.
+    pub fn execute(
+        &mut self,
+        tr_handle: &mut TrHandle,
+        stmt_handle: &mut StmtHandleData,
+        params: &[SqlType],
+    ) -> Result<usize, FbError> {
+        self.execute_cursor(tr_handle, stmt_handle, params)?;
 
         // Get affected rows
         self.socket.write_all(&info_sql(
@@ -2709,3 +2734,7 @@ fn connection_test() {
 
     std::thread::sleep(std::time::Duration::from_millis(100));
 }
+
+#[cfg(test)]
+#[path = "cursor_execution_tests.rs"]
+mod cursor_execution_tests;
