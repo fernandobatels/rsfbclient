@@ -115,6 +115,20 @@ pub trait FirebirdClientSqlOps {
         params: Vec<SqlType>,
     ) -> Result<usize, FbError>;
 
+    /// Open a result cursor without requesting an unused affected-row count.
+    /// Adapters can override this to avoid a metadata round trip. The default
+    /// keeps existing client implementations compatible.
+    fn execute_cursor(
+        &mut self,
+        db_handle: &mut Self::DbHandle,
+        tr_handle: &mut Self::TrHandle,
+        stmt_handle: &mut Self::StmtHandle,
+        params: Vec<SqlType>,
+    ) -> Result<(), FbError> {
+        self.execute(db_handle, tr_handle, stmt_handle, params)
+            .map(|_| ())
+    }
+
     /// Execute the prepared statement
     /// with input and output parameters.
     ///
