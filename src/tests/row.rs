@@ -266,6 +266,54 @@ mk_tests_default! {
         Ok(())
     }
 
+    // fernandobatels/rsfbclient#197: reading a text blob that has a character set through
+    // `cast(... as blob sub_type 0)` on a UTF8 connection to Firebird 5.0.3+ never reaches
+    // isc_segstr_eof in fbclient (FirebirdSQL/firebird#9234). The driver must return an
+    // error instead of reading memory until the process dies, and the connection must
+    // stay usable afterwards.
+    #[test]
+    fn blob_cast_to_binary_from_text_with_charset() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        conn.execute("DROP TABLE RBLOBCASTBIN", ()).ok();
+        conn.execute("CREATE TABLE RBLOBCASTBIN (content blob sub_type 1 character set iso8859_1)", ())?;
+        conn.execute("insert into rblobcastbin (content) values ('ABCDEFGHIJ')", ())?;
+
+        let read = conn.query_first::<_, (Vec<u8>,)>("select cast(content as blob sub_type 0) from rblobcastbin", ());
+        match read {
+            Ok(row) => assert_eq!(Some((b"ABCDEFGHIJ".to_vec(),)), row),
+            Err(FbError::Other(msg)) => assert!(msg.contains("issues/197"), "unexpected error: {}", msg),
+            Err(e) => return Err(e),
+        }
+
+        let (one,): (i32,) = conn.query_first("select 1 from rdb$database", ())?.unwrap();
+        assert_eq!(1, one);
+
+        Ok(())
+    }
+
+    // A text blob the server transliterates to the connection charset (iso8859_1 column
+    // read on the UTF8 connection) must still come whole: the bounds that stop a runaway
+    // read must not stop a healthy one.
+    #[test]
+    fn big_blob_text_transliterated() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+
+        // About 300 KB of text with accents: 1 byte per char in iso8859_1, up to 2 in UTF-8
+        let text: String = "Ação, café, maçã, pingüim, Übergröße. ".repeat(8000);
+
+        conn.execute("DROP TABLE RBIGBLOBLATIN", ()).ok();
+        conn.execute("CREATE TABLE RBIGBLOBLATIN (content blob sub_type 1 character set iso8859_1)", ())?;
+
+        conn.execute("insert into rbigbloblatin (content) values (?)", (&text,))?;
+
+        let (s,): (String,) = conn.query_first("select content from rbigbloblatin", ())?.unwrap();
+
+        assert_eq!(text, s);
+
+        Ok(())
+    }
+
     #[test]
     fn dates() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
