@@ -139,7 +139,7 @@ pub fn setup(conn: &mut FbConnection) -> Result<(), String> {
         .ok();
 
     conn.batch_execute("drop table types1null").ok();
-    conn.batch_execute("create table types1null(id int, a varchar(50), b int, c float, d char(2))")
+    conn.batch_execute("create table types1null(id int, a varchar(50) default null, b int default null, c float default null, d char(2) default null)")
         .ok();
 
     conn.batch_execute("drop table types2").ok();
@@ -155,8 +155,10 @@ pub fn setup(conn: &mut FbConnection) -> Result<(), String> {
     let se = conn.raw.server_engine().map_err(|e| e.to_string())?;
     if se >= EngineVersion::V3 {
         conn.batch_execute("drop table bool_type").ok();
-        conn.batch_execute("create table bool_type(id int, a boolean, b boolean, c boolean)")
-            .ok();
+        conn.batch_execute(
+            "create table bool_type(id int, a boolean, b boolean, c boolean default null)",
+        )
+        .ok();
     }
 
     conn.batch_execute("drop table blob_type").ok();
