@@ -3,7 +3,7 @@
 use super::schema;
 use crate::FbConnection;
 use diesel::*;
-use rsfbclient::{EngineVersion, SystemInfos};
+use rsfbclient::{EngineVersion, FbError, SystemInfos};
 use std::str;
 
 #[test]
@@ -40,9 +40,13 @@ fn types1() -> Result<(), String> {
 }
 
 #[test]
-fn null() -> Result<(), String> {
+fn null() -> Result<(), FbError> {
     let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
+
+    if conn.raw.server_engine()? < EngineVersion::V4 {
+        return Ok(());
+    }
 
     schema::setup(&mut conn)?;
 
@@ -131,12 +135,11 @@ fn types2() -> Result<(), String> {
 
 #[test]
 #[allow(clippy::bool_assert_comparison)]
-fn boolean() -> Result<(), String> {
+fn boolean() -> Result<(), FbError> {
     let mut conn = FbConnection::establish("firebird://SYSDBA:masterkey@localhost/test.fdb")
         .map_err(|e| e.to_string())?;
 
-    let se = conn.raw.server_engine().map_err(|e| e.to_string())?;
-    if se <= EngineVersion::V2 {
+    if conn.raw.server_engine()? < EngineVersion::V4 {
         return Ok(());
     }
 
