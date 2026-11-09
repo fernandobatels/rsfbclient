@@ -255,6 +255,26 @@ mk_tests_default! {
     }
 
     #[test]
+    fn custom_negative_blob_subtypes_preserve_binary_data() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+        for subtype in [i16::MIN, -1, 0] {
+            // Small values can be inlined by protocol 19; large ones use BLOB reads.
+            for length in [7, 100_000] {
+                let payload: Vec<u8> = [0u8, 255, 128, 0, 1, 2, 3].into_iter().cycle().take(length).collect();
+                let sql = format!("SELECT CAST(? AS BLOB SUB_TYPE {subtype}) FROM RDB$DATABASE");
+                let (actual,): (Vec<u8>,) = conn.query_first(&sql, (&payload,))?.unwrap();
+                assert_eq!(actual, payload, "subtype {subtype}, length {length}");
+                let sql = format!("SELECT CAST(NULL AS BLOB SUB_TYPE {subtype}) FROM RDB$DATABASE");
+                let (actual,): (Option<Vec<u8>>,) = conn.query_first(&sql, ())?.unwrap();
+                assert_eq!(actual, None);
+            }
+        }
+        let (text,): (String,) = conn.query_first("SELECT CAST('text' AS BLOB SUB_TYPE TEXT) FROM RDB$DATABASE", ())?.unwrap();
+        assert_eq!(text, "text");
+        Ok(())
+    }
+
+    #[test]
     fn blob_custom_subtype() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
 
