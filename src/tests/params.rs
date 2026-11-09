@@ -10,6 +10,23 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
+    fn large_text_blob_uses_utf8_with_a_legacy_attachment_charset() -> Result<(), FbError> {
+        let mut conn = cbuilder().charset(crate::charset::WIN_1251).connect()?;
+        conn.execute("RECREATE TABLE PTEXT_UTF8 (id INTEGER, content BLOB SUB_TYPE TEXT CHARACTER SET UTF8)", ())?;
+        // UTF8 needs 40000 bytes but WIN1251 only 20000: the descriptor and
+        // the parameter buffer must still agree that this is a text BLOB.
+        let text = "Ж".repeat(20000);
+        conn.execute("INSERT INTO PTEXT_UTF8 VALUES (?, ?)", (1, text.clone())).map_err(|e| FbError::from(format!("legacy insert: {e}")))?;
+        let mut utf8 = cbuilder().connect()?;
+        let (actual,): (String,) = utf8.query_first("SELECT content FROM PTEXT_UTF8 WHERE id = 1", ()).map_err(|e| FbError::from(format!("UTF8 fetch: {e}")))?.unwrap();
+        assert_eq!(actual, text);
+        utf8.close()?;
+        conn.close()?;
+        cbuilder().connect()?.execute("DROP TABLE PTEXT_UTF8", ())?;
+        Ok(())
+    }
+
+    #[test]
     fn optional_named_support() -> Result<(), FbError> {
         let exec_block_select : &str = "
             EXECUTE BLOCK RETURNS (outval bigint) as
