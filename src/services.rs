@@ -434,5 +434,7 @@ mod attach_role_tests {
         assert_eq!(&spb[default.len() + 2..], role.as_bytes());
         assert!(build_attach_spb("user", "pass", Some(&"r".repeat(255))).is_ok());
         assert!(build_attach_spb("user", "pass", Some(&"r".repeat(256))).is_err());
+        // The limit is bytes, even if the role contains fewer than 256 chars.
+        assert!(build_attach_spb("user", "pass", Some(&"Ж".repeat(128))).is_err());
     }
 }
