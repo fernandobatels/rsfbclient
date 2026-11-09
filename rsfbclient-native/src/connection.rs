@@ -93,6 +93,26 @@ pub struct NativeFbClient<T: LinkageMarker> {
     pub(crate) status: Status,
     charset: Charset,
     pub(crate) text_rows: bool,
+    wire_crypt: Option<WireCrypt>,
+}
+
+/// Per-attachment wire encryption policy for the native Firebird client.
+/// Leaving this unset preserves the fbclient configuration file's policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WireCrypt {
+    Disabled,
+    Enabled,
+    Required,
+}
+
+impl WireCrypt {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Disabled => "Disabled",
+            Self::Enabled => "Enabled",
+            Self::Required => "Required",
+        }
+    }
 }
 
 /// The remote part of native client configuration
@@ -145,6 +165,7 @@ impl DynLink {
             status: Default::default(),
             charset: self.0.clone(),
             text_rows: false,
+            wire_crypt: None,
         };
         result
     }
@@ -173,6 +194,7 @@ impl DynLoad {
             status: Default::default(),
             charset: self.charset.clone(),
             text_rows: false,
+            wire_crypt: None,
         };
 
         Ok(result)
@@ -180,6 +202,13 @@ impl DynLoad {
 }
 
 impl<T: LinkageMarker> NativeFbClient<T> {
+    /// Override fbclient wire encryption for subsequent attachments made by this client.
+    /// No server or process-wide configuration is modified.
+    pub fn wire_crypt(&mut self, mode: WireCrypt) -> &mut Self {
+        self.wire_crypt = Some(mode);
+        self
+    }
+
     fn drop_statement_after_prepare_error(
         &mut self,
         handle: &mut NativeStmtHandle,
@@ -792,6 +821,12 @@ impl<T: LinkageMarker> NativeFbClient<T> {
                 dpb.extend(&[ibase::isc_dpb_password as u8, pass_str.len() as u8]);
                 dpb.extend(pass_str.bytes());
             };
+
+            if let Some(mode) = self.wire_crypt {
+                let setting = format!("WireCrypt = {}", mode.as_str());
+                dpb.extend_from_slice(&[ibase::isc_dpb_config as u8, setting.len() as u8]);
+                dpb.extend_from_slice(setting.as_bytes());
+            }
 
             let charset = self.charset.on_firebird.bytes();
 
