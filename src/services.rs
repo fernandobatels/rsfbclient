@@ -98,6 +98,7 @@ pub struct ServiceManagerBuilder {
     user: String,
     pass: String,
     lib_path: Option<String>,
+    role: Option<String>,
 }
 
 impl Default for ServiceManagerBuilder {
@@ -108,6 +109,7 @@ impl Default for ServiceManagerBuilder {
             user: "SYSDBA".to_string(),
             pass: "masterkey".to_string(),
             lib_path: None,
+            role: None,
         }
     }
 }
@@ -137,6 +139,14 @@ impl ServiceManagerBuilder {
         self
     }
 
+    /// SQL role used by service actions that operate on a database.
+    /// Use Firebird utility role syntax (including quotes for case-sensitive names).
+    /// This does not grant service-manager administration privileges.
+    pub fn role<S: Into<String>>(&mut self, role: S) -> &mut Self {
+        self.role = Some(role.into());
+        self
+    }
+
     /// Load the fbclient library from this path at runtime instead of
     /// using the dynamically linked one (requires the
     /// `dynamic_loading` feature).
@@ -147,7 +157,7 @@ impl ServiceManagerBuilder {
 
     /// Attach to the server's service manager.
     pub fn attach(&self) -> Result<ServiceManager, FbError> {
-        let spb = build_attach_spb(&self.user, &self.pass);
+        let spb = build_attach_spb(&self.user, &self.pass, self.role.as_deref())?;
 
         match &self.lib_path {
             None => {
@@ -364,7 +374,7 @@ impl ServiceManager {
 
 /// Version-2 attach SPB: version tags + credentials, each argument a
 /// tag byte, a ONE-byte length and the bytes.
-fn build_attach_spb(user: &str, pass: &str) -> Vec<u8> {
+fn build_attach_spb(user: &str, pass: &str, role: Option<&str>) -> Result<Vec<u8>, FbError> {
     let mut spb = vec![
         ibase::isc_spb_version as u8,
         ibase::isc_spb_current_version as u8,
@@ -375,7 +385,13 @@ fn build_attach_spb(user: &str, pass: &str) -> Vec<u8> {
     spb.push(ibase::isc_spb_password as u8);
     spb.push(pass.len() as u8);
     spb.extend_from_slice(pass.as_bytes());
-    spb
+    if let Some(role) = role.filter(|role| !role.is_empty()) {
+        let length = u8::try_from(role.len())
+            .map_err(|_| FbError::from("Services API role name exceeds the attach SPB limit"))?;
+        spb.extend_from_slice(&[ibase::isc_spb_sql_role_name as u8, length]);
+        spb.extend_from_slice(role.as_bytes());
+    }
+    Ok(spb)
 }
 
 /// Start-request string argument: tag, TWO-byte little-endian length,
@@ -391,4 +407,34 @@ fn push_string_arg(req: &mut Vec<u8>, tag: u8, value: &str) {
 fn push_u32_arg(req: &mut Vec<u8>, tag: u8, value: u32) {
     req.push(tag);
     req.extend_from_slice(&value.to_le_bytes());
+}
+
+#[cfg(test)]
+mod attach_role_tests {
+    use super::*;
+
+    #[test]
+    fn unset_and_empty_roles_preserve_default_spb() {
+        assert_eq!(
+            build_attach_spb("user", "pass", None).unwrap(),
+            build_attach_spb("user", "pass", Some("")).unwrap()
+        );
+    }
+
+    #[test]
+    fn role_uses_byte_length_and_preserves_utility_quoting() {
+        let role = "\"Роль\"";
+        let default = build_attach_spb("user", "pass", None).unwrap();
+        let spb = build_attach_spb("user", "pass", Some(role)).unwrap();
+        assert_eq!(&spb[..default.len()], default.as_slice());
+        assert_eq!(
+            &spb[default.len()..default.len() + 2],
+            &[ibase::isc_spb_sql_role_name as u8, role.len() as u8]
+        );
+        assert_eq!(&spb[default.len() + 2..], role.as_bytes());
+        assert!(build_attach_spb("user", "pass", Some(&"r".repeat(255))).is_ok());
+        assert!(build_attach_spb("user", "pass", Some(&"r".repeat(256))).is_err());
+        // The limit is bytes, even if the role contains fewer than 256 chars.
+        assert!(build_attach_spb("user", "pass", Some(&"Ж".repeat(128))).is_err());
+    }
 }
