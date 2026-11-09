@@ -198,8 +198,7 @@ where
         )
     }
 
-    /// Execute the current statement
-    /// and returns the affected rows count
+    /// Open the current statement's result cursor.
     ///
     /// Use `()` for no parameters or a tuple of parameters
     pub fn query<'s, T>(
@@ -207,11 +206,11 @@ where
         conn: &'s mut Connection<C>,
         tr: &mut TransactionData<C>,
         params: T,
-    ) -> Result<usize, FbError>
+    ) -> Result<(), FbError>
     where
         T: IntoParams,
     {
-        conn.cli.execute(
+        conn.cli.execute_cursor(
             &mut conn.handle,
             &mut tr.handle,
             &mut self.handle,

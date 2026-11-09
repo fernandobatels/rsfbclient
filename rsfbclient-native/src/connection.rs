@@ -506,13 +506,13 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         Ok(())
     }
 
-    fn execute(
+    fn execute_cursor(
         &mut self,
         db_handle: &mut Self::DbHandle,
         tr_handle: &mut Self::TrHandle,
         stmt_handle: &mut Self::StmtHandle,
         params: Vec<SqlType>,
-    ) -> Result<usize, FbError> {
+    ) -> Result<(), FbError> {
         let params = Params::new(
             db_handle,
             tr_handle,
@@ -542,6 +542,18 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
 
         // Just to make sure the params are not dropped too soon
         drop(params);
+
+        Ok(())
+    }
+
+    fn execute(
+        &mut self,
+        db_handle: &mut Self::DbHandle,
+        tr_handle: &mut Self::TrHandle,
+        stmt_handle: &mut Self::StmtHandle,
+        params: Vec<SqlType>,
+    ) -> Result<usize, FbError> {
+        self.execute_cursor(db_handle, tr_handle, stmt_handle, params)?;
 
         // Get the affected rows count
         let info_req = [ibase::isc_info_sql_records as std::os::raw::c_char];
