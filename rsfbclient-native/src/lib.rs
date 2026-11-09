@@ -9,7 +9,7 @@ pub(crate) mod status;
 pub(crate) mod varchar;
 pub(crate) mod xsqlda;
 
-pub use connection::{NativeFbAttachmentConfig, NativeFbClient, RemoteConfig};
+pub use connection::{NativeFbAttachmentConfig, NativeFbClient, RemoteConfig, WireCrypt};
 
 pub use connection::{DynLink, DynLoad, LinkageMarker};
 
