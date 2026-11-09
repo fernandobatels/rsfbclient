@@ -97,6 +97,8 @@ enum FetchOne<T> {
     BatchEnd,
     /// End of cursor (status=100). Nothing more to read.
     End,
+    /// A fully consumed SQL error, after any completed rows.
+    Error(FbError),
 }
 
 /// What one op_fetch_response is, decided from its framing alone (op code,
@@ -108,6 +110,8 @@ enum Framed {
     BatchEnd,
     /// End of cursor: the response was consumed, nothing more to read.
     End,
+    /// A fully consumed SQL error, after any completed rows.
+    Error(FbError),
 }
 
 /// Firebird client implemented in pure rust
@@ -184,6 +188,7 @@ pub struct StmtHandleData {
     prefetched: VecDeque<Vec<Column>>,
     /// Cursor exhausted on the server (do not request more batches).
     cursor_eof: bool,
+    fetch_error: Option<FbError>,
     /// Any output column is a blob. Blobs need a deferred round-trip to fetch, so
     /// they go through the two-phase `ParsedColumn` path. When false (the common
     /// case) fetch decodes rows straight into `Vec<Column>`, skipping the second
@@ -994,6 +999,7 @@ impl FirebirdWireConnection {
                 param_count,
                 prefetched: VecDeque::new(),
                 cursor_eof: false,
+                fetch_error: None,
                 has_blob,
             },
         ))
@@ -1005,6 +1011,9 @@ impl FirebirdWireConnection {
         stmt_handle: &mut StmtHandleData,
         op: FreeStmtOp,
     ) -> Result<(), FbError> {
+        stmt_handle.prefetched.clear();
+        stmt_handle.fetch_error = None;
+        stmt_handle.cursor_eof = false;
         self.socket
             .write_all(&free_statement(stmt_handle.handle.0, op))?;
         // Obs.: Lazy response
@@ -1034,6 +1043,7 @@ impl FirebirdWireConnection {
         // from the previous execution. Without this, re-executing the same
         // statement would inherit cursor_eof=true and fetch nothing.
         stmt_handle.prefetched.clear();
+        stmt_handle.fetch_error = None;
         stmt_handle.cursor_eof = false;
 
         // Execute
@@ -1082,6 +1092,7 @@ impl FirebirdWireConnection {
         // Reopen the cursor (same reason as execute): reset the batch-fetch
         // state from the previous execution.
         stmt_handle.prefetched.clear();
+        stmt_handle.fetch_error = None;
         stmt_handle.cursor_eof = false;
 
         let params = blr::params_to_blr(self, tr_handle, params)?;
@@ -1128,16 +1139,22 @@ impl FirebirdWireConnection {
     ) -> Result<Option<Vec<Column>>, FbError> {
         let count = fetch_batch_size();
         let mut empty_batches = 0u32;
-        while stmt_handle.prefetched.is_empty() && !stmt_handle.cursor_eof {
+        loop {
+            if let Some(row) = stmt_handle.prefetched.pop_front() {
+                return Ok(Some(row));
+            }
+            if let Some(error) = stmt_handle.fetch_error.take() {
+                return Err(error);
+            }
+            if stmt_handle.cursor_eof {
+                return Ok(None);
+            }
             self.fetch_batch(tr_handle, stmt_handle, count)?;
             empty_batches += 1;
-            // Safety net: a well-behaved server never sends empty batches
-            // without exhausting the cursor; guards against a hang if it does.
             if empty_batches > 1000 {
                 return Err("fetch: too many empty batches without end of cursor".into());
             }
         }
-        Ok(stmt_handle.prefetched.pop_front())
     }
 
     /// Requests `count` rows in one op_fetch and reads every op_fetch_response
@@ -1174,6 +1191,7 @@ impl FirebirdWireConnection {
 
         let mut rows = Vec::new();
         let mut cursor_eof = false;
+        let mut fetch_error = None;
         let mut got = 0u32;
 
         loop {
@@ -1199,6 +1217,11 @@ impl FirebirdWireConnection {
                     }
                 }
                 FetchOne::BatchEnd => break,
+                FetchOne::Error(error) => {
+                    fetch_error = Some(error);
+                    cursor_eof = true;
+                    break;
+                }
                 FetchOne::End => {
                     cursor_eof = true;
                     break;
@@ -1207,6 +1230,7 @@ impl FirebirdWireConnection {
         }
 
         stmt_handle.cursor_eof = cursor_eof;
+        stmt_handle.fetch_error = fetch_error;
         stmt_handle.prefetched.extend(rows);
 
         Ok(())
@@ -1229,6 +1253,7 @@ impl FirebirdWireConnection {
         // are still unparsed would make the blob replies queue up behind them.
         let mut rows: Vec<Vec<ParsedColumn>> = Vec::new();
         let mut cursor_eof = false;
+        let mut fetch_error = None;
         let mut got = 0u32;
 
         loop {
@@ -1258,6 +1283,11 @@ impl FirebirdWireConnection {
                 // Server ended this op_fetch without exhausting the cursor.
                 // Deliver what arrived; the next fetch() re-issues op_fetch.
                 FetchOne::BatchEnd => break,
+                FetchOne::Error(error) => {
+                    fetch_error = Some(error);
+                    cursor_eof = true;
+                    break;
+                }
                 FetchOne::End => {
                     cursor_eof = true;
                     break;
@@ -1266,6 +1296,7 @@ impl FirebirdWireConnection {
         }
 
         stmt_handle.cursor_eof = cursor_eof;
+        stmt_handle.fetch_error = fetch_error;
 
         // All blobs of the batch in a few pipelined round trips, instead of
         // open + get_segment… + close per blob.
@@ -1470,6 +1501,10 @@ impl FirebirdWireConnection {
             return Err("stream_raw cannot resume a cursor with rows buffered by fetch".into());
         }
 
+        if let Some(error) = stmt_handle.fetch_error.take() {
+            return Err(error);
+        }
+
         let count = fetch_batch_size();
         let mut row = Vec::new();
         let mut empty_batches = 0u32;
@@ -1533,6 +1568,10 @@ impl FirebirdWireConnection {
                     if got > count {
                         return Err("server sent more rows than requested in op_fetch".into());
                     }
+                }
+                Framed::Error(error) => {
+                    stmt_handle.cursor_eof = true;
+                    return Err(error);
                 }
                 Framed::BatchEnd => break,
                 Framed::End => {
@@ -1791,6 +1830,7 @@ fn parse_one_fetch_response(
 
     match frame_fetch_response(resp, lazy_count, &mut inline)? {
         Framed::End => return Ok(FetchOne::End),
+        Framed::Error(error) => return Ok(FetchOne::Error(error)),
         Framed::BatchEnd => return Ok(FetchOne::BatchEnd),
         Framed::Row => {}
     }
@@ -1814,6 +1854,7 @@ fn parse_one_fetch_response_columns(
     // Blob-free statement: the server never inlines anything for it.
     match frame_fetch_response(resp, lazy_count, &mut Vec::new())? {
         Framed::End => return Ok(FetchOne::End),
+        Framed::Error(error) => return Ok(FetchOne::Error(error)),
         Framed::BatchEnd => return Ok(FetchOne::BatchEnd),
         Framed::Row => {}
     }
@@ -1836,6 +1877,7 @@ fn parse_one_fetch_response_raw(
     // Blob-free statement: the server never inlines anything for it.
     match frame_fetch_response(resp, lazy_count, &mut Vec::new())? {
         Framed::End => Ok(Framed::End),
+        Framed::Error(error) => Ok(Framed::Error(error)),
         Framed::BatchEnd => Ok(Framed::BatchEnd),
         Framed::Row => {
             if parse_fetch_response_raw(resp, xsqlda, version, out)? {
@@ -1860,7 +1902,12 @@ fn frame_fetch_response(
 
     if op_code == WireOp::Response as u32 {
         // Error reported by the server
-        parse_response(resp)?;
+        if let Err(error) = parse_response(resp) {
+            return match error {
+                error @ FbError::Sql { .. } => Ok(Framed::Error(error)),
+                error => Err(error),
+            };
+        }
     }
 
     if op_code != WireOp::FetchResponse as u32 {
@@ -2643,6 +2690,7 @@ mod pipeline_tests {
             blr: Bytes::new(),
             param_count: 0,
             prefetched: VecDeque::new(),
+            fetch_error: None,
             cursor_eof: false,
             has_blob: true,
         }
@@ -2908,3 +2956,7 @@ fn connection_test() {
 
     std::thread::sleep(std::time::Duration::from_millis(100));
 }
+
+#[cfg(test)]
+#[path = "fetch.rs"]
+mod fetch;
