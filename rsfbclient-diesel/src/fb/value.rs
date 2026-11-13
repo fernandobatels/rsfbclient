@@ -1,8 +1,7 @@
 //! Firebird value representation
 
 use super::backend::Fb;
-use diesel::backend::RawValue;
-use diesel::row::{Field, FieldRet, PartialRow, Row as DsRow, RowGatWorkaround, RowIndex};
+use diesel::row::{Field, PartialRow, Row as DsRow, RowIndex};
 use rsfbclient::Column;
 use rsfbclient::Row as RsRow;
 use std::ops::Range;
@@ -21,7 +20,7 @@ impl<'a> Field<'a, Fb> for FbField<'a> {
         Some(&col.name[..])
     }
 
-    fn value(&self) -> Option<RawValue<'a, Fb>> {
+    fn value(&self) -> Option<<Fb as diesel::backend::Backend>::RawValue<'a>> {
         if self.raw.value.is_null() {
             return None;
         }
@@ -40,21 +39,24 @@ impl FbRow {
     }
 }
 
-impl<'b> RowGatWorkaround<'b, Fb> for FbRow {
-    type Field = FbField<'b>;
-}
+impl diesel::row::RowSealed for FbRow {}
 
 impl<'a> DsRow<'a, Fb> for FbRow {
+    type Field<'f>
+        = FbField<'f>
+    where
+        'a: 'f,
+        Self: 'f;
     type InnerPartialRow = Self;
 
-    fn get<'b, I>(&'b self, idx: I) -> Option<FieldRet<'b, Self, Fb>>
+    fn get<'b, I>(&'b self, idx: I) -> Option<Self::Field<'b>>
     where
         'a: 'b,
         Self: RowIndex<I>,
     {
         let idx = self.idx(idx)?;
         if let Some(col) = self.raw.cols.get(idx) {
-            return Some(Self::Field { raw: col });
+            return Some(FbField { raw: col });
         }
 
         None
@@ -64,7 +66,7 @@ impl<'a> DsRow<'a, Fb> for FbRow {
         self.raw.cols.len()
     }
 
-    fn partial_row(&self, range: Range<usize>) -> PartialRow<Self::InnerPartialRow> {
+    fn partial_row(&self, range: Range<usize>) -> PartialRow<'_, Self::InnerPartialRow> {
         PartialRow::new(self, range)
     }
 }

@@ -1529,89 +1529,113 @@ pub enum ParsedColumn {
     },
 }
 
-/// Parses the error messages from the response
+/// Expand only the current server template. Never expand markers inside an
+/// argument or a previously formatted message.
+fn expand_status_message(template: &str, arguments: &[String]) -> String {
+    let mut result = String::new();
+    let mut at = 0;
+    while let Some(next) = template[at..].find('@') {
+        let start = at + next;
+        result.push_str(&template[at..start]);
+        let mut end = start + 1;
+        while template.as_bytes().get(end).is_some_and(u8::is_ascii_digit) {
+            end += 1;
+        }
+        let argument = template[start + 1..end]
+            .parse::<usize>()
+            .ok()
+            .and_then(|n| n.checked_sub(1))
+            .and_then(|n| arguments.get(n));
+        result.push_str(
+            argument
+                .map(String::as_str)
+                .unwrap_or(&template[start..end]),
+        );
+        at = end;
+    }
+    result.push_str(&template[at..]);
+    result
+}
+
+/// Parses errors and consumes trailing warnings without treating them as errors.
 pub fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
-    // Sql error code (default to -1)
     let mut sql_code = -1;
-    // Error messages
     let mut message = String::new();
-
-    // Code of the last error message
     let mut gds_code = 0;
-    // Error message argument index
-    let mut num_arg = 0;
-
+    let mut template = "";
+    let mut arguments = Vec::new();
+    let mut interpreted = String::new();
+    let mut warning = false;
     loop {
         match resp.get_u32()? {
-            // New error message
             ibase::isc_arg_gds => {
-                gds_code = resp.get_u32()?;
-
-                if gds_code != 0 {
-                    message += gds_to_msg(gds_code);
-                    num_arg = 0;
+                let next_code = resp.get_u32()?;
+                if warning {
+                    continue;
                 }
+                message.push_str(&expand_status_message(template, &arguments));
+                message.push_str(&interpreted);
+                arguments.clear();
+                interpreted.clear();
+                gds_code = next_code;
+                template = if gds_code == 0 {
+                    ""
+                } else {
+                    gds_to_msg(gds_code)
+                };
             }
-
-            // New warning (e.g. from a DDL statement). Not surfaced as an error,
-            // just consume its code so the vector stays aligned.
             ibase::isc_arg_warning => {
                 resp.get_u32()?;
+                if !warning {
+                    message.push_str(&expand_status_message(template, &arguments));
+                    message.push_str(&interpreted);
+                    template = "";
+                    arguments.clear();
+                    interpreted.clear();
+                }
+                warning = true;
             }
-
-            // Error message arg number
             ibase::isc_arg_number => {
                 let num = resp.get_i32()?;
-                // Sql error code
-                if gds_code == 335544436 {
-                    sql_code = num
+                if !warning {
+                    if gds_code == 335544436 {
+                        sql_code = num;
+                    }
+                    arguments.push(num.to_string());
                 }
-
-                num_arg += 1;
-                message = message.replace(&format!("@{}", num_arg), &format!("{}", num));
             }
-
-            // Error message arg string
-            ibase::isc_arg_string => {
-                let msg = resp.get_wire_bytes()?;
-                let msg = std::str::from_utf8(&msg[..]).unwrap_or("**Invalid message**");
-
-                num_arg += 1;
-                message = message.replace(&format!("@{}", num_arg), msg);
+            kind @ (ibase::isc_arg_string
+            | ibase::isc_arg_interpreted
+            | ibase::isc_arg_sql_state) => {
+                // Read even ignored warning parameters so the next packet stays aligned.
+                let bytes = resp.get_wire_bytes()?;
+                if !warning && kind != ibase::isc_arg_sql_state {
+                    let value = std::str::from_utf8(&bytes).unwrap_or("**Invalid message**");
+                    if kind == ibase::isc_arg_string {
+                        arguments.push(value.to_owned());
+                    } else {
+                        interpreted.push_str(value);
+                    }
+                }
             }
-
-            // Aditional error message string
-            ibase::isc_arg_interpreted => {
-                let msg = resp.get_wire_bytes()?;
-                let msg = std::str::from_utf8(&msg[..]).unwrap_or("**Invalid message**");
-
-                message += msg;
+            ibase::isc_arg_end => {
+                message.push_str(&expand_status_message(template, &arguments));
+                message.push_str(&interpreted);
+                break;
             }
-
-            ibase::isc_arg_sql_state => {
-                resp.get_wire_bytes()?;
-            }
-
-            // End of error messages
-            ibase::isc_arg_end => break,
-
-            cod => {
-                return Err(format!("Invalid / Unknown status vector item: {}", cod).into());
-            }
+            code => return Err(format!("Invalid / Unknown status vector item: {}", code).into()),
         }
     }
-
     if message.ends_with('\n') {
         message.pop();
     }
-
-    if !message.is_empty() {
+    if message.is_empty() {
+        Ok(())
+    } else {
         Err(FbError::Sql {
             code: sql_code,
             msg: message,
         })
-    } else {
-        Ok(())
     }
 }
 
@@ -2282,5 +2306,88 @@ mod page_size_tests {
             assert_eq!(dpb[2], 4);
             assert_eq!(&dpb[3..7], &size.to_le_bytes());
         }
+    }
+}
+
+#[cfg(test)]
+mod warning_status_tests {
+    use super::*;
+    fn warning() -> BytesMut {
+        let mut bytes = BytesMut::new();
+        bytes.put_u32(ibase::isc_arg_gds);
+        bytes.put_u32(0);
+        bytes.put_u32(ibase::isc_arg_warning);
+        bytes.put_u32(ibase::isc_string_truncation);
+        bytes.put_u32(ibase::isc_arg_number);
+        bytes.put_u32(80);
+        bytes.put_u32(ibase::isc_arg_number);
+        bytes.put_u32(160);
+        bytes.put_u32(ibase::isc_arg_sql_state);
+        bytes.put_wire_bytes(b"01004");
+        bytes.put_u32(ibase::isc_arg_interpreted);
+        bytes.put_wire_bytes(b"warning details");
+        bytes
+    }
+    #[test]
+    fn warnings_are_consumed_without_turning_success_into_an_error() {
+        let mut bytes = warning();
+        bytes.put_u32(ibase::isc_arg_end);
+        bytes.put_u32(0x12345678);
+        let mut response = bytes.freeze();
+        parse_status_vector(&mut response).unwrap();
+        assert_eq!(response.get_u32().unwrap(), 0x12345678);
+    }
+    #[test]
+    fn warning_details_do_not_replace_the_original_sql_error() {
+        let mut bytes = BytesMut::new();
+        bytes.put_u32(ibase::isc_arg_gds);
+        bytes.put_u32(335544436); // isc_sqlerr
+        bytes.put_u32(ibase::isc_arg_number);
+        bytes.put_i32(-803);
+        bytes.put_u32(ibase::isc_arg_sql_state);
+        bytes.put_wire_bytes(b"HY000");
+        bytes.extend_from_slice(&warning()[8..]);
+        bytes.put_u32(ibase::isc_arg_end);
+        let error = parse_status_vector(&mut bytes.freeze()).unwrap_err();
+        assert!(matches!(&error, FbError::Sql { code: -803, .. }), "{error}");
+        assert!(!error.to_string().contains("warning details"), "{error}");
+    }
+    #[test]
+    fn incomplete_warning_packets_are_rejected() {
+        let mut bytes = BytesMut::new();
+        bytes.put_u32(ibase::isc_arg_warning);
+        assert!(parse_status_vector(&mut bytes.freeze()).is_err());
+    }
+}
+
+#[cfg(test)]
+mod literal_status_tests {
+    use super::*;
+    #[test]
+    fn later_context_does_not_expand_placeholders_inside_user_messages() {
+        let user = "Literal @1; At procedure 'ERROR_P' line: 8, col: 2";
+        let context = "At procedure 'ERROR_P' line: 7, col: 2";
+        let mut b = BytesMut::new();
+        b.put_u32(ibase::isc_arg_gds);
+        b.put_u32(335544517);
+        b.put_u32(ibase::isc_arg_number);
+        b.put_i32(1);
+        b.put_u32(ibase::isc_arg_gds);
+        b.put_u32(335544382);
+        b.put_u32(ibase::isc_arg_string);
+        b.put_wire_bytes(user.as_bytes());
+        b.put_u32(ibase::isc_arg_gds);
+        b.put_u32(335544842);
+        b.put_u32(ibase::isc_arg_string);
+        b.put_wire_bytes(context.as_bytes());
+        b.put_u32(ibase::isc_arg_end);
+        let error = parse_status_vector(&mut b.freeze())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(user), "User text must stay literal: {error}");
+        assert!(
+            error.ends_with(context),
+            "Server context must stay separate: {error}"
+        );
     }
 }

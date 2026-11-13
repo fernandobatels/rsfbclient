@@ -4,7 +4,7 @@
 
 use crate::util::*;
 use bytes::{BufMut, Bytes, BytesMut};
-use rsfbclient_core::{ibase, non_empty, ColumnDesc, FbError, StmtType};
+use rsfbclient_core::{ibase, non_empty, Charset, ColumnDesc, FbError, StmtType};
 use std::{convert::TryFrom, mem, sync::Arc};
 
 use crate::consts;
@@ -211,6 +211,14 @@ pub struct PrepareInfo {
 /// XSqlDa data format: u8 type + optional data preceded by a u16 length.
 /// Returns the statement type, xsqlda and an indicator if the data was truncated (xsqlda not entirely filled)
 pub fn parse_xsqlda(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<PrepareInfo, FbError> {
+    parse_xsqlda_with_charset(resp, xsqlda, &rsfbclient_core::charset::UTF_8)
+}
+
+pub fn parse_xsqlda_with_charset(
+    resp: &mut Bytes,
+    xsqlda: &mut Vec<XSqlVar>,
+    charset: &Charset,
+) -> Result<PrepareInfo, FbError> {
     // Asserts that the first 7 bytes are the statement type information
     if resp.remaining() < 7 || resp[..3] != [ibase::isc_info_sql_stmt_type as u8, 0x04, 0x00] {
         return err_invalid_xsqlda();
@@ -268,7 +276,7 @@ pub fn parse_xsqlda(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<Prepa
         xsqlda.reserve(col_len);
     }
 
-    let truncated = parse_select_items(resp, xsqlda)?;
+    let truncated = parse_select_items_with_charset(resp, xsqlda, charset)?;
 
     Ok(PrepareInfo {
         stmt_type,
@@ -279,6 +287,14 @@ pub fn parse_xsqlda(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<Prepa
 
 /// Fill the xsqlda with data from the cursor, return `true` if the data was truncated (needs more data to fill the xsqlda)
 pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result<bool, FbError> {
+    parse_select_items_with_charset(resp, xsqlda, &rsfbclient_core::charset::UTF_8)
+}
+
+pub fn parse_select_items_with_charset(
+    resp: &mut Bytes,
+    xsqlda: &mut Vec<XSqlVar>,
+    charset: &Charset,
+) -> Result<bool, FbError> {
     if resp.remaining() == 0 {
         return Ok(false);
     }
@@ -370,7 +386,7 @@ pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result
                 resp.copy_to_slice(&mut buff)?;
 
                 if let Some(var) = xsqlda.get_mut(col_index) {
-                    var.field_name = String::from_utf8(buff).unwrap_or_default();
+                    var.field_name = charset.decode(buff)?;
                 } else {
                     return err_invalid_xsqlda();
                 }
@@ -383,7 +399,7 @@ pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result
                 resp.copy_to_slice(&mut buff)?;
 
                 if let Some(var) = xsqlda.get_mut(col_index) {
-                    var.relation_name = String::from_utf8(buff).unwrap_or_default();
+                    var.relation_name = charset.decode(buff)?;
                 } else {
                     return err_invalid_xsqlda();
                 }
@@ -396,7 +412,7 @@ pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result
                 resp.copy_to_slice(&mut buff)?;
 
                 if let Some(var) = xsqlda.get_mut(col_index) {
-                    var.owner_name = String::from_utf8(buff).unwrap_or_default();
+                    var.owner_name = charset.decode(buff)?;
                 } else {
                     return err_invalid_xsqlda();
                 }
@@ -409,7 +425,7 @@ pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result
                 resp.copy_to_slice(&mut buff)?;
 
                 if let Some(var) = xsqlda.get_mut(col_index) {
-                    var.alias_name = Arc::from(String::from_utf8(buff).unwrap_or_default());
+                    var.alias_name = Arc::from(charset.decode(buff)?);
                 } else {
                     return err_invalid_xsqlda();
                 }
@@ -422,7 +438,7 @@ pub fn parse_select_items(resp: &mut Bytes, xsqlda: &mut Vec<XSqlVar>) -> Result
                 resp.copy_to_slice(&mut buff)?;
 
                 if let Some(var) = xsqlda.get_mut(col_index) {
-                    var.relation_alias = String::from_utf8(buff).unwrap_or_default();
+                    var.relation_alias = charset.decode(buff)?;
                 } else {
                     return err_invalid_xsqlda();
                 }
@@ -596,5 +612,31 @@ mod tests {
 
         let blr = xsqlda_to_blr(&[var]).unwrap();
         assert_eq!(&blr[6..8], &[consts::blr::INT128, 0]);
+    }
+}
+
+#[cfg(test)]
+mod metadata_charset_tests {
+    use super::*;
+    #[test]
+    fn wire_metadata_uses_the_attachment_charset_for_all_identifiers() {
+        let mut response = vec![9, 4, 0, 1, 0, 0, 0];
+        for tag in [16, 17, 18, 19] {
+            response.extend([tag, 2, 0, 0xc6, 0xc6]);
+        }
+        response.extend([8, 1]);
+        let mut columns = Vec::new();
+        assert!(!parse_select_items_with_charset(
+            &mut Bytes::from(response.clone()),
+            &mut columns,
+            &rsfbclient_core::charset::WIN_1251
+        )
+        .unwrap());
+        let column = &columns[0];
+        assert_eq!(column.field_name, "ЖЖ");
+        assert_eq!(column.relation_name, "ЖЖ");
+        assert_eq!(column.owner_name, "ЖЖ");
+        assert_eq!(&*column.alias_name, "ЖЖ");
+        assert!(parse_select_items(&mut Bytes::from(response), &mut Vec::new()).is_err());
     }
 }

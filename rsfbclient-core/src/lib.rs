@@ -11,6 +11,7 @@ mod params;
 mod plan;
 mod row;
 pub mod services;
+mod sql_params;
 mod transaction;
 
 pub use charset::Charset;
