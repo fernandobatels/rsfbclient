@@ -13,6 +13,76 @@ use std::ffi::CString;
 use std::os::raw::c_char;
 use std::{convert::TryFrom, io::Cursor, ptr, str};
 
+/// Legacy DSQL uses a 16-bit length; zero selects a NUL-terminated string.
+/// Keep explicit lengths for ordinary SQL and never truncate a larger source.
+struct SqlInput<'a> {
+    bytes: std::borrow::Cow<'a, [u8]>,
+    length: u16,
+}
+impl<'a> SqlInput<'a> {
+    fn new(bytes: std::borrow::Cow<'a, [u8]>) -> Result<Self, FbError> {
+        if bytes.is_empty() {
+            return Ok(Self {
+                bytes: std::borrow::Cow::Owned(vec![0]),
+                length: 0,
+            });
+        }
+        if let Ok(length) = u16::try_from(bytes.len()) {
+            return Ok(Self { bytes, length });
+        }
+        if bytes.contains(&0) {
+            return Err("SQL larger than 65535 encoded bytes cannot contain an embedded NUL; use a parameter for that value".into());
+        }
+        let mut terminated = bytes.into_owned();
+        terminated.push(0);
+        Ok(Self {
+            bytes: std::borrow::Cow::Owned(terminated),
+            length: 0,
+        })
+    }
+}
+
+#[cfg(test)]
+mod sql_input_tests {
+    use super::*;
+    #[test]
+    fn short_and_boundary_sources_keep_explicit_lengths() {
+        for n in [1, 65534, 65535] {
+            let bytes = vec![b' '; n];
+            let input = SqlInput::new(std::borrow::Cow::Borrowed(&bytes)).unwrap();
+            assert_eq!(input.length as usize, n);
+            assert_eq!(input.bytes.len(), n);
+        }
+    }
+    #[test]
+    fn long_sources_use_complete_terminated_buffers() {
+        for n in [65536, 72031, 200000] {
+            let bytes = vec![b' '; n];
+            let input = SqlInput::new(bytes.clone().into()).unwrap();
+            assert_eq!(input.length, 0);
+            assert_eq!(&input.bytes[..n], &bytes);
+            assert_eq!(input.bytes[n], 0);
+        }
+    }
+    #[test]
+    fn long_embedded_nul_is_refused_without_sending_a_prefix() {
+        let mut bytes = vec![b' '; 72000];
+        bytes[69000] = 0;
+        assert!(SqlInput::new(bytes.into()).is_err());
+    }
+    #[test]
+    fn empty_source_has_a_terminated_buffer() {
+        let input = SqlInput::new(Vec::new().into()).unwrap();
+        assert_eq!(input.length, 0);
+        assert_eq!(input.bytes.as_ref(), &[0]);
+    }
+    #[test]
+    fn short_embedded_nul_keeps_the_explicit_count() {
+        let input = SqlInput::new(vec![39, 0, 39].into()).unwrap();
+        assert_eq!(input.length, 3);
+    }
+}
+
 type NativeDbHandle = ibase::isc_db_handle;
 type NativeTrHandle = ibase::isc_tr_handle;
 type NativeStmtHandle = ibase::isc_stmt_handle;
@@ -193,6 +263,31 @@ impl DynLoad {
 }
 
 impl<T: LinkageMarker> NativeFbClient<T> {
+    /// One `isc_dsql_sql_info` round trip for plan items, parsed.
+    fn plan_info(
+        &mut self,
+        handle: &mut NativeStmtHandle,
+        items: &[u8],
+    ) -> Result<PlanInfo, FbError> {
+        let req: Vec<c_char> = items.iter().map(|b| *b as c_char).collect();
+        let mut buf = vec![0 as c_char; i16::MAX as usize];
+        unsafe {
+            if self.ibase.isc_dsql_sql_info()(
+                &mut self.status[0],
+                handle,
+                req.len() as i16,
+                req.as_ptr(),
+                buf.len() as i16,
+                buf.as_mut_ptr(),
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+        let bytes: Vec<u8> = buf.iter().map(|b| *b as u8).collect();
+        Ok(parse_plan_info(&bytes))
+    }
+
     fn drop_statement_after_prepare_error(
         &mut self,
         handle: &mut NativeStmtHandle,
@@ -258,6 +353,30 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
             }
         }
         Ok(())
+    }
+
+    fn database_info(
+        &mut self,
+        db_handle: &mut NativeDbHandle,
+        items: &[u8],
+    ) -> Result<Vec<u8>, FbError> {
+        // isc_database_info takes 16-bit lengths: the buffer is as large as
+        // that allows, the reply ends with isc_info_end or isc_info_truncated.
+        let mut buffer = vec![0u8; i16::MAX as usize];
+        let code = unsafe {
+            self.ibase.isc_database_info()(
+                &mut self.status[0],
+                db_handle,
+                items.len() as i16,
+                items.as_ptr().cast(),
+                buffer.len() as i16,
+                buffer.as_mut_ptr().cast(),
+            )
+        };
+        if code != 0 {
+            return Err(self.status.as_error(&self.ibase));
+        }
+        Ok(buffer)
     }
 
     fn drop_database(&mut self, db_handle: &mut NativeDbHandle) -> Result<(), FbError> {
@@ -374,15 +493,15 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         dialect: Dialect,
         sql: &str,
     ) -> Result<(), FbError> {
-        let sql = self.charset.encode(sql)?;
+        let sql = SqlInput::new(self.charset.encode(sql)?)?;
 
         unsafe {
             if self.ibase.isc_dsql_execute_immediate()(
                 &mut self.status[0],
                 db_handle,
                 tr_handle,
-                sql.len() as u16,
-                sql.as_ptr() as *const _,
+                sql.length,
+                sql.bytes.as_ptr() as *const _,
                 dialect as u16,
                 ptr::null(),
             ) != 0
@@ -400,7 +519,7 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         dialect: Dialect,
         sql: &str,
     ) -> Result<(StmtType, Self::StmtHandle), FbError> {
-        let sql = self.charset.encode(sql)?;
+        let sql = SqlInput::new(self.charset.encode(sql)?)?;
 
         let mut handle = 0;
 
@@ -419,8 +538,8 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
                 &mut self.status[0],
                 tr_handle,
                 &mut handle,
-                sql.len() as u16,
-                sql.as_ptr() as *const _,
+                sql.length,
+                sql.bytes.as_ptr() as *const _,
                 dialect as u16,
                 &mut *xsqlda,
             ) != 0
@@ -568,6 +687,22 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
             stmt_handle.aliases_resolved = true;
         }
         Ok(stmt_handle.columns.clone())
+    }
+
+    /// `isc_dsql_sql_info` with the two plan items; when they overflow the
+    /// buffer together (its length is a `short`), each is asked on its own.
+    fn statement_plan(&mut self, stmt_handle: &mut Self::StmtHandle) -> Result<StmtPlan, FbError> {
+        let mut info = self.plan_info(&mut stmt_handle.handle, &PLAN_INFO_ITEMS)?;
+        if info.truncated {
+            let plan = self.plan_info(&mut stmt_handle.handle, &PLAN_INFO_ITEMS[..1])?;
+            let explained = self.plan_info(&mut stmt_handle.handle, &PLAN_INFO_ITEMS[1..])?;
+            info = PlanInfo {
+                plan: plan.plan,
+                explained: explained.explained,
+                truncated: plan.truncated || explained.truncated,
+            };
+        }
+        StmtPlan::from_info(info, |b| self.charset.decode(b))
     }
 
     fn free_statement(

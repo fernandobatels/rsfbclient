@@ -167,7 +167,7 @@
 pub(crate) mod tests;
 
 pub mod prelude {
-    pub use crate::query::{Execute, Queryable};
+    pub use crate::query::{Execute, PlanRead, Queryable};
     pub use crate::transaction::{transaction_builder, TransactionConfigurationBuilder};
     pub use rsfbclient_core::{
         TrDataAccessMode, TrIsolationLevel, TrLockResolution, TrRecordVersion,
@@ -189,14 +189,14 @@ pub mod services;
 pub use crate::{
     connection::{Connection, ConnectionConfiguration, FirebirdClientFactory, SimpleConnection},
     events::RemoteEventsManager,
-    query::{Execute, Queryable},
+    query::{Execute, PlanRead, Queryable},
     statement::Statement,
     transaction::{SimpleTransaction, Transaction},
     utils::{EngineVersion, SystemInfos},
 };
 pub use rsfbclient_core::{
     Column, ColumnDesc, ColumnToVal, Dialect, FbError, FromRow, IntoParam, IntoParams, ParamsType,
-    Row, SqlType,
+    Row, SqlType, StmtPlan,
 };
 
 #[doc(hidden)]

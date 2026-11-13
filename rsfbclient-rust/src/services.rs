@@ -77,9 +77,12 @@ impl RustServiceManager {
     /// is cut; the buffer is zero-filled past the reply.
     pub fn query(&mut self, send: &[u8], receive: &[u8], buffer: &mut [u8]) -> Result<(), FbError> {
         let handle = self.handle()?;
-        let data = self
-            .conn
-            .service_query(handle, send, receive, (buffer.len() as u32).min(INFO_BUFFER))?;
+        let data = self.conn.service_query(
+            handle,
+            send,
+            receive,
+            (buffer.len() as u32).min(INFO_BUFFER),
+        )?;
         let n = data.len().min(buffer.len());
         buffer[..n].copy_from_slice(&data[..n]);
         for b in &mut buffer[n..] {
@@ -173,7 +176,11 @@ mod tests {
     fn serve(stream: TcpStream, seen: Arc<Mutex<Seen>>) {
         let mut rd = stream.try_clone().unwrap();
         let mut wr = stream;
-        let lines = ["gbak:readied database for backup", "gbak:closing file, committing, and finishing", ""];
+        let lines = [
+            "gbak:readied database for backup",
+            "gbak:closing file, committing, and finishing",
+            "",
+        ];
         let mut next_line = 0;
         loop {
             let mut op = [0u8; 4];
@@ -242,7 +249,9 @@ mod tests {
         // Protocol 10: the SPB carries the plaintext password, which the test
         // can then read back.
         let mut conn = FirebirdWireConnection::test_over_socket(socket, ProtocolVersion::V10);
-        let handle = conn.service_attach("SYSDBA", "masterkey", Some("/d/a.fdb")).unwrap();
+        let handle = conn
+            .service_attach("SYSDBA", "masterkey", Some("/d/a.fdb"))
+            .unwrap();
         (
             RustServiceManager {
                 conn,
@@ -277,7 +286,8 @@ mod tests {
         let mut got = Vec::new();
         loop {
             let mut buffer = [0u8; 4096];
-            svc.query(&[], &[ibase::isc_info_svc_line as u8], &mut buffer).unwrap();
+            svc.query(&[], &[ibase::isc_info_svc_line as u8], &mut buffer)
+                .unwrap();
             match parse_svc_line(&buffer) {
                 Some(line) => got.push(line),
                 None => break,
@@ -295,7 +305,10 @@ mod tests {
         let s = seen.lock().unwrap();
         assert_eq!(s.start, req, "the start request goes out byte for byte");
         assert_eq!(s.info_recv.len(), 3);
-        assert!(s.info_recv.iter().all(|r| r == &[ibase::isc_info_svc_line as u8]));
+        assert!(s
+            .info_recv
+            .iter()
+            .all(|r| r == &[ibase::isc_info_svc_line as u8]));
         assert!(s.info_buffer_len.iter().all(|l| *l == 4096));
         assert!(s.detached);
     }

@@ -217,6 +217,11 @@ pub const P_REQ_ASYNC: u32 = 1;
 pub enum AuthPluginType {
     Srp256,
     Srp,
+    /// The pre-3.0 login: the password DES-crypted with the fixed salt "9z".
+    /// Never requested by this client — see `plugin_list` — but answered when
+    /// the server asks for it, which is how users that only exist in a
+    /// Legacy_UserManager security database log in.
+    Legacy,
 }
 
 impl AuthPluginType {
@@ -225,6 +230,7 @@ impl AuthPluginType {
         match self {
             Self::Srp256 => "Srp256",
             Self::Srp => "Srp",
+            Self::Legacy => "Legacy_Auth",
         }
     }
 
@@ -233,6 +239,12 @@ impl AuthPluginType {
     /// auth data for that one, so a server that picks another plugin has to ask
     /// for the data in an extra op_cont_auth round trip -- which Firebird 5
     /// rejects when it answered op_accept_data (WireCrypt = Disabled).
+    ///
+    /// Legacy_Auth is left out on purpose. The server appends the last plugin
+    /// of its own AuthServer list to the client's (the "final check step" in
+    /// `SrvAuthBlock::createPluginsItr`), so a server configured for it still
+    /// gets to it after Srp finds no such user; listing it here would instead
+    /// let a server that lists Legacy_Auth first downgrade Srp users to it.
     pub fn plugin_list() -> String {
         [AuthPluginType::Srp256.name(), AuthPluginType::Srp.name()].join(",")
     }
@@ -241,6 +253,7 @@ impl AuthPluginType {
         match name {
             b"Srp256" => Ok(Self::Srp256),
             b"Srp" => Ok(Self::Srp),
+            b"Legacy_Auth" => Ok(Self::Legacy),
 
             name => Err(format!("Invalid auth plugin: {}", String::from_utf8_lossy(name)).into()),
         }

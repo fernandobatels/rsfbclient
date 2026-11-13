@@ -73,6 +73,11 @@ impl Arc4Stream<TcpStream> {
     pub fn peer_addr(&self) -> std::io::Result<SocketAddr> {
         self.stream.peer_addr()
     }
+
+    /// The socket under the encryption
+    pub fn get_ref(&self) -> &TcpStream {
+        &self.stream
+    }
 }
 
 impl<S: Read> Read for Arc4Stream<S> {

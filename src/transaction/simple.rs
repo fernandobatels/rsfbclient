@@ -190,6 +190,24 @@ impl<'c> Execute for SimpleTransaction<'c> {
         }
     }
 
+    fn execute_with_plan<P>(
+        &mut self,
+        sql: &str,
+        params: P,
+    ) -> Result<(usize, crate::PlanRead), FbError>
+    where
+        P: IntoParams,
+    {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeTransactionContainer::NativeDynLink(tr) => tr.execute_with_plan(sql, params),
+            #[cfg(feature = "dynamic_loading")]
+            TypeTransactionContainer::NativeDynLoad(tr) => tr.execute_with_plan(sql, params),
+            #[cfg(feature = "pure_rust")]
+            TypeTransactionContainer::PureRust(tr) => tr.execute_with_plan(sql, params),
+        }
+    }
+
     fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
     where
         P: IntoParams,
@@ -226,6 +244,31 @@ impl<'c> Queryable for SimpleTransaction<'c> {
         }
     }
 
+    fn query_iter_with_plan<'a, P, R>(
+        &'a mut self,
+        sql: &str,
+        params: P,
+    ) -> Result<
+        (
+            Box<dyn Iterator<Item = Result<R, FbError>> + 'a>,
+            crate::PlanRead,
+        ),
+        FbError,
+    >
+    where
+        P: IntoParams,
+        R: FromRow + 'static,
+    {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeTransactionContainer::NativeDynLink(tr) => tr.query_iter_with_plan(sql, params),
+            #[cfg(feature = "dynamic_loading")]
+            TypeTransactionContainer::NativeDynLoad(tr) => tr.query_iter_with_plan(sql, params),
+            #[cfg(feature = "pure_rust")]
+            TypeTransactionContainer::PureRust(tr) => tr.query_iter_with_plan(sql, params),
+        }
+    }
+
     fn describe(&mut self, sql: &str) -> Result<Vec<rsfbclient_core::ColumnDesc>, FbError> {
         match &mut self.inner {
             #[cfg(feature = "linking")]
@@ -234,6 +277,17 @@ impl<'c> Queryable for SimpleTransaction<'c> {
             TypeTransactionContainer::NativeDynLoad(tr) => tr.describe(sql),
             #[cfg(feature = "pure_rust")]
             TypeTransactionContainer::PureRust(tr) => tr.describe(sql),
+        }
+    }
+
+    fn plan(&mut self, sql: &str) -> Result<rsfbclient_core::StmtPlan, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeTransactionContainer::NativeDynLink(tr) => tr.plan(sql),
+            #[cfg(feature = "dynamic_loading")]
+            TypeTransactionContainer::NativeDynLoad(tr) => tr.plan(sql),
+            #[cfg(feature = "pure_rust")]
+            TypeTransactionContainer::PureRust(tr) => tr.plan(sql),
         }
     }
 }
