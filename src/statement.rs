@@ -9,7 +9,8 @@ use crate::{
     Connection,
 };
 use rsfbclient_core::{
-    Column, FbError, FirebirdClient, FreeStmtOp, FromRow, IntoParams, NamedParams, StmtType,
+    Column, ColumnDesc, FbError, FirebirdClient, FreeStmtOp, FromRow, IntoParams, NamedParams,
+    StmtPlan, StmtType,
 };
 
 pub struct Statement<'c, 't, C: FirebirdClient> {
@@ -41,6 +42,18 @@ where
         T: IntoParams,
     {
         self.data.execute(self.tr.conn, &mut self.tr.data, params)
+    }
+
+    /// Describe the output columns of this statement without executing it:
+    /// where each comes from (relation, context alias, field) and its type.
+    pub fn describe(&mut self) -> Result<Vec<ColumnDesc>, FbError> {
+        self.data.describe(self.tr.conn)
+    }
+
+    /// The access plan the server chose for this statement, without
+    /// executing it (see [`StmtPlan`]).
+    pub fn plan(&mut self) -> Result<StmtPlan, FbError> {
+        self.data.plan(self.tr.conn)
     }
 
     /// Execute the current statement
@@ -217,6 +230,16 @@ where
             &mut self.handle,
             self.named_params.convert(params)?,
         )
+    }
+
+    /// Describe the output columns (see [`ColumnDesc`]).
+    pub fn describe(&mut self, conn: &mut Connection<C>) -> Result<Vec<ColumnDesc>, FbError> {
+        conn.cli.describe_statement(&mut self.handle)
+    }
+
+    /// The access plan (see [`StmtPlan`]).
+    pub fn plan(&mut self, conn: &mut Connection<C>) -> Result<StmtPlan, FbError> {
+        conn.cli.statement_plan(&mut self.handle)
     }
 
     /// Fetch for the next row, needs to be called after `query`

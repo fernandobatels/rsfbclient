@@ -111,6 +111,89 @@ pub struct StmtHandleData {
     xsqlda: XSqlDa,
     /// Buffers for the output xsqlda
     col_buffers: Vec<ColumnBuffer>,
+    /// The columns as described at prepare (types before coercion). The
+    /// context aliases are not in the XSQLDA: `describe_statement` asks the
+    /// library for them once, on request, and remembers.
+    columns: Vec<ColumnDesc>,
+    aliases_resolved: bool,
+}
+
+/// A fixed-size name field of an XSQLVAR as text.
+fn xsqlvar_name(bytes: &[c_char], len: i16) -> String {
+    let len = usize::min(len.max(0) as usize, bytes.len());
+    String::from_utf8_lossy(&bytes[..len].iter().map(|b| *b as u8).collect::<Vec<u8>>())
+        .into_owned()
+}
+
+/// What the XSQLDA says about each output column, taken before the column
+/// buffers coerce the types for the fetch.
+fn describe_xsqlda(xsqlda: &mut XSqlDa) -> Result<Vec<ColumnDesc>, FbError> {
+    let count = xsqlda.sqld.max(0) as usize;
+    let mut out = Vec::with_capacity(count);
+    for col in 0..count {
+        let var = xsqlda
+            .get_xsqlvar_mut(col)
+            .ok_or_else(|| FbError::from("Error getting the xsqlvar"))?;
+        out.push(ColumnDesc {
+            name: xsqlvar_name(&var.aliasname, var.aliasname_length),
+            field: non_empty(xsqlvar_name(&var.sqlname, var.sqlname_length)),
+            relation: non_empty(xsqlvar_name(&var.relname, var.relname_length)),
+            relation_alias: None,
+            owner: non_empty(xsqlvar_name(&var.ownname, var.ownname_length)),
+            sql_type: var.sqltype as u32 & !1,
+            sub_type: var.sqlsubtype,
+            scale: var.sqlscale,
+            length: var.sqllen,
+            nullable: var.sqltype & 1 == 1,
+        });
+    }
+    Ok(out)
+}
+
+/// Fill `relation_alias` from one `isc_dsql_sql_info` answer to a
+/// `[select, describe_vars, sqlda_seq, relation_alias, describe_end]`
+/// request. Returns `true` when the buffer was truncated (more columns follow).
+fn parse_relation_aliases(buf: &[u8], out: &mut [ColumnDesc]) -> bool {
+    let mut i = 0;
+    let mut col: Option<usize> = None;
+    while i < buf.len() {
+        let code = buf[i] as u32;
+        i += 1;
+        match code {
+            ibase::isc_info_sql_select | ibase::isc_info_sql_describe_end => {}
+            ibase::isc_info_end => return false,
+            ibase::isc_info_truncated => return true,
+            _ => {
+                if i + 2 > buf.len() {
+                    return true;
+                }
+                let len = u16::from_le_bytes([buf[i], buf[i + 1]]) as usize;
+                i += 2;
+                if i + len > buf.len() {
+                    return true;
+                }
+                let payload = &buf[i..i + len];
+                i += len;
+                match code {
+                    ibase::isc_info_sql_sqlda_seq => {
+                        let mut n = 0u32;
+                        for (k, b) in payload.iter().take(4).enumerate() {
+                            n |= (*b as u32) << (8 * k);
+                        }
+                        col = (n as usize).checked_sub(1); // 1-based on the wire
+                    }
+                    ibase::isc_info_sql_relation_alias => {
+                        if let Some(c) = col.and_then(|c| out.get_mut(c)) {
+                            c.relation_alias =
+                                non_empty(String::from_utf8_lossy(payload).into_owned());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    false
 }
 
 ///The common part of native client configuration (for both embedded/remote)
@@ -180,6 +263,31 @@ impl DynLoad {
 }
 
 impl<T: LinkageMarker> NativeFbClient<T> {
+    /// One `isc_dsql_sql_info` round trip for plan items, parsed.
+    fn plan_info(
+        &mut self,
+        handle: &mut NativeStmtHandle,
+        items: &[u8],
+    ) -> Result<PlanInfo, FbError> {
+        let req: Vec<c_char> = items.iter().map(|b| *b as c_char).collect();
+        let mut buf = vec![0 as c_char; i16::MAX as usize];
+        unsafe {
+            if self.ibase.isc_dsql_sql_info()(
+                &mut self.status[0],
+                handle,
+                req.len() as i16,
+                req.as_ptr(),
+                buf.len() as i16,
+                buf.as_mut_ptr(),
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+        let bytes: Vec<u8> = buf.iter().map(|b| *b as u8).collect();
+        Ok(parse_plan_info(&bytes))
+    }
+
     fn drop_statement_after_prepare_error(
         &mut self,
         handle: &mut NativeStmtHandle,
@@ -245,6 +353,30 @@ impl<T: LinkageMarker> FirebirdClientDbOps for NativeFbClient<T> {
             }
         }
         Ok(())
+    }
+
+    fn database_info(
+        &mut self,
+        db_handle: &mut NativeDbHandle,
+        items: &[u8],
+    ) -> Result<Vec<u8>, FbError> {
+        // isc_database_info takes 16-bit lengths: the buffer is as large as
+        // that allows, the reply ends with isc_info_end or isc_info_truncated.
+        let mut buffer = vec![0u8; i16::MAX as usize];
+        let code = unsafe {
+            self.ibase.isc_database_info()(
+                &mut self.status[0],
+                db_handle,
+                items.len() as i16,
+                items.as_ptr().cast(),
+                buffer.len() as i16,
+                buffer.as_mut_ptr().cast(),
+            )
+        };
+        if code != 0 {
+            return Err(self.status.as_error(&self.ibase));
+        }
+        Ok(buffer)
     }
 
     fn drop_database(&mut self, db_handle: &mut NativeDbHandle) -> Result<(), FbError> {
@@ -461,6 +593,10 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
             self.drop_statement_after_prepare_error(&mut handle, error)
         })?;
 
+        // What the server said, before the column buffers coerce the types.
+        let columns = describe_xsqlda(&mut xsqlda)
+            .map_err(|error| self.drop_statement_after_prepare_error(&mut handle, error))?;
+
         // Create the column buffers and set the xsqlda conercions
         let col_buffers = (0..xsqlda.sqld)
             .map(|col| {
@@ -483,8 +619,90 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
                 handle,
                 xsqlda,
                 col_buffers,
+                columns,
+                aliases_resolved: false,
             },
         ))
+    }
+
+    /// The XSQLDA part comes from prepare; the context aliases are asked from
+    /// the library the first time, then kept with the statement.
+    fn describe_statement(
+        &mut self,
+        stmt_handle: &mut Self::StmtHandle,
+    ) -> Result<Vec<ColumnDesc>, FbError> {
+        let needs_aliases = stmt_handle
+            .columns
+            .iter()
+            .any(|c| c.relation.is_some() && c.relation_alias.is_none());
+        if needs_aliases && !stmt_handle.aliases_resolved {
+            let items = [
+                ibase::isc_info_sql_select as c_char,
+                ibase::isc_info_sql_describe_vars as c_char,
+                ibase::isc_info_sql_sqlda_seq as c_char,
+                ibase::isc_info_sql_relation_alias as c_char,
+                ibase::isc_info_sql_describe_end as c_char,
+            ];
+            let mut buf = vec![0 as c_char; 32 * 1024];
+            let mut resolved = 0usize;
+            loop {
+                // From the second round on, continue at the next column.
+                let idx = (resolved as u16).to_le_bytes();
+                let prefix = [
+                    ibase::isc_info_sql_sqlda_start as c_char,
+                    2,
+                    idx[0] as c_char,
+                    idx[1] as c_char,
+                ];
+                let req: Vec<c_char> = if resolved == 0 {
+                    items.to_vec()
+                } else {
+                    [&prefix[..], &items[..]].concat()
+                };
+                unsafe {
+                    if self.ibase.isc_dsql_sql_info()(
+                        &mut self.status[0],
+                        &mut stmt_handle.handle,
+                        req.len() as i16,
+                        req.as_ptr(),
+                        buf.len() as i16,
+                        buf.as_mut_ptr(),
+                    ) != 0
+                    {
+                        return Err(self.status.as_error(&self.ibase));
+                    }
+                }
+                let bytes: Vec<u8> = buf.iter().map(|b| *b as u8).collect();
+                let truncated = parse_relation_aliases(&bytes, &mut stmt_handle.columns);
+                let now = stmt_handle
+                    .columns
+                    .iter()
+                    .filter(|c| c.relation_alias.is_some())
+                    .count();
+                if !truncated || now <= resolved {
+                    break; // done, or no progress — don't loop forever
+                }
+                resolved = now;
+            }
+            stmt_handle.aliases_resolved = true;
+        }
+        Ok(stmt_handle.columns.clone())
+    }
+
+    /// `isc_dsql_sql_info` with the two plan items; when they overflow the
+    /// buffer together (its length is a `short`), each is asked on its own.
+    fn statement_plan(&mut self, stmt_handle: &mut Self::StmtHandle) -> Result<StmtPlan, FbError> {
+        let mut info = self.plan_info(&mut stmt_handle.handle, &PLAN_INFO_ITEMS)?;
+        if info.truncated {
+            let plan = self.plan_info(&mut stmt_handle.handle, &PLAN_INFO_ITEMS[..1])?;
+            let explained = self.plan_info(&mut stmt_handle.handle, &PLAN_INFO_ITEMS[1..])?;
+            info = PlanInfo {
+                plan: plan.plan,
+                explained: explained.explained,
+                truncated: plan.truncated || explained.truncated,
+            };
+        }
+        StmtPlan::from_info(info, |b| self.charset.decode(b))
     }
 
     fn free_statement(

@@ -6,13 +6,17 @@ mod client;
 mod consts;
 mod events;
 mod raw;
+mod services;
 mod srp;
 mod util;
 mod wire;
 mod xsqlda;
 
-pub use client::{DbHandle, RustFbClient, RustFbClientAttachmentConfig, StmtHandle, TrHandle};
+pub use client::{
+    DbHandle, RustFbClient, RustFbClientAttachmentConfig, StmtHandle, SvcHandle, TrHandle,
+};
 pub use raw::RawValue;
+pub use services::RustServiceManager;
 
 #[cfg(feature = "fuzz_testing")]
 pub use self::{blr::*, wire::*, xsqlda::*};

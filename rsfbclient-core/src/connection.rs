@@ -46,6 +46,25 @@ pub trait FirebirdClientDbOps: Send {
     /// Drop the database
     fn drop_database(&mut self, db_handle: &mut Self::DbHandle) -> Result<(), FbError>;
 
+    /// Database information (`isc_database_info`): `items` is the list of
+    /// item tags to ask for, ending in `isc_info_end`; the answer is the raw
+    /// reply stream (see `crate::dbinfo`).
+    fn database_info(
+        &mut self,
+        db_handle: &mut Self::DbHandle,
+        items: &[u8],
+    ) -> Result<Vec<u8>, FbError>;
+
+    /// Bound every socket read and write of the attachment by `timeout`
+    /// (`None`: wait as long as it takes, the default). A read or write that
+    /// runs out fails with an io error and leaves the attachment unusable: it
+    /// is for asking whether the server is still there, then dropping it if
+    /// not. False when the client can't (the native one: fbclient owns its
+    /// socket).
+    fn set_io_timeout(&mut self, _timeout: Option<std::time::Duration>) -> Result<bool, FbError> {
+        Ok(false)
+    }
+
     /// Create the database and attach
     /// Returns a database handle on success
     fn create_database(
@@ -136,6 +155,79 @@ pub trait FirebirdClientSqlOps {
         tr_handle: &mut Self::TrHandle,
         stmt_handle: &mut Self::StmtHandle,
     ) -> Result<Option<Vec<Column>>, FbError>;
+
+    /// Describe the output columns of a prepared statement: result-set name,
+    /// source relation / context alias / field, and type.
+    ///
+    /// The pure-rust client answers from the prepare response it already
+    /// parsed, so asking costs no round trip; the native client reads the
+    /// XSQLDA and asks the library for the context aliases.
+    fn describe_statement(
+        &mut self,
+        stmt_handle: &mut Self::StmtHandle,
+    ) -> Result<Vec<ColumnDesc>, FbError>;
+
+    /// The access plan the server chose for a prepared statement (see
+    /// [`StmtPlan`]): the legacy one-line `PLAN` and, on Firebird 3+, the
+    /// explained tree. One info round trip; the statement is not executed.
+    fn statement_plan(&mut self, stmt_handle: &mut Self::StmtHandle) -> Result<StmtPlan, FbError>;
+}
+
+/// What the server knows about one output column of a prepared statement:
+/// where it comes from and how it is typed. Obtained on request through
+/// [`FirebirdClientSqlOps::describe_statement`].
+///
+/// For `SELECT c.cli_nom AS nom FROM clients c`, the column describes as
+/// `name = "NOM"`, `field = Some("CLI_NOM")`, `relation = Some("CLIENTS")`,
+/// `relation_alias = Some("C")`. An expression such as `1 + 1` has no
+/// field, relation or alias.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ColumnDesc {
+    /// Name in the result set: the alias when one was given, else the field name.
+    pub name: String,
+    /// The underlying column (`RDB$FIELD_NAME`); `None` for an expression.
+    pub field: Option<String>,
+    /// The relation (table, view or procedure) the column comes from; `None`
+    /// for an expression.
+    pub relation: Option<String>,
+    /// The context alias the relation has in the statement: `C` for
+    /// `FROM clients c`, the relation name itself when none was written.
+    /// `None` when the client could not find out.
+    pub relation_alias: Option<String>,
+    /// The relation's owner.
+    pub owner: Option<String>,
+    /// Firebird SQL type code (`SQL_TEXT`, `SQL_BLOB`, …) without the
+    /// nullable bit.
+    pub sql_type: u32,
+    /// BLOB sub-type (0 binary, 1 text), or the character set id for text.
+    pub sub_type: i16,
+    /// Decimal scale (negative for fixed-point numbers).
+    pub scale: i16,
+    /// Length of the column data in bytes.
+    pub length: i16,
+    /// Whether the column can be NULL.
+    pub nullable: bool,
+}
+
+impl ColumnDesc {
+    /// The column is a BLOB (binary or text).
+    pub fn is_blob(&self) -> bool {
+        self.sql_type == ibase::SQL_BLOB
+    }
+
+    /// The column is computed, not read from a relation.
+    pub fn is_expression(&self) -> bool {
+        self.relation.is_none()
+    }
+}
+
+/// Firebird hands back empty strings for the parts an expression does not have.
+pub fn non_empty(s: String) -> Option<String> {
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
 
 /// Firebird base event API

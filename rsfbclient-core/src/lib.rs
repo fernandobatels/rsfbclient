@@ -4,10 +4,13 @@
 pub mod charset;
 mod connection;
 pub mod date_time;
+pub mod dbinfo;
 pub(crate) mod error;
 pub mod ibase;
 mod params;
+mod plan;
 mod row;
+pub mod services;
 mod sql_params;
 mod transaction;
 
@@ -15,6 +18,7 @@ pub use charset::Charset;
 pub use connection::*;
 pub use error::FbError;
 pub use params::*;
+pub use plan::*;
 pub use row::*;
 pub use transaction::*;
 

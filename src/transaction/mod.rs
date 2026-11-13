@@ -5,7 +5,8 @@
 //!
 
 use rsfbclient_core::{
-    FbError, FirebirdClient, FromRow, IntoParams, TrOp, TransactionConfiguration,
+    ColumnDesc, FbError, FirebirdClient, FromRow, IntoParams, StmtPlan, TrOp,
+    TransactionConfiguration,
 };
 use std::marker;
 use std::mem;
@@ -13,7 +14,7 @@ use std::mem;
 use super::{connection::Connection, statement::Statement};
 use crate::{
     connection::stmt_cache::StmtCache, connection::stmt_cache::StmtCacheData,
-    statement::StatementData, Execute, Queryable,
+    statement::StatementData, Execute, PlanRead, Queryable,
 };
 
 mod simple;
@@ -141,12 +142,22 @@ where
     }
 }
 
-impl<'c, C: FirebirdClient> Queryable for Transaction<'c, C> {
-    fn query_iter<'a, P, R>(
+/// The plan a `with_plan` helper was asked for. `None` cannot happen when it
+/// was asked, but a driver does not panic over it.
+pub(crate) fn plan_read(plan: Option<PlanRead>) -> PlanRead {
+    plan.unwrap_or_else(|| Err(FbError::from("the plan was not read")))
+}
+
+impl<'c, C: FirebirdClient> Transaction<'c, C> {
+    /// Prepare `sql` (or take it from the cache), read its plan when asked —
+    /// before the cursor opens, from the prepared statement — and open the
+    /// cursor. A statement whose cursor failed to open is closed, not cached.
+    fn open_cursor<'a, P, R>(
         &'a mut self,
         sql: &str,
         params: P,
-    ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
+        with_plan: bool,
+    ) -> Result<(StmtIter<'c, 'a, R, C>, Option<PlanRead>), FbError>
     where
         P: IntoParams,
         R: FromRow + 'static,
@@ -155,6 +166,8 @@ impl<'c, C: FirebirdClient> Queryable for Transaction<'c, C> {
 
         // Get a statement from the cache
         let mut stmt_cache_data = StmtCache::get_or_prepare(self, sql, params.named())?;
+
+        let plan = with_plan.then(|| stmt_cache_data.stmt.plan(self.conn));
 
         match stmt_cache_data
             .stmt
@@ -167,12 +180,109 @@ impl<'c, C: FirebirdClient> Queryable for Transaction<'c, C> {
                     _marker: Default::default(),
                 };
 
-                Ok(Box::new(iter))
+                Ok((iter, plan))
             }
             Err(e) => {
                 // A statement that failed to open its cursor must not be reused.
                 stmt_cache_data.stmt.close(self.conn).ok();
 
+                Err(e)
+            }
+        }
+    }
+
+    /// Prepare `sql` (or take it from the cache), read its plan when asked,
+    /// execute it and hand the statement back to the cache.
+    fn exec_stmt<P>(
+        &mut self,
+        sql: &str,
+        params: P,
+        with_plan: bool,
+    ) -> Result<(usize, Option<PlanRead>), FbError>
+    where
+        P: IntoParams,
+    {
+        let params = params.to_params();
+
+        // Get a statement from the cache
+        let mut stmt_cache_data = StmtCache::get_or_prepare(self, sql, params.named())?;
+
+        let plan = with_plan.then(|| stmt_cache_data.stmt.plan(self.conn));
+
+        // Do not return now in case of error, because we need to return the statement to the cache
+        let res = stmt_cache_data
+            .stmt
+            .execute(self.conn, &mut self.data, params);
+
+        match res {
+            Ok(value) => {
+                StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
+                Ok((value, plan))
+            }
+            Err(error) => {
+                stmt_cache_data.stmt.close(self.conn).ok();
+                Err(error)
+            }
+        }
+    }
+}
+
+impl<'c, C: FirebirdClient> Queryable for Transaction<'c, C> {
+    fn query_iter<'a, P, R>(
+        &'a mut self,
+        sql: &str,
+        params: P,
+    ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
+    where
+        P: IntoParams,
+        R: FromRow + 'static,
+    {
+        let (iter, _) = self.open_cursor(sql, params, false)?;
+
+        Ok(Box::new(iter))
+    }
+
+    fn query_iter_with_plan<'a, P, R>(
+        &'a mut self,
+        sql: &str,
+        params: P,
+    ) -> Result<(Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, PlanRead), FbError>
+    where
+        P: IntoParams,
+        R: FromRow + 'static,
+    {
+        let (iter, plan) = self.open_cursor(sql, params, true)?;
+
+        Ok((Box::new(iter), plan_read(plan)))
+    }
+
+    fn describe(&mut self, sql: &str) -> Result<Vec<ColumnDesc>, FbError> {
+        // Prepared here, then handed to the cache: the query that usually
+        // follows a describe reuses the same statement.
+        let mut stmt_cache_data = StmtCache::get_or_prepare(self, sql, false)?;
+
+        match stmt_cache_data.stmt.describe(self.conn) {
+            Ok(columns) => {
+                StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
+                Ok(columns)
+            }
+            Err(e) => {
+                stmt_cache_data.stmt.close(self.conn).ok();
+                Err(e)
+            }
+        }
+    }
+
+    fn plan(&mut self, sql: &str) -> Result<StmtPlan, FbError> {
+        let mut stmt_cache_data = StmtCache::get_or_prepare(self, sql, false)?;
+
+        match stmt_cache_data.stmt.plan(self.conn) {
+            Ok(plan) => {
+                StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
+                Ok(plan)
+            }
+            Err(e) => {
+                stmt_cache_data.stmt.close(self.conn).ok();
                 Err(e)
             }
         }
@@ -184,26 +294,15 @@ impl<C: FirebirdClient> Execute for Transaction<'_, C> {
     where
         P: IntoParams,
     {
-        let params = params.to_params();
+        self.exec_stmt(sql, params, false).map(|(n, _)| n)
+    }
 
-        // Get a statement from the cache
-        let mut stmt_cache_data = StmtCache::get_or_prepare(self, sql, params.named())?;
-
-        // Do not return now in case of error, because we need to return the statement to the cache
-        let res = stmt_cache_data
-            .stmt
-            .execute(self.conn, &mut self.data, params);
-
-        match res {
-            Ok(value) => {
-                StmtCache::insert_and_close(self.conn, stmt_cache_data)?;
-                Ok(value)
-            }
-            Err(error) => {
-                stmt_cache_data.stmt.close(self.conn).ok();
-                Err(error)
-            }
-        }
+    fn execute_with_plan<P>(&mut self, sql: &str, params: P) -> Result<(usize, PlanRead), FbError>
+    where
+        P: IntoParams,
+    {
+        self.exec_stmt(sql, params, true)
+            .map(|(n, plan)| (n, plan_read(plan)))
     }
 
     fn execute_returnable<P, R>(&mut self, sql: &str, params: P) -> Result<R, FbError>
