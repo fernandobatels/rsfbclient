@@ -169,12 +169,13 @@ impl ParamBuffer {
 
         let (size, mut buffer) = match info {
             SqlType::Text(s) => {
-                let bytes = charset.encode(s)?;
-
-                let bytes = if bytes.len() > MAX_TEXT_LENGTH {
-                    binary_to_blob(&bytes, db, tr, ibase)?
+                let bytes = if s.len() > MAX_TEXT_LENGTH {
+                    // Match sql_type_and_subtype's decision before encoding.
+                    // A text BLOB's sqlscale is its source character set.
+                    var.sqlscale = 4; // UTF8
+                    binary_to_blob(s.as_bytes(), db, tr, ibase)?
                 } else {
-                    bytes.into_owned()
+                    charset.encode(s)?.into_owned()
                 };
 
                 (bytes.len(), Text(bytes.into_boxed_slice()))
