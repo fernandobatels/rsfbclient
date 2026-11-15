@@ -12,6 +12,24 @@ mk_tests_default! {
     use rand::{distributions::Standard, Rng};
 
     #[test]
+    fn completed_rows_are_delivered_before_a_fetch_error() -> Result<(), FbError> {
+        let mut conn = cbuilder().connect()?;
+        for blob in [false, true] {
+            let sql = if blob {
+                "EXECUTE BLOCK RETURNS (N INT, B BLOB SUB_TYPE TEXT) AS BEGIN N=7;B='first';SUSPEND;N=8;B='second';SUSPEND;N=1/0;SUSPEND;END"
+            } else {
+                "EXECUTE BLOCK RETURNS (N INT) AS BEGIN N=7;SUSPEND;N=8;SUSPEND;N=1/0;SUSPEND;END"
+            };
+            let mut rows = conn.query_iter::<_, Row>(sql, ())?;
+            for expected in [7i32, 8] { assert_eq!(rows.next().unwrap()?.get::<i32>(0)?, expected); }
+            assert!(matches!(rows.next(), Some(Err(FbError::Sql { .. }))));
+            drop(rows);
+            assert_eq!(conn.query_first::<_, (i32,)>("SELECT 42 FROM RDB$DATABASE", ())?, Some((42,)));
+        }
+        Ok(())
+    }
+
+    #[test]
     fn execute2_without_output_keeps_the_connection_synchronized() -> Result<(), FbError> {
         let mut conn = cbuilder().connect()?;
         let row: Row = conn.execute_returnable("EXECUTE BLOCK AS BEGIN END", ())?;
