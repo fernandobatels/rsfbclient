@@ -21,6 +21,74 @@ pub struct SimpleConnection {
     pub(crate) inner: TypeConnectionContainer,
 }
 
+impl SimpleConnection {
+    /// Borrow the underlying native dyn link connection without consuming it.
+    /// Returns `None` for a different client implementation.
+    #[cfg(feature = "linking")]
+    #[allow(unreachable_patterns)]
+    pub fn as_native_dyn_link(&self) -> Option<&Connection<NativeFbClient<DynLink>>> {
+        match &self.inner {
+            TypeConnectionContainer::NativeDynLink(connection) => Some(connection),
+            _ => None,
+        }
+    }
+
+    /// Borrow the underlying native dyn link connection without consuming it.
+    /// Returns `None` for a different client implementation.
+    #[cfg(feature = "linking")]
+    #[allow(unreachable_patterns)]
+    pub fn as_native_dyn_link_mut(&mut self) -> Option<&mut Connection<NativeFbClient<DynLink>>> {
+        match &mut self.inner {
+            TypeConnectionContainer::NativeDynLink(connection) => Some(connection),
+            _ => None,
+        }
+    }
+
+    /// Borrow the underlying native dyn load connection without consuming it.
+    /// Returns `None` for a different client implementation.
+    #[cfg(feature = "dynamic_loading")]
+    #[allow(unreachable_patterns)]
+    pub fn as_native_dyn_load(&self) -> Option<&Connection<NativeFbClient<DynLoad>>> {
+        match &self.inner {
+            TypeConnectionContainer::NativeDynLoad(connection) => Some(connection),
+            _ => None,
+        }
+    }
+
+    /// Borrow the underlying native dyn load connection without consuming it.
+    /// Returns `None` for a different client implementation.
+    #[cfg(feature = "dynamic_loading")]
+    #[allow(unreachable_patterns)]
+    pub fn as_native_dyn_load_mut(&mut self) -> Option<&mut Connection<NativeFbClient<DynLoad>>> {
+        match &mut self.inner {
+            TypeConnectionContainer::NativeDynLoad(connection) => Some(connection),
+            _ => None,
+        }
+    }
+
+    /// Borrow the underlying pure rust connection without consuming it.
+    /// Returns `None` for a different client implementation.
+    #[cfg(feature = "pure_rust")]
+    #[allow(unreachable_patterns)]
+    pub fn as_pure_rust(&self) -> Option<&Connection<RustFbClient>> {
+        match &self.inner {
+            TypeConnectionContainer::PureRust(connection) => Some(connection),
+            _ => None,
+        }
+    }
+
+    /// Borrow the underlying pure rust connection without consuming it.
+    /// Returns `None` for a different client implementation.
+    #[cfg(feature = "pure_rust")]
+    #[allow(unreachable_patterns)]
+    pub fn as_pure_rust_mut(&mut self) -> Option<&mut Connection<RustFbClient>> {
+        match &mut self.inner {
+            TypeConnectionContainer::PureRust(connection) => Some(connection),
+            _ => None,
+        }
+    }
+}
+
 pub(crate) enum TypeConnectionContainer {
     #[cfg(feature = "linking")]
     NativeDynLink(Connection<NativeFbClient<DynLink>>),

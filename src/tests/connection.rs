@@ -10,6 +10,40 @@ mk_tests_default! {
     use std::time::SystemTime;
 
     #[test]
+    fn borrowed_simple_connection_preserves_attachment_and_transaction() -> Result<(), FbError> {
+        let mut conn: crate::SimpleConnection = cbuilder().connect()?.into();
+        conn.begin_transaction()?;
+        let sql = "SELECT CURRENT_CONNECTION, CURRENT_TRANSACTION FROM RDB$DATABASE";
+        let before: (i64, i64) = conn.query_first(sql, ())?.unwrap();
+        let mut matching = 0;
+        #[cfg(feature = "linking")]
+        {
+            matching += usize::from(conn.as_native_dyn_link().is_some());
+            if let Some(typed) = conn.as_native_dyn_link_mut() {
+                assert_eq!(typed.query_first::<_, (i64, i64)>(sql, ())?, Some(before));
+            }
+        }
+        #[cfg(feature = "dynamic_loading")]
+        {
+            matching += usize::from(conn.as_native_dyn_load().is_some());
+            if let Some(typed) = conn.as_native_dyn_load_mut() {
+                assert_eq!(typed.query_first::<_, (i64, i64)>(sql, ())?, Some(before));
+            }
+        }
+        #[cfg(feature = "pure_rust")]
+        {
+            matching += usize::from(conn.as_pure_rust().is_some());
+            if let Some(typed) = conn.as_pure_rust_mut() {
+                assert_eq!(typed.query_first::<_, (i64, i64)>(sql, ())?, Some(before));
+            }
+        }
+        assert_eq!(matching, 1);
+        assert_eq!(conn.query_first::<_, (i64, i64)>(sql, ())?, Some(before));
+        conn.rollback()?;
+        Ok(())
+    }
+
+    #[test]
     #[cfg(all(feature = "linking", not(feature = "embedded_tests"), not(feature = "pure_rust")))]
     fn string_conn1() -> Result<(), FbError> {
         builder_native()
