@@ -6,7 +6,9 @@ use std::marker::PhantomData;
 pub use rsfbclient_native::{DynLink, DynLoad};
 
 use crate::transaction::{transaction_builder, TransactionConfigurationBuilder};
-use rsfbclient_native::{LinkageMarker, NativeFbAttachmentConfig, NativeFbClient, RemoteConfig};
+use rsfbclient_native::{
+    LinkageMarker, NativeFbAttachmentConfig, NativeFbClient, RemoteConfig, WireCrypt,
+};
 
 //used as markers
 #[doc(hidden)]
@@ -69,6 +71,7 @@ pub struct NativeConnectionBuilder<LinkageType, ConnectionType> {
     charset: Charset,
     lib_path: Option<String>,
     page_size: Option<u32>,
+    wire_crypt: Option<WireCrypt>,
 }
 
 impl<A, B> From<&NativeConnectionBuilder<A, B>>
@@ -105,11 +108,15 @@ where
             .as_ref()
             .ok_or_else(|| FbError::from("The lib path is required to use the dynload loading"))?;
 
-        rsfbclient_native::DynLoad {
+        let mut client = rsfbclient_native::DynLoad {
             charset: self.charset.clone(),
             lib_path: path.clone(),
         }
-        .try_to_client()
+        .try_to_client()?;
+        if let Some(mode) = self.wire_crypt {
+            client.wire_crypt(mode);
+        }
+        Ok(client)
     }
 
     fn get_conn_conf(&self) -> &ConnectionConfiguration<NativeFbAttachmentConfig> {
@@ -126,7 +133,11 @@ where
     type C = NativeFbClient<rsfbclient_native::DynLink>;
 
     fn new_instance(&self) -> Result<Self::C, FbError> {
-        Ok(rsfbclient_native::DynLink(self.charset.clone()).to_client())
+        let mut client = rsfbclient_native::DynLink(self.charset.clone()).to_client();
+        if let Some(mode) = self.wire_crypt {
+            client.wire_crypt(mode);
+        }
+        Ok(client)
     }
 
     fn get_conn_conf(&self) -> &ConnectionConfiguration<NativeFbAttachmentConfig> {
@@ -158,6 +169,13 @@ where
     A: ConfiguredLinkage,
     B: ConfiguredConnType,
 {
+    /// Override the native client's wire encryption for this connection.
+    /// By default, the fbclient configuration file determines the policy.
+    pub fn wire_crypt(&mut self, mode: WireCrypt) -> &mut Self {
+        self.wire_crypt = Some(mode);
+        self
+    }
+
     /// Username. Default: SYSDBA
     pub fn user<S: Into<String>>(&mut self, user: S) -> &mut Self {
         self.conn_conf.attachment_conf.user = user.into();
@@ -232,6 +250,7 @@ impl<A, B> NativeConnectionBuilder<A, B> {
             charset: self.charset,
             lib_path: self.lib_path,
             page_size: self.page_size,
+            wire_crypt: self.wire_crypt,
         }
     }
 }
@@ -245,6 +264,7 @@ impl Default for NativeConnectionBuilder<LinkageNotConfigured, ConnTypeNotConfig
             charset: charset::UTF_8,
             lib_path: None,
             page_size: None,
+            wire_crypt: None,
         };
 
         self_result.conn_conf.dialect = Dialect::D3;

@@ -98,6 +98,7 @@ pub struct ServiceManagerBuilder {
     user: String,
     pass: String,
     lib_path: Option<String>,
+    wire_crypt: Option<rsfbclient_native::WireCrypt>,
 }
 
 impl Default for ServiceManagerBuilder {
@@ -108,6 +109,7 @@ impl Default for ServiceManagerBuilder {
             user: "SYSDBA".to_string(),
             pass: "masterkey".to_string(),
             lib_path: None,
+            wire_crypt: None,
         }
     }
 }
@@ -137,6 +139,13 @@ impl ServiceManagerBuilder {
         self
     }
 
+    /// Override wire encryption for this service attachment, preserving the
+    /// native client configuration when no override is specified.
+    pub fn wire_crypt(&mut self, mode: rsfbclient_native::WireCrypt) -> &mut Self {
+        self.wire_crypt = Some(mode);
+        self
+    }
+
     /// Load the fbclient library from this path at runtime instead of
     /// using the dynamically linked one (requires the
     /// `dynamic_loading` feature).
@@ -147,7 +156,12 @@ impl ServiceManagerBuilder {
 
     /// Attach to the server's service manager.
     pub fn attach(&self) -> Result<ServiceManager, FbError> {
-        let spb = build_attach_spb(&self.user, &self.pass);
+        let mut spb = build_attach_spb(&self.user, &self.pass);
+        if let Some(mode) = self.wire_crypt {
+            let setting = format!("WireCrypt = {}", mode.as_str());
+            spb.extend_from_slice(&[ibase::isc_spb_config as u8, setting.len() as u8]);
+            spb.extend_from_slice(setting.as_bytes());
+        }
 
         match &self.lib_path {
             None => {
