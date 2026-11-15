@@ -1057,7 +1057,8 @@ impl RowSink for ParsedColumnSink<'_> {
     }
 
     fn blob(&mut self, var: &XSqlVar, sqltype: u32, id: BlobId) -> Result<(), FbError> {
-        let binary = var.sqlsubtype == 0;
+        // Negative subtypes are user-defined binary BLOBs, including inline data.
+        let binary = var.sqlsubtype <= 0;
 
         // Inlined by the server: complete right here, zero extra round trips.
         if let Some(inlined) = self.inline.iter().find(|b| b.id == id.0) {
