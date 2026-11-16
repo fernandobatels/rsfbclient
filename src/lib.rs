@@ -208,6 +208,7 @@ pub use rsfbclient_rust::{RawValue, RustFbClient};
 
 //builders are behind feature gates inside this module
 pub use crate::connection::builders;
+pub use crate::connection::{Array, ArrayReadContext, QueryCursor};
 pub use builders::*;
 
 /// Owned native transactions and cancellable events, including multi-database recovery.

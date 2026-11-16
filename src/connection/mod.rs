@@ -34,6 +34,9 @@ pub mod builders {
     pub use builder_pure_rust::*;
 }
 
+mod array;
+pub use array::{Array, ArrayReadContext};
+
 mod cancellation;
 pub(crate) mod conn_string;
 pub use cancellation::{AttachmentInterrupt, StatementCancelHandle};
@@ -41,7 +44,7 @@ pub use cancellation::{AttachmentInterrupt, StatementCancelHandle};
 pub(crate) mod stmt_cache;
 
 pub(crate) mod simple;
-pub use simple::SimpleConnection;
+pub use simple::{QueryCursor, SimpleConnection};
 
 mod paged;
 pub use paged::{PagedQuery, PausedPagedQuery};

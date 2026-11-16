@@ -65,6 +65,10 @@ pub fn params_to_blr(
 
     for p in params {
         match p {
+            SqlType::Array(id) => {
+                blr.put_slice(&[consts::blr::QUAD, 0]);
+                values.put_u64(id.as_u64());
+            }
             SqlType::Text(s) => {
                 if s.len() > MAX_DATA_LENGTH {
                     handle_blob(conn, &mut blr, &mut values, s.as_bytes(), true)?;

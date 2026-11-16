@@ -3,11 +3,11 @@
 //! multiple connection types/variations.
 //!
 
-use super::paged::PageConnection;
+use super::{paged::PageConnection, ArrayReadContext};
 use crate::{
     Connection, Execute, FbError, FromRow, IntoParams, PagedQuery, PausedPagedQuery, Queryable,
 };
-use rsfbclient_core::TransactionConfiguration;
+use rsfbclient_core::{StmtType, TransactionConfiguration};
 
 #[cfg(feature = "linking")]
 use rsfbclient_native::DynLink;
@@ -19,12 +19,79 @@ use rsfbclient_native::NativeFbClient;
 use rsfbclient_rust::RustFbClient;
 use std::convert::{From, TryFrom};
 
+/// A SELECT cursor with access to the transaction that owns its ARRAY values.
+pub trait QueryCursor {
+    fn fetch(&mut self) -> Result<Option<crate::Row>, FbError>;
+    fn array_reader(&mut self) -> &mut dyn ArrayReadContext;
+}
+
+impl<C: rsfbclient_core::FirebirdClient> QueryCursor
+    for crate::statement::StatementFetch<'_, '_, crate::Row, C>
+{
+    fn fetch(&mut self) -> Result<Option<crate::Row>, FbError> {
+        crate::statement::StatementFetch::fetch(self)
+    }
+
+    fn array_reader(&mut self) -> &mut dyn ArrayReadContext {
+        self.tr
+    }
+}
+
+fn with_query_cursor<C: rsfbclient_core::FirebirdClient, T>(
+    connection: &mut Connection<C>,
+    sql: &str,
+    params: Vec<crate::SqlType>,
+    consume: impl FnOnce(&[String], &mut dyn QueryCursor) -> Result<T, FbError>,
+) -> Result<T, FbError> {
+    connection.with_transaction(|transaction| {
+        let mut statement = crate::Statement::prepare(transaction, sql, false)?;
+        if !matches!(
+            statement.data.stmt_type,
+            StmtType::Select | StmtType::SelectForUpd
+        ) {
+            return Err("This method requires a SELECT statement".into());
+        }
+        let columns = statement
+            .tr
+            .conn
+            .cli
+            .output_column_names(&statement.data.handle);
+        let mut rows = statement.query::<crate::Row, _>(params)?;
+        consume(&columns, &mut rows)
+    })
+}
+
 /// A connection API without client types
 pub struct SimpleConnection {
     pub(crate) inner: TypeConnectionContainer,
 }
 
 impl SimpleConnection {
+    /// Read prepared column names and stream rows from the same SELECT.
+    pub fn with_query_cursor<T>(
+        &mut self,
+        sql: &str,
+        consume: impl FnOnce(&[String], &mut dyn QueryCursor) -> Result<T, FbError>,
+    ) -> Result<T, FbError> {
+        self.with_query_cursor_params(sql, Vec::new(), consume)
+    }
+
+    pub fn with_query_cursor_params<T>(
+        &mut self,
+        sql: &str,
+        params: Vec<crate::SqlType>,
+        consume: impl FnOnce(&[String], &mut dyn QueryCursor) -> Result<T, FbError>,
+    ) -> Result<T, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => with_query_cursor(c, sql, params, consume),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => with_query_cursor(c, sql, params, consume),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => with_query_cursor(c, sql, params, consume),
+        }
+    }
+
     /// Borrow the underlying native dyn link connection without consuming it.
     /// Returns `None` for a different client implementation.
     #[cfg(feature = "linking")]
@@ -241,6 +308,30 @@ impl SimpleConnection {
         }
     }
 
+    /// Enable or disable measurement of statement preparation.
+    pub fn set_prepare_timing_enabled(&mut self, enabled: bool) {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.set_prepare_timing_enabled(enabled),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.set_prepare_timing_enabled(enabled),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.set_prepare_timing_enabled(enabled),
+        }
+    }
+
+    /// Most recent preparation duration. Cached statements and disabled timing report zero.
+    pub fn last_prepare_duration(&self) -> std::time::Duration {
+        match &self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.last_prepare_duration(),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.last_prepare_duration(),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.last_prepare_duration(),
+        }
+    }
+
     /// Prepare a statement without executing it and return its server classification.
     pub fn prepare_statement_type(
         &mut self,
@@ -271,30 +362,6 @@ impl SimpleConnection {
             TypeConnectionContainer::NativeDynLoad(c) => c.describe_statement(sql, named_params),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.describe_statement(sql, named_params),
-        }
-    }
-
-    /// Enable or disable measurement of statement preparation.
-    pub fn set_prepare_timing_enabled(&mut self, enabled: bool) {
-        match &mut self.inner {
-            #[cfg(feature = "linking")]
-            TypeConnectionContainer::NativeDynLink(c) => c.set_prepare_timing_enabled(enabled),
-            #[cfg(feature = "dynamic_loading")]
-            TypeConnectionContainer::NativeDynLoad(c) => c.set_prepare_timing_enabled(enabled),
-            #[cfg(feature = "pure_rust")]
-            TypeConnectionContainer::PureRust(c) => c.set_prepare_timing_enabled(enabled),
-        }
-    }
-
-    /// Most recent preparation duration. Cached statements and disabled timing report zero.
-    pub fn last_prepare_duration(&self) -> std::time::Duration {
-        match &self.inner {
-            #[cfg(feature = "linking")]
-            TypeConnectionContainer::NativeDynLink(c) => c.last_prepare_duration(),
-            #[cfg(feature = "dynamic_loading")]
-            TypeConnectionContainer::NativeDynLoad(c) => c.last_prepare_duration(),
-            #[cfg(feature = "pure_rust")]
-            TypeConnectionContainer::PureRust(c) => c.last_prepare_duration(),
         }
     }
 

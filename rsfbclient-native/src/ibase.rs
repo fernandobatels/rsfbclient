@@ -520,21 +520,21 @@ parse_functions! {
             arg5: *mut ISC_SCHAR,
         ) -> ISC_STATUS;
     }
-    // extern "C" {
-    //     pub fn isc_get_slice(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_db_handle,
-    //         arg3: *mut isc_tr_handle,
-    //         arg4: *mut ISC_QUAD,
-    //         arg5: ::std::os::raw::c_short,
-    //         arg6: *const ISC_SCHAR,
-    //         arg7: ::std::os::raw::c_short,
-    //         arg8: *const ISC_LONG,
-    //         arg9: ISC_LONG,
-    //         arg10: *mut ::std::os::raw::c_void,
-    //         arg11: *mut ISC_LONG,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "system" {
+        pub fn isc_get_slice(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_db_handle,
+            arg3: *mut isc_tr_handle,
+            arg4: *mut ISC_QUAD,
+            arg5: ::std::os::raw::c_short,
+            arg6: *const ISC_SCHAR,
+            arg7: ::std::os::raw::c_short,
+            arg8: *const ISC_LONG,
+            arg9: ISC_LONG,
+            arg10: *mut ::std::os::raw::c_void,
+            arg11: *mut ISC_LONG,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_interprete(arg1: *mut ISC_SCHAR, arg2: *mut *mut ISC_STATUS) -> ISC_LONG;
     // }
@@ -587,20 +587,20 @@ parse_functions! {
             arg4: *const ISC_SCHAR,
         ) -> ISC_STATUS;
     }
-    // extern "C" {
-    //     pub fn isc_put_slice(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_db_handle,
-    //         arg3: *mut isc_tr_handle,
-    //         arg4: *mut ISC_QUAD,
-    //         arg5: ::std::os::raw::c_short,
-    //         arg6: *const ISC_SCHAR,
-    //         arg7: ::std::os::raw::c_short,
-    //         arg8: *const ISC_LONG,
-    //         arg9: ISC_LONG,
-    //         arg10: *mut ::std::os::raw::c_void,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "system" {
+        pub fn isc_put_slice(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_db_handle,
+            arg3: *mut isc_tr_handle,
+            arg4: *mut ISC_QUAD,
+            arg5: ::std::os::raw::c_short,
+            arg6: *const ISC_SCHAR,
+            arg7: ::std::os::raw::c_short,
+            arg8: *const ISC_LONG,
+            arg9: ISC_LONG,
+            arg10: *const ::std::os::raw::c_void,
+        ) -> ISC_STATUS;
+    }
     extern "system" {
         pub fn isc_que_events(
             arg1: *mut ISC_STATUS,
