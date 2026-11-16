@@ -143,11 +143,9 @@
 //!   2^53 lose precision silently (e.g. `NUMERIC(18,2)` storing `90071992547409.93` reads
 //!   back as `90071992547409.92`). When the exact digits matter, `CAST` the column to
 //!   `VARCHAR` in SQL and parse, or keep the value in a wider text/integer form.
-//! - **Some Firebird 4+ types are not supported by the row reader**: selecting a
-//!   `DECFLOAT(16/34)`, `TIMESTAMP WITH TIME ZONE` or `TIME WITH TIME ZONE` column (or a
-//!   blob with `sub_type > 1`) fails at describe time with *"Unsupported column type"*.
-//!   Plain `INT128` is preserved as `i128`; `NUMERIC`/`DECIMAL` values backed by INT128
-//!   follow the same `f64` mapping as their lower-precision counterparts.
+//! - **DECFLOAT and temporal values with time zones** are returned as Firebird-formatted
+//!   strings. The column retains its original Firebird type. Blobs with a subtype greater
+//!   than 1 remain unsupported. Plain `INT128` is preserved as `i128`.
 //!
 //! See `examples/type_mapping.rs` for all of the above, live.
 //!

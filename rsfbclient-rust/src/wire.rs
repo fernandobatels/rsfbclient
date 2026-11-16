@@ -1092,7 +1092,7 @@ impl ParsedColumnSink<'_> {
     fn push(&mut self, var: &XSqlVar, sqltype: u32, value: SqlType) {
         self.out.push(ParsedColumn::Complete(Column::new(
             var.alias_name.clone(),
-            sqltype,
+            var.source_sqltype.unwrap_or(sqltype),
             value,
         )));
     }
@@ -1176,8 +1176,11 @@ struct ColumnSink<'a> {
 
 impl ColumnSink<'_> {
     fn push(&mut self, var: &XSqlVar, sqltype: u32, value: SqlType) {
-        self.out
-            .push(Column::new(var.alias_name.clone(), sqltype, value));
+        self.out.push(Column::new(
+            var.alias_name.clone(),
+            var.source_sqltype.unwrap_or(sqltype),
+            value,
+        ));
     }
 }
 
