@@ -57,9 +57,8 @@ use rsfbclient_native::DynLoad;
 use rsfbclient_native::NativeServiceManager;
 
 /// Options for [ServiceManager::backup] /
-/// [ServiceManager::backup_with_output]. All default to `false`,
-/// matching `gbak`'s defaults.
-#[derive(Clone, Copy, Default)]
+/// [ServiceManager::backup_with_output]. Default options match `gbak`.
+#[derive(Clone, Default)]
 pub struct SvcBackupOptions {
     /// Back up metadata only, no table data (`gbak -m`)
     pub metadata_only: bool,
@@ -70,11 +69,18 @@ pub struct SvcBackupOptions {
     /// Do not run garbage collection during the backup (`gbak -g`);
     /// commonly enabled for faster backups of busy databases
     pub no_garbage_collect: bool,
+    /// Firebird regular expression selecting tables whose data is backed up.
+    /// Requires Firebird 4 or later.
+    pub include_data: Option<String>,
+    /// Firebird regular expression excluding table data from the backup.
+    pub skip_data: Option<String>,
+    /// Number of workers to use. Requires Firebird 5 or later.
+    pub parallel_workers: Option<u32>,
 }
 
 /// Options for [ServiceManager::restore] /
 /// [ServiceManager::restore_with_output].
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub struct SvcRestoreOptions {
     /// Replace the target database if it already exists (`gbak -rep`).
     /// When `false` (the default) the restore fails if the target
@@ -83,6 +89,13 @@ pub struct SvcRestoreOptions {
     /// Page size of the restored database (`gbak -p`); `None` keeps
     /// the page size recorded in the backup
     pub page_size: Option<u32>,
+    /// Firebird regular expression selecting tables whose data is restored.
+    /// Requires Firebird 4 or later.
+    pub include_data: Option<String>,
+    /// Firebird regular expression excluding table data from the restore.
+    pub skip_data: Option<String>,
+    /// Number of workers to use. Requires Firebird 5 or later.
+    pub parallel_workers: Option<u32>,
 }
 
 /// Builder for a [ServiceManager] attachment.
@@ -283,9 +296,15 @@ impl ServiceManager {
         }
 
         let mut req = vec![ibase::isc_action_svc_backup as u8];
-        push_string_arg(&mut req, ibase::isc_spb_dbname as u8, db_name);
-        push_string_arg(&mut req, ibase::isc_spb_bkp_file as u8, backup_file);
+        push_string_arg(&mut req, ibase::isc_spb_dbname as u8, db_name)?;
+        push_string_arg(&mut req, ibase::isc_spb_bkp_file as u8, backup_file)?;
         push_u32_arg(&mut req, ibase::isc_spb_options as u8, flags);
+        push_data_options(
+            &mut req,
+            options.include_data.as_deref(),
+            options.skip_data.as_deref(),
+            options.parallel_workers,
+        )?;
         req.push(ibase::isc_spb_verbose as u8);
 
         self.start(&req)?;
@@ -322,12 +341,18 @@ impl ServiceManager {
         };
 
         let mut req = vec![ibase::isc_action_svc_restore as u8];
-        push_string_arg(&mut req, ibase::isc_spb_bkp_file as u8, backup_file);
-        push_string_arg(&mut req, ibase::isc_spb_dbname as u8, db_name);
+        push_string_arg(&mut req, ibase::isc_spb_bkp_file as u8, backup_file)?;
+        push_string_arg(&mut req, ibase::isc_spb_dbname as u8, db_name)?;
         push_u32_arg(&mut req, ibase::isc_spb_options as u8, flags);
         if let Some(page_size) = options.page_size {
             push_u32_arg(&mut req, ibase::isc_spb_res_page_size as u8, page_size);
         }
+        push_data_options(
+            &mut req,
+            options.include_data.as_deref(),
+            options.skip_data.as_deref(),
+            options.parallel_workers,
+        )?;
         req.push(ibase::isc_spb_verbose as u8);
 
         self.start(&req)?;
@@ -411,16 +436,46 @@ fn build_attach_spb(user: &str, pass: &str, role: Option<&str>) -> Result<Vec<u8
 /// Start-request string argument: tag, TWO-byte little-endian length,
 /// bytes. (Attach and start blocks use different length encodings —
 /// one of the classic Services API traps.)
-fn push_string_arg(req: &mut Vec<u8>, tag: u8, value: &str) {
+fn push_string_arg(req: &mut Vec<u8>, tag: u8, value: &str) -> Result<(), FbError> {
+    let length = u16::try_from(value.len())
+        .map_err(|_| FbError::from("Services API string exceeds the start SPB limit"))?;
+    if value.contains('\0') {
+        return Err("Services API strings cannot contain NUL bytes".into());
+    }
     req.push(tag);
-    req.extend_from_slice(&(value.len() as u16).to_le_bytes());
+    req.extend_from_slice(&length.to_le_bytes());
     req.extend_from_slice(value.as_bytes());
+    Ok(())
 }
 
 /// Start-request numeric argument: tag + four-byte little-endian value.
 fn push_u32_arg(req: &mut Vec<u8>, tag: u8, value: u32) {
     req.push(tag);
     req.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Backup and restore share these three service parameter tags.
+fn push_data_options(
+    req: &mut Vec<u8>,
+    include_data: Option<&str>,
+    skip_data: Option<&str>,
+    parallel_workers: Option<u32>,
+) -> Result<(), FbError> {
+    for (tag, pattern) in [
+        (ibase::isc_spb_bkp_include_data, include_data),
+        (ibase::isc_spb_bkp_skip_data, skip_data),
+    ] {
+        if let Some(pattern) = pattern.filter(|pattern| !pattern.is_empty()) {
+            push_string_arg(req, tag as u8, pattern)?;
+        }
+    }
+    if let Some(workers) = parallel_workers {
+        if workers == 0 {
+            return Err("The number of backup or restore workers must be positive".into());
+        }
+        push_u32_arg(req, ibase::isc_spb_bkp_parallel_workers as u8, workers);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

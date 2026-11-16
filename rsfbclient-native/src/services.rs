@@ -82,12 +82,14 @@ impl<T: LinkageMarker> NativeServiceManager<T> {
 
     /// Start a service action (`isc_action_svc_*` request block).
     pub fn start(&mut self, request: &[u8]) -> Result<(), FbError> {
+        let request_len = u16::try_from(request.len())
+            .map_err(|_| FbError::from("Services API request exceeds the start SPB limit"))?;
         unsafe {
             if self.ibase.isc_service_start()(
                 &mut self.status[0],
                 &mut self.handle,
                 std::ptr::null_mut(),
-                request.len() as u16,
+                request_len,
                 request.as_ptr() as *const _,
             ) != 0
             {
