@@ -1075,6 +1075,10 @@ trait RowSink {
 
     fn boolean(&mut self, var: &XSqlVar, sqltype: u32, value: bool) -> Result<(), FbError>;
 
+    fn array(&mut self, _var: &XSqlVar, _id: rsfbclient_core::ArrayId) -> Result<(), FbError> {
+        Err("Raw streaming does not support ARRAY columns".into())
+    }
+
     /// Only the blob id is on the wire; the data needs its own round-trips, so
     /// sinks that cannot issue them reject the column.
     fn blob(&mut self, var: &XSqlVar, sqltype: u32, id: BlobId) -> Result<(), FbError>;
@@ -1090,11 +1094,9 @@ struct ParsedColumnSink<'a> {
 
 impl ParsedColumnSink<'_> {
     fn push(&mut self, var: &XSqlVar, sqltype: u32, value: SqlType) {
-        self.out.push(ParsedColumn::Complete(Column::new(
-            var.alias_name.clone(),
-            sqltype,
-            value,
-        )));
+        let mut column = Column::new(var.alias_name.clone(), sqltype, value);
+        column.array_origin = var.array_origin.clone();
+        self.out.push(ParsedColumn::Complete(column));
     }
 }
 
@@ -1144,6 +1146,11 @@ impl RowSink for ParsedColumnSink<'_> {
         Ok(())
     }
 
+    fn array(&mut self, var: &XSqlVar, id: rsfbclient_core::ArrayId) -> Result<(), FbError> {
+        self.push(var, ibase::SQL_ARRAY, SqlType::Array(id));
+        Ok(())
+    }
+
     fn blob(&mut self, var: &XSqlVar, sqltype: u32, id: BlobId) -> Result<(), FbError> {
         // Negative subtypes are user-defined binary BLOBs, including inline data.
         let binary = var.sqlsubtype <= 0;
@@ -1176,8 +1183,9 @@ struct ColumnSink<'a> {
 
 impl ColumnSink<'_> {
     fn push(&mut self, var: &XSqlVar, sqltype: u32, value: SqlType) {
-        self.out
-            .push(Column::new(var.alias_name.clone(), sqltype, value));
+        let mut column = Column::new(var.alias_name.clone(), sqltype, value);
+        column.array_origin = var.array_origin.clone();
+        self.out.push(column);
     }
 }
 
@@ -1224,6 +1232,11 @@ impl RowSink for ColumnSink<'_> {
 
     fn boolean(&mut self, var: &XSqlVar, sqltype: u32, value: bool) -> Result<(), FbError> {
         self.push(var, sqltype, SqlType::Boolean(value));
+        Ok(())
+    }
+
+    fn array(&mut self, var: &XSqlVar, id: rsfbclient_core::ArrayId) -> Result<(), FbError> {
+        self.push(var, ibase::SQL_ARRAY, SqlType::Array(id));
         Ok(())
     }
 
@@ -1394,6 +1407,15 @@ fn decode_row<S: RowSink>(
                     sink.null(var, sqltype)?
                 } else {
                     sink.timestamp(var, sqltype, ts)?
+                }
+            }
+
+            ibase::SQL_ARRAY => {
+                let id = rsfbclient_core::ArrayId::from_u64(resp.get_u64()?);
+                if read_null(resp, col_index)? {
+                    sink.null(var, sqltype)?;
+                } else {
+                    sink.array(var, id)?;
                 }
             }
 

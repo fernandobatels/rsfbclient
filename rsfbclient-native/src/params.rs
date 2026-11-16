@@ -116,6 +116,7 @@ pub struct ParamBuffer {
 /// Data for the input XSQLVAR.
 /// Holds the data in the format expected by the `fbclient`
 enum ParamBufferData {
+    Array(Box<ibase::GDS_QUAD_t>),
     Text(Box<[u8]>),
 
     Integer(Box<i64>),
@@ -138,6 +139,7 @@ impl ParamBufferData {
     /// Get a pointer to the underlying data
     fn as_mut_ptr(&mut self) -> *mut ibase::ISC_SCHAR {
         match self {
+            Array(id) => &**id as *const _ as _,
             Text(s) => s.as_ptr() as _,
             Integer(i) => &**i as *const _ as _,
             Int128(i) => i.as_mut() as *mut i128 as _,
@@ -168,6 +170,13 @@ impl ParamBuffer {
         var.sqlscale = 0;
 
         let (size, mut buffer) = match info {
+            SqlType::Array(id) => (
+                8,
+                Array(Box::new(ibase::GDS_QUAD_t {
+                    gds_quad_high: id.high,
+                    gds_quad_low: id.low,
+                })),
+            ),
             SqlType::Text(s) => {
                 let bytes = if s.len() > MAX_TEXT_LENGTH {
                     // Match sql_type_and_subtype's decision before encoding.

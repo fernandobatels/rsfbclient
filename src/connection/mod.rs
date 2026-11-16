@@ -38,7 +38,7 @@ pub(crate) mod conn_string;
 pub(crate) mod stmt_cache;
 
 pub(crate) mod simple;
-pub use simple::SimpleConnection;
+pub use simple::{ArrayReadContext, QueryCursor, SimpleConnection};
 
 /// A generic factory for creating multiple preconfigured instances of a particular client implementation
 /// Intended mainly for use by connection pool
@@ -170,6 +170,122 @@ impl<C: FirebirdClient> Connection<C> {
         self.cli.detach_database(&mut self.handle)?;
 
         Ok(())
+    }
+
+    pub fn read_array(
+        &mut self,
+        id: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+        element: rsfbclient_core::ArrayElement,
+    ) -> Result<Vec<u8>, FbError> {
+        if !self.in_transaction {
+            return Err(
+                "An ARRAY slice requires the active transaction that fetched its identifier".into(),
+            );
+        }
+        self.with_transaction(|tr| {
+            ArrayReadContext::read_array(tr, id, relation, field, bounds, element)
+        })
+    }
+
+    pub fn put_array(
+        &mut self,
+        temporary: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+        element: rsfbclient_core::ArrayElement,
+        values: &[u8],
+    ) -> Result<rsfbclient_core::ArrayId, FbError> {
+        if temporary.high != 0 {
+            return Err("ARRAY slice writes require a new or temporary array identifier".into());
+        }
+        if !self.in_transaction {
+            return Err("An ARRAY write requires an active transaction".into());
+        }
+        let slice = rsfbclient_core::ArraySlice::new(
+            &self.cli.encode_text(relation)?,
+            &self.cli.encode_text(field)?,
+            bounds,
+            element,
+        )?;
+        slice.validate(values)?;
+        self.with_transaction(|tr| {
+            tr.conn.cli.put_array(
+                &mut tr.conn.handle,
+                &mut tr.data.handle,
+                temporary,
+                &slice,
+                values,
+            )
+        })
+    }
+
+    pub fn read_integer_array(
+        &mut self,
+        id: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+    ) -> Result<Vec<i32>, FbError> {
+        if !self.in_transaction {
+            return Err(
+                "An ARRAY slice requires the active transaction that fetched its identifier".into(),
+            );
+        }
+        self.with_transaction(|tr| {
+            ArrayReadContext::read_integer_array(tr, id, relation, field, bounds)
+        })
+    }
+
+    pub fn create_integer_array(
+        &mut self,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+        values: &[i32],
+    ) -> Result<rsfbclient_core::ArrayId, FbError> {
+        self.put_integer_array(
+            rsfbclient_core::ArrayId::default(),
+            relation,
+            field,
+            bounds,
+            values,
+        )
+    }
+
+    /// Fill a slice of a temporary array in the current transaction.
+    /// A zero identifier starts a new temporary array.
+    pub fn put_integer_array(
+        &mut self,
+        temporary: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+        values: &[i32],
+    ) -> Result<rsfbclient_core::ArrayId, FbError> {
+        if temporary.high != 0 {
+            return Err("ARRAY slice writes require a new or temporary array identifier".into());
+        }
+        if !self.in_transaction {
+            return Err("An ARRAY write requires an active transaction".into());
+        }
+        let slice = rsfbclient_core::IntegerArraySlice::new(
+            &self.cli.encode_text(relation)?,
+            &self.cli.encode_text(field)?,
+            bounds,
+        )?;
+        self.with_transaction(|tr| {
+            tr.conn.cli.put_integer_array(
+                &mut tr.conn.handle,
+                &mut tr.data.handle,
+                temporary,
+                &slice,
+                values,
+            )
+        })
     }
 
     /// Run a closure with a transaction, if the closure returns an error

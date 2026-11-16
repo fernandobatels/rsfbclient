@@ -4,7 +4,7 @@
 //!
 
 use crate::{Connection, Execute, FbError, FromRow, IntoParams, Queryable};
-use rsfbclient_core::TransactionConfiguration;
+use rsfbclient_core::{StmtType, TransactionConfiguration};
 
 #[cfg(feature = "linking")]
 use rsfbclient_native::DynLink;
@@ -16,12 +16,262 @@ use rsfbclient_native::NativeFbClient;
 use rsfbclient_rust::RustFbClient;
 use std::convert::{From, TryFrom};
 
+/// Access the same transaction while a result row is being processed.
+pub trait ArrayReadContext {
+    fn read_array(
+        &mut self,
+        id: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+        element: rsfbclient_core::ArrayElement,
+    ) -> Result<Vec<u8>, FbError>;
+    fn query_rows(
+        &mut self,
+        sql: &str,
+        params: Vec<crate::SqlType>,
+    ) -> Result<Vec<crate::Row>, FbError>;
+    fn read_integer_array(
+        &mut self,
+        id: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+    ) -> Result<Vec<i32>, FbError>;
+}
+
+impl<C: rsfbclient_core::FirebirdClient> ArrayReadContext for crate::Transaction<'_, C> {
+    fn read_array(
+        &mut self,
+        id: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+        element: rsfbclient_core::ArrayElement,
+    ) -> Result<Vec<u8>, FbError> {
+        let slice = rsfbclient_core::ArraySlice::new(
+            &self.conn.cli.encode_text(relation)?,
+            &self.conn.cli.encode_text(field)?,
+            bounds,
+            element,
+        )?;
+        self.conn
+            .cli
+            .read_array(&mut self.conn.handle, &mut self.data.handle, id, &slice)
+    }
+    fn query_rows(
+        &mut self,
+        sql: &str,
+        params: Vec<crate::SqlType>,
+    ) -> Result<Vec<crate::Row>, FbError> {
+        self.query(sql, params)
+    }
+
+    fn read_integer_array(
+        &mut self,
+        id: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+    ) -> Result<Vec<i32>, FbError> {
+        let slice = rsfbclient_core::IntegerArraySlice::new(
+            &self.conn.cli.encode_text(relation)?,
+            &self.conn.cli.encode_text(field)?,
+            bounds,
+        )?;
+        self.conn
+            .cli
+            .read_integer_array(&mut self.conn.handle, &mut self.data.handle, id, &slice)
+    }
+}
+
+/// A SELECT cursor with access to the transaction that owns its ARRAY values.
+pub trait QueryCursor {
+    fn fetch(&mut self) -> Result<Option<crate::Row>, FbError>;
+    fn array_reader(&mut self) -> &mut dyn ArrayReadContext;
+}
+
+impl<C: rsfbclient_core::FirebirdClient> QueryCursor
+    for crate::statement::StatementFetch<'_, '_, crate::Row, C>
+{
+    fn fetch(&mut self) -> Result<Option<crate::Row>, FbError> {
+        crate::statement::StatementFetch::fetch(self)
+    }
+
+    fn array_reader(&mut self) -> &mut dyn ArrayReadContext {
+        self.tr
+    }
+}
+
+fn with_query_cursor<C: rsfbclient_core::FirebirdClient, T>(
+    connection: &mut Connection<C>,
+    sql: &str,
+    params: Vec<crate::SqlType>,
+    consume: impl FnOnce(&[String], &mut dyn QueryCursor) -> Result<T, FbError>,
+) -> Result<T, FbError> {
+    connection.with_transaction(|transaction| {
+        let mut statement = crate::Statement::prepare(transaction, sql, false)?;
+        if !matches!(
+            statement.data.stmt_type,
+            StmtType::Select | StmtType::SelectForUpd
+        ) {
+            return Err("This method requires a SELECT statement".into());
+        }
+        let columns = statement
+            .tr
+            .conn
+            .cli
+            .output_column_names(&statement.data.handle);
+        let mut rows = statement.query::<crate::Row, _>(params)?;
+        consume(&columns, &mut rows)
+    })
+}
+
 /// A connection API without client types
 pub struct SimpleConnection {
     pub(crate) inner: TypeConnectionContainer,
 }
 
 impl SimpleConnection {
+    /// Read prepared column names and stream rows from the same SELECT.
+    pub fn with_query_cursor<T>(
+        &mut self,
+        sql: &str,
+        consume: impl FnOnce(&[String], &mut dyn QueryCursor) -> Result<T, FbError>,
+    ) -> Result<T, FbError> {
+        self.with_query_cursor_params(sql, Vec::new(), consume)
+    }
+
+    pub fn with_query_cursor_params<T>(
+        &mut self,
+        sql: &str,
+        params: Vec<crate::SqlType>,
+        consume: impl FnOnce(&[String], &mut dyn QueryCursor) -> Result<T, FbError>,
+    ) -> Result<T, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => with_query_cursor(c, sql, params, consume),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => with_query_cursor(c, sql, params, consume),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => with_query_cursor(c, sql, params, consume),
+        }
+    }
+
+    pub fn read_array(
+        &mut self,
+        id: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+        element: rsfbclient_core::ArrayElement,
+    ) -> Result<Vec<u8>, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => {
+                c.read_array(id, relation, field, bounds, element)
+            }
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => {
+                c.read_array(id, relation, field, bounds, element)
+            }
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => {
+                c.read_array(id, relation, field, bounds, element)
+            }
+        }
+    }
+
+    pub fn put_array(
+        &mut self,
+        id: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+        element: rsfbclient_core::ArrayElement,
+        values: &[u8],
+    ) -> Result<rsfbclient_core::ArrayId, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => {
+                c.put_array(id, relation, field, bounds, element, values)
+            }
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => {
+                c.put_array(id, relation, field, bounds, element, values)
+            }
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => {
+                c.put_array(id, relation, field, bounds, element, values)
+            }
+        }
+    }
+
+    pub fn read_integer_array(
+        &mut self,
+        id: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+    ) -> Result<Vec<i32>, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => {
+                c.read_integer_array(id, relation, field, bounds)
+            }
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => {
+                c.read_integer_array(id, relation, field, bounds)
+            }
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => {
+                c.read_integer_array(id, relation, field, bounds)
+            }
+        }
+    }
+
+    pub fn create_integer_array(
+        &mut self,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+        values: &[i32],
+    ) -> Result<rsfbclient_core::ArrayId, FbError> {
+        self.put_integer_array(
+            rsfbclient_core::ArrayId::default(),
+            relation,
+            field,
+            bounds,
+            values,
+        )
+    }
+
+    /// Fill a slice of a temporary array in the current transaction.
+    /// A zero identifier starts a new temporary array.
+    pub fn put_integer_array(
+        &mut self,
+        temporary: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+        values: &[i32],
+    ) -> Result<rsfbclient_core::ArrayId, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => {
+                c.put_integer_array(temporary, relation, field, bounds, values)
+            }
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => {
+                c.put_integer_array(temporary, relation, field, bounds, values)
+            }
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => {
+                c.put_integer_array(temporary, relation, field, bounds, values)
+            }
+        }
+    }
+
     /// Borrow the underlying native dyn link connection without consuming it.
     /// Returns `None` for a different client implementation.
     #[cfg(feature = "linking")]
@@ -286,6 +536,36 @@ impl Execute for SimpleConnection {
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.execute_returnable(sql, params),
         }
+    }
+}
+
+impl ArrayReadContext for SimpleConnection {
+    fn read_array(
+        &mut self,
+        id: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+        element: rsfbclient_core::ArrayElement,
+    ) -> Result<Vec<u8>, FbError> {
+        SimpleConnection::read_array(self, id, relation, field, bounds, element)
+    }
+    fn query_rows(
+        &mut self,
+        sql: &str,
+        params: Vec<crate::SqlType>,
+    ) -> Result<Vec<crate::Row>, FbError> {
+        self.query(sql, params)
+    }
+
+    fn read_integer_array(
+        &mut self,
+        id: rsfbclient_core::ArrayId,
+        relation: &str,
+        field: &str,
+        bounds: &[(i32, i32)],
+    ) -> Result<Vec<i32>, FbError> {
+        SimpleConnection::read_integer_array(self, id, relation, field, bounds)
     }
 }
 

@@ -57,6 +57,7 @@ pub struct XSqlVar {
     /// Column alias. `Arc<str>` (built once here at describe) so cloning it into
     /// every row's `Column` during fetch is a refcount bump, not an allocation.
     pub alias_name: Arc<str>,
+    pub array_origin: Option<Arc<rsfbclient_core::ArrayOrigin>>,
 }
 
 impl XSqlVar {
@@ -69,6 +70,14 @@ impl XSqlVar {
         // var.null_ind = 1;
 
         match sqltype as u32 {
+            ibase::SQL_ARRAY => {
+                self.sqltype = ibase::SQL_ARRAY as i16 + 1;
+                self.data_length = 8;
+                self.array_origin = rsfbclient_core::ArrayOrigin::from_names(
+                    self.relation_name.clone(),
+                    self.field_name.clone(),
+                );
+            }
             ibase::SQL_TEXT | ibase::SQL_VARYING => {
                 self.sqltype = ibase::SQL_VARYING as i16 + 1;
             }
@@ -160,6 +169,7 @@ pub fn xsqlda_to_blr(xsqlda: &[XSqlVar]) -> Result<Bytes, FbError> {
 
             ibase::SQL_TIMESTAMP => blr.put_u8(consts::blr::TIMESTAMP),
 
+            ibase::SQL_ARRAY => blr.put_slice(&[consts::blr::QUAD, 0]),
             ibase::SQL_BLOB => blr.put_slice(&[consts::blr::QUAD, var.sqlsubtype as u8]),
 
             ibase::SQL_BOOLEAN => blr.put_u8(consts::blr::BOOL),
