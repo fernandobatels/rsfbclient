@@ -90,6 +90,7 @@ pub struct Connection<C: FirebirdClient> {
 
     /// Cache for the prepared statements
     pub(crate) stmt_cache: StmtCache<StatementData<C>>,
+    pub(crate) last_prepare_time: Option<std::time::Duration>,
 
     /// Default transaction to be used when no explicit
     /// transaction is used
@@ -121,6 +122,7 @@ impl<C: FirebirdClient> Connection<C> {
             handle,
             dialect: conf.dialect,
             stmt_cache,
+            last_prepare_time: None,
             def_tr: None,
             in_transaction: false,
             cli,
@@ -142,6 +144,7 @@ impl<C: FirebirdClient> Connection<C> {
             handle,
             dialect: conf.dialect,
             stmt_cache,
+            last_prepare_time: None,
             def_tr: None,
             in_transaction: false,
             cli,
@@ -282,6 +285,22 @@ impl<C: FirebirdClient> Connection<C> {
         named_params: bool,
     ) -> Result<rsfbclient_core::StatementDescription, FbError> {
         self.with_transaction(|tr| tr.prepare(sql, named_params)?.describe())
+    }
+
+    /// Enable or disable measurement of statement preparation on this connection.
+    ///
+    /// Timing is disabled by default. It excludes binding, execution and fetch.
+    pub fn set_prepare_timing_enabled(&mut self, enabled: bool) {
+        self.last_prepare_time = enabled.then_some(std::time::Duration::ZERO);
+    }
+
+    /// Duration of the most recent preparation attempt, including server errors.
+    ///
+    /// Cached statements report zero. Returns zero while timing is disabled or
+    /// until a statement is prepared. Operations that do not prepare or look
+    /// up a statement leave this value unchanged.
+    pub fn last_prepare_duration(&self) -> std::time::Duration {
+        self.last_prepare_time.unwrap_or_default()
     }
 
     /// Begins a new transaction, and instructs all the `query` and `execute` methods
