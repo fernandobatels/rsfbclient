@@ -360,7 +360,7 @@ jobs:
   embedded:
     name: embedded
     needs: linting
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         build: [linking, dynamic_loading]
@@ -380,10 +380,10 @@ jobs:
           toolchain: stable
           default: true
 
-      - name: Setup FirebirdSQL 3.0 for embedded tests
+      - name: Setup FirebirdSQL 4.0 for embedded tests
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends firebird3.0-utils firebird-dev firebird3.0-server-core
+          sudo apt-get install -y --no-install-recommends firebird4.0-utils firebird-dev firebird4.0-server-core
 
       - name: Create database for embedded tests
         run: |
