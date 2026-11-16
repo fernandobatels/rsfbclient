@@ -67,7 +67,7 @@ pub trait ColumnToVal<T> {
 impl ColumnToVal<String> for Column {
     fn to_val(self) -> Result<String, FbError> {
         match self.value {
-            Text(t) => Ok(t),
+            Text(t) | TextBlob(t) => Ok(t),
 
             Integer(i) => Ok(i.to_string()),
 

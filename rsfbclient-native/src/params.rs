@@ -181,6 +181,12 @@ impl ParamBuffer {
                 (bytes.len(), Text(bytes.into_boxed_slice()))
             }
 
+            SqlType::TextBlob(s) => {
+                var.sqlscale = 4; // UTF8.
+                let bytes = binary_to_blob(s.as_bytes(), db, tr, ibase)?;
+                (bytes.len(), Text(bytes.into_boxed_slice()))
+            }
+
             SqlType::Integer(i) => (mem::size_of_val(&i), Integer(Box::new(i))),
 
             SqlType::Int128(i) => (mem::size_of_val(&i), Int128(Box::new(i))),
