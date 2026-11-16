@@ -435,17 +435,15 @@ mk_tests_default! {
             return Ok(());
         }
 
-        conn.execute("set bind of decfloat to native", ())?;
-
         for attempt in 0..1_100 {
-            let result: Result<Option<(f64,)>, FbError> = conn.query_first(
-                "select cast(1 as decfloat(34)) from rdb$database",
+            let result: Result<Option<(Vec<u8>,)>, FbError> = conn.query_first(
+                "select cast(null as blob sub_type 2) from rdb$database",
                 (),
             );
-            let error = result.expect_err("DECFLOAT(34) result must remain unsupported");
+            let error = result.expect_err("Custom positive BLOB subtype must remain unsupported");
             let message = error.to_string();
             assert!(
-                message.contains("Unsupported column type (32762"),
+                message.contains("Unsupported column type (520 2"),
                 "unexpected error at attempt {attempt}: {message}"
             );
         }
