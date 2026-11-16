@@ -3,6 +3,8 @@
 pub(crate) mod column;
 mod connection;
 pub(crate) mod ibase;
+#[cfg(all(target_os = "macos", feature = "dynamic_loading"))]
+mod macos_transport;
 pub(crate) mod params;
 pub mod services;
 pub(crate) mod status;
