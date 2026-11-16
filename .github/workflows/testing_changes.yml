@@ -216,12 +216,26 @@ jobs:
             Copy-Item -Path $foundDll.FullName -Destination $PWD -Force
           }
 
-      - name: Create a alias to test.fdb on fb v2
+      - name: Wait for Firebird 2.5 and configure the test database alias
         if: matrix.firebird == 'v2'
         run: |
-          docker exec firebirdsql /bin/bash '/usr/local/firebird/bin/createAliasDB.sh' 'test.fdb' '/firebird/data/test.fdb'
-          docker container restart firebirdsql
-          echo '# Restarted container firebirdsql'
+          wait_for_database() {
+            local database="$1"
+            for attempt in {1..30}; do
+              if printf '%s\n' 'SELECT 1 FROM RDB$DATABASE;' |
+                docker exec -i firebirdsql /usr/local/firebird/bin/isql -bail -quiet -user SYSDBA "localhost:$database" >/dev/null 2>&1; then
+                return 0
+              fi
+              sleep 1
+            done
+
+            echo "Firebird 2.5 database $database is not ready" >&2
+            return 1
+          }
+
+          wait_for_database /firebird/data/test.fdb
+          docker exec firebirdsql /bin/bash /usr/local/firebird/bin/createAliasDB.sh test.fdb /firebird/data/test.fdb
+          wait_for_database test.fdb
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
