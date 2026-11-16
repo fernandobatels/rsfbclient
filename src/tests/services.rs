@@ -178,17 +178,6 @@ fn restore_without_replace_fails_on_existing() -> Result<(), FbError> {
 
 #[test]
 fn backup_and_restore_can_filter_table_data_and_use_parallel_workers() -> Result<(), FbError> {
-    let mut svc = svc()?;
-    let version = svc.server_version()?;
-    let major = version
-        .split_once("-V")
-        .and_then(|(_, version)| version.split('.').next())
-        .and_then(|major| major.parse::<u32>().ok())
-        .expect("Firebird service version should contain -V followed by its major version");
-    if major < 4 {
-        return Ok(());
-    }
-    let workers = (major >= 5).then_some(2);
     let db = "test_svc_filtered.fdb";
     let partial = "test_svc_filtered.fbk";
     let full = "test_svc_filtered_full.fbk";
@@ -197,6 +186,32 @@ fn backup_and_restore_can_filter_table_data_and_use_parallel_workers() -> Result
         .db_name(db)
         .connect()
         .or_else(|_| cbuilder().db_name(db).create_database())?;
+    let (version,): (String,) = source
+        .query_first(
+            "SELECT RDB$GET_CONTEXT('SYSTEM', 'ENGINE_VERSION') FROM RDB$DATABASE",
+            (),
+        )?
+        .expect("the server reports an engine version");
+    let major = version
+        .split('.')
+        .next()
+        .and_then(|major| major.parse::<u32>().ok())
+        .expect("Firebird engine version starts with the major version");
+    if major < 4 {
+        return source.drop_database();
+    }
+
+    let mut svc = svc()?;
+    // The Firebird 4 CI image ships Beta 2. Its Services API accepts
+    // SKIP_DATA, but INCLUDE_DATA needs the released Firebird 4 or later.
+    let include = major >= 5 || !svc.server_version()?.contains("-T4.");
+    let include_data = include.then(|| "KEEP%".to_string());
+    let skip_data = if include {
+        "KEEP_SKIP"
+    } else {
+        "KEEP_SKIP|OMIT_DATA"
+    };
+    let workers = (major >= 5).then_some(2);
     for table in ["KEEP_DATA", "KEEP_SKIP", "OMIT_DATA"] {
         let _ = source.execute(&format!("DROP TABLE {table}"), ());
         source.execute(&format!("CREATE TABLE {table} (ID INT PRIMARY KEY)"), ())?;
@@ -208,8 +223,8 @@ fn backup_and_restore_can_filter_table_data_and_use_parallel_workers() -> Result
         db,
         partial,
         SvcBackupOptions {
-            include_data: Some("KEEP%".into()),
-            skip_data: Some("KEEP_SKIP".into()),
+            include_data: include_data.clone(),
+            skip_data: Some(skip_data.into()),
             parallel_workers: workers,
             ..SvcBackupOptions::default()
         },
@@ -228,8 +243,8 @@ fn backup_and_restore_can_filter_table_data_and_use_parallel_workers() -> Result
             full,
             SvcRestoreOptions {
                 replace: true,
-                include_data: Some("KEEP%".into()),
-                skip_data: Some("KEEP_SKIP".into()),
+                include_data,
+                skip_data: Some(skip_data.into()),
                 parallel_workers: workers,
                 ..SvcRestoreOptions::default()
             },
