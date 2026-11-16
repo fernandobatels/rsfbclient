@@ -189,6 +189,30 @@ impl SimpleConnection {
         }
     }
 
+    /// Enable or disable measurement of statement preparation.
+    pub fn set_prepare_timing_enabled(&mut self, enabled: bool) {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.set_prepare_timing_enabled(enabled),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.set_prepare_timing_enabled(enabled),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.set_prepare_timing_enabled(enabled),
+        }
+    }
+
+    /// Most recent preparation duration. Cached statements and disabled timing report zero.
+    pub fn last_prepare_duration(&self) -> std::time::Duration {
+        match &self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.last_prepare_duration(),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.last_prepare_duration(),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.last_prepare_duration(),
+        }
+    }
+
     /// Begins a new transaction, and instructs all the `query` and `execute` methods
     /// performed in the [`SimpleConnection`] type to not automatically commit and rollback
     /// until [`commit`][`SimpleConnection::commit`] or [`rollback`][`SimpleConnection::rollback`] are called
