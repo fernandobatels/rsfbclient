@@ -351,6 +351,40 @@ impl SimpleConnection {
         }
     }
 
+    /// Commit and release the default transaction, if one exists.
+    pub fn commit_transaction(&mut self) -> Result<(), FbError> {
+        self.commit()
+    }
+
+    /// Roll back and release the default transaction, if one exists.
+    pub fn rollback_transaction(&mut self) -> Result<(), FbError> {
+        self.rollback()
+    }
+
+    /// Commit pending changes and keep the active transaction and its settings.
+    pub fn commit_retaining(&mut self) -> Result<(), FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.commit_retaining(),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.commit_retaining(),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.commit_retaining(),
+        }
+    }
+
+    /// Roll back pending changes and keep the active transaction and its settings.
+    pub fn rollback_retaining(&mut self) -> Result<(), FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.rollback_retaining(),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.rollback_retaining(),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.rollback_retaining(),
+        }
+    }
+
     /// Wait for an event to be posted on database
     pub fn wait_for_event(&mut self, name: String) -> Result<(), FbError> {
         match &mut self.inner {
