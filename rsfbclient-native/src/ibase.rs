@@ -644,9 +644,9 @@ parse_functions! {
     // extern "C" {
     //     pub fn isc_sqlcode_s(arg1: *const ISC_STATUS, arg2: *mut ISC_ULONG);
     // }
-    // extern "C" {
-    //     pub fn fb_sqlstate(arg1: *mut ::std::os::raw::c_char, arg2: *const ISC_STATUS);
-    // }
+    extern "system" {
+        pub fn fb_sqlstate(arg1: *mut ::std::os::raw::c_char, arg2: *const ISC_STATUS) -> ();
+    }
     // extern "C" {
     //     pub fn isc_sql_interprete(
     //         arg1: ::std::os::raw::c_short,
