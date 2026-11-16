@@ -96,6 +96,17 @@ pub fn params_to_blr(
                 values.put_u64(*i as u64);
             }
 
+            SqlType::Decimal(value) => {
+                let scale = value.scale() as u8;
+                if let Some(coefficient) = value.as_i64_coefficient() {
+                    blr.put_slice(&[consts::blr::INT64, scale]);
+                    values.put_i64(coefficient);
+                } else {
+                    blr.put_slice(&[consts::blr::INT128, scale]);
+                    values.put_i128(value.coefficient());
+                }
+            }
+
             SqlType::Floating(f) => {
                 blr.put_u8(consts::blr::DOUBLE);
 

@@ -36,6 +36,9 @@ pub struct XSqlVar {
     /// Sql type code
     pub sqltype: i16,
 
+    /// Column type before any requested server conversion.
+    pub source_sqltype: Option<u32>,
+
     /// Scale: indicates that the real value is `data * 10.pow(scale)`
     pub scale: i16,
 
@@ -64,7 +67,15 @@ impl XSqlVar {
     pub fn coerce(&mut self) -> Result<(), FbError> {
         // Remove nullable type indicator
         let sqltype = self.sqltype & (!1);
-        let sqlsubtype = self.sqlsubtype;
+        self.source_sqltype = Some(sqltype as u32);
+        if matches!(
+            sqltype as u32,
+            ibase::SQL_SHORT | ibase::SQL_LONG | ibase::SQL_INT64 | ibase::SQL_INT128
+        ) {
+            i8::try_from(self.scale).map_err(|_| {
+                FbError::from("Invalid fixed-point scale in the statement descriptor")
+            })?;
+        }
 
         // var.null_ind = 1;
 
@@ -73,29 +84,14 @@ impl XSqlVar {
                 self.sqltype = ibase::SQL_VARYING as i16 + 1;
             }
 
-            ibase::SQL_INT128 if sqlsubtype == 0 && self.scale == 0 => {
+            ibase::SQL_INT128 => {
                 self.data_length = mem::size_of::<i128>() as i16;
                 self.sqltype = ibase::SQL_INT128 as i16 + 1;
             }
 
-            ibase::SQL_INT128 => {
-                // NUMERIC/DECIMAL backed by INT128 follows the crate's existing
-                // fixed-point policy and is converted to double by Firebird.
-                self.data_length = mem::size_of::<f64>() as i16;
-                self.scale = 0;
-                self.sqltype = ibase::SQL_DOUBLE as i16 + 1;
-            }
-
             ibase::SQL_SHORT | ibase::SQL_LONG | ibase::SQL_INT64 => {
                 self.data_length = mem::size_of::<i64>() as i16;
-
-                if self.scale == 0 {
-                    self.sqltype = ibase::SQL_INT64 as i16 + 1;
-                } else {
-                    // Is actually a decimal or numeric value, so coerce as double
-                    self.scale = 0;
-                    self.sqltype = ibase::SQL_DOUBLE as i16 + 1;
-                }
+                self.sqltype = ibase::SQL_INT64 as i16 + 1;
             }
 
             ibase::SQL_FLOAT | ibase::SQL_DOUBLE => {
@@ -110,7 +106,7 @@ impl XSqlVar {
                 self.sqltype = ibase::SQL_TIMESTAMP as i16 + 1;
             }
 
-            ibase::SQL_BLOB if sqlsubtype <= 1 => {
+            ibase::SQL_BLOB if self.sqlsubtype <= 1 => {
                 self.sqltype = ibase::SQL_BLOB as i16 + 1;
             }
 
@@ -149,10 +145,7 @@ pub fn xsqlda_to_blr(xsqlda: &[XSqlVar]) -> Result<Bytes, FbError> {
                 blr.put_i16_le(var.data_length);
             }
 
-            ibase::SQL_INT64 => blr.put_slice(&[
-                consts::blr::INT64,
-                0, // Scale
-            ]),
+            ibase::SQL_INT64 => blr.put_slice(&[consts::blr::INT64, var.scale as u8]),
 
             ibase::SQL_INT128 => blr.put_slice(&[consts::blr::INT128, var.scale as u8]),
 
@@ -441,7 +434,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fixed_point_int128_is_requested_as_double() {
+    fn fixed_point_int128_keeps_its_signed_scale() {
         let mut var = XSqlVar {
             sqltype: ibase::SQL_INT128 as i16 + 1,
             scale: -4,
@@ -452,12 +445,12 @@ mod tests {
 
         var.coerce().unwrap();
 
-        assert_eq!(var.sqltype, ibase::SQL_DOUBLE as i16 + 1);
-        assert_eq!(var.scale, 0);
-        assert_eq!(var.data_length, mem::size_of::<f64>() as i16);
+        assert_eq!(var.sqltype, ibase::SQL_INT128 as i16 + 1);
+        assert_eq!(var.scale, -4);
+        assert_eq!(var.data_length, mem::size_of::<i128>() as i16);
 
         let blr = xsqlda_to_blr(&[var]).unwrap();
-        assert_eq!(blr[6], consts::blr::DOUBLE);
+        assert_eq!(&blr[6..8], &[consts::blr::INT128, (-4i8) as u8]);
     }
 
     #[test]

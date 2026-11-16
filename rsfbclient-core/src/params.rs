@@ -22,6 +22,14 @@ impl SqlType {
             Integer(_) => (ibase::SQL_INT64 + 1, 0),
             Int128(_) => (ibase::SQL_INT128 + 1, 0),
             Floating(_) => (ibase::SQL_DOUBLE + 1, 0),
+            Decimal(value) => {
+                let kind = if value.as_i64_coefficient().is_some() {
+                    ibase::SQL_INT64
+                } else {
+                    ibase::SQL_INT128
+                };
+                (kind + 1, 0)
+            }
             Timestamp(_) => (ibase::SQL_TIMESTAMP + 1, 0),
             Null => (ibase::SQL_TEXT + 1, 0),
             Binary(_) => (ibase::SQL_BLOB + 1, 0),
@@ -79,6 +87,12 @@ macro_rules! impl_param_int {
 }
 
 impl_param_int!(i32, u32, i16, u16, i8, u8);
+
+impl IntoParam for crate::FixedDecimal {
+    fn into_param(self) -> SqlType {
+        Decimal(self)
+    }
+}
 
 impl IntoParam for f64 {
     fn into_param(self) -> SqlType {
