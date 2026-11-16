@@ -81,6 +81,8 @@ impl ColumnToVal<String> for Column {
 
             Boolean(bo) => Ok(bo.to_string()),
 
+            Octets(_) => Err("Read OCTETS values as bytes".into()),
+
             Null => Err(err_column_null("String")),
         }
     }
@@ -145,7 +147,7 @@ impl ColumnToVal<f32> for Column {
 impl ColumnToVal<Vec<u8>> for Column {
     fn to_val(self) -> Result<Vec<u8>, FbError> {
         match self.value {
-            Binary(b) => Ok(b),
+            Binary(b) | Octets(b) => Ok(b),
 
             Null => Err(err_column_null("Vec<u8>")),
 

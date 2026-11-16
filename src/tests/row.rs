@@ -713,6 +713,7 @@ mod raw_stream {
     fn render_raw(value: &RawValue) -> Result<String, FbError> {
         Ok(match value {
             RawValue::Null => "null".to_string(),
+            RawValue::Octets(bytes) => format!("{bytes:?}"),
             RawValue::Text(bytes) => std::str::from_utf8(bytes)
                 .map_err(|e| FbError::from(e.to_string()))?
                 .to_string(),

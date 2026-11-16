@@ -4,7 +4,7 @@
 //! Native column buffers and complete column-name metadata
 //!
 
-use rsfbclient_core::{Charset, Column, FbError, SqlType};
+use rsfbclient_core::{charset::OCTETS_CHARSET_ID, Charset, Column, FbError, SqlType};
 use std::{mem, result::Result, sync::Arc};
 
 use crate::{ibase, ibase::IBase, status::Status, varchar::Varchar};
@@ -16,6 +16,8 @@ use ColumnBufferData::*;
 pub enum ColumnBufferData {
     /// Coerces to Varchar
     Text(Varchar),
+    /// Binary string, with no attachment character-set conversion.
+    Octets(Varchar),
     /// Coerces to Int64
     Integer(Box<i64>),
     /// Native Firebird INT128
@@ -43,6 +45,7 @@ impl ColumnBufferData {
             BlobText(bid) => &**bid as *const _ as _,
             BlobBinary(bid) => &**bid as *const _ as _,
             Boolean(b) => &**b as *const _ as _,
+            Octets(v) => v.as_ptr() as _,
         }
     }
 }
@@ -75,7 +78,11 @@ impl ColumnBuffer {
         if original_type as u32 == ibase::SQL_BLOB {
             var.sqlsubtype = 0;
         } else {
-            if ![ibase::SQL_TEXT as i16, ibase::SQL_VARYING as i16].contains(&original_type) {
+            let is_string = matches!(original_type as u32, ibase::SQL_TEXT | ibase::SQL_VARYING);
+            if is_string && var.sqlsubtype as u16 == OCTETS_CHARSET_ID {
+                return Self::from_xsqlvar_with_name(var, name, charset);
+            }
+            if !is_string {
                 var.sqllen = 128;
             }
             var.sqltype = ibase::SQL_VARYING as i16 + 1;
@@ -133,7 +140,12 @@ impl ColumnBuffer {
             ibase::SQL_TEXT | ibase::SQL_VARYING => {
                 var.sqltype = ibase::SQL_VARYING as i16 + 1;
 
-                Text(Varchar::new(var.sqllen as u16))
+                let buffer = Varchar::new(var.sqllen as u16);
+                if sqlsubtype as u16 == OCTETS_CHARSET_ID {
+                    Octets(buffer)
+                } else {
+                    Text(buffer)
+                }
             }
 
             ibase::SQL_INT128 if sqlsubtype == 0 && var.sqlscale == 0 => {
@@ -232,6 +244,7 @@ impl ColumnBuffer {
 
         let col_type = match &self.buffer {
             Text(varchar) => SqlType::Text(charset.decode(varchar.as_bytes())?),
+            Octets(varchar) => SqlType::Octets(varchar.as_bytes().to_vec()),
 
             Integer(i) => SqlType::Integer(**i),
 

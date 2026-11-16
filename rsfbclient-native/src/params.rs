@@ -181,6 +181,13 @@ impl ParamBuffer {
                 (bytes.len(), Text(bytes.into_boxed_slice()))
             }
 
+            SqlType::Octets(bytes) => {
+                if bytes.len() > MAX_TEXT_LENGTH {
+                    return Err("OCTETS parameter exceeds 32767 bytes".into());
+                }
+                (bytes.len(), Text(bytes.into_boxed_slice()))
+            }
+
             SqlType::Integer(i) => (mem::size_of_val(&i), Integer(Box::new(i))),
 
             SqlType::Int128(i) => (mem::size_of_val(&i), Int128(Box::new(i))),
