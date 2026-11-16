@@ -41,15 +41,22 @@ pub fn params_to_blr(
     let mut handle_blob = |conn: &mut FirebirdWireConnection,
                            blr: &mut BytesMut,
                            values: &mut BytesMut,
-                           data: &[u8]| {
+                           data: &[u8],
+                           text: bool| {
         let (blob_handle, id) = conn.create_blob(tr_handle)?;
 
         conn.put_segments(blob_handle, data)?;
 
         conn.close_blob(blob_handle)?;
 
-        blr.put_u8(consts::blr::QUAD);
-        blr.put_u8(0); // Blob type
+        if text {
+            blr.put_u8(consts::blr::BLOB2);
+            blr.put_u16_le(1); // Text subtype.
+            blr.put_u16_le(4); // UTF8.
+        } else {
+            blr.put_u8(consts::blr::QUAD);
+            blr.put_u8(0); // Binary subtype.
+        }
 
         values.put_u64(id.0);
 
@@ -59,11 +66,10 @@ pub fn params_to_blr(
     for p in params {
         match p {
             SqlType::Text(s) => {
-                let bytes = conn.charset.encode(s)?;
-                if bytes.len() > MAX_DATA_LENGTH {
-                    // Data too large, send as blob
-                    handle_blob(conn, &mut blr, &mut values, &bytes)?;
+                if s.len() > MAX_DATA_LENGTH {
+                    handle_blob(conn, &mut blr, &mut values, s.as_bytes(), true)?;
                 } else {
+                    let bytes = conn.charset.encode(s)?;
                     blr.put_u8(consts::blr::TEXT);
                     blr.put_u16_le(bytes.len() as u16);
 
@@ -75,7 +81,11 @@ pub fn params_to_blr(
                 }
             }
 
-            SqlType::Binary(data) => handle_blob(conn, &mut blr, &mut values, data)?,
+            SqlType::TextBlob(s) => {
+                handle_blob(conn, &mut blr, &mut values, s.as_bytes(), true)?;
+            }
+
+            SqlType::Binary(data) => handle_blob(conn, &mut blr, &mut values, data, false)?,
 
             SqlType::Octets(data) => {
                 if data.len() > MAX_DATA_LENGTH {

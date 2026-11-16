@@ -28,6 +28,9 @@ pub use decimal::FixedDecimal;
 pub enum SqlType {
     Text(String),
 
+    /// Bind UTF-8 text as a text BLOB. Result columns still use [`Self::Text`].
+    TextBlob(String),
+
     Integer(i64),
 
     /// Firebird 4+ `INT128` value.

@@ -132,3 +132,4 @@ mod cancellation;
 mod extended_scalars;
 mod prepare_timing;
 mod statement_description;
+mod text_blob;
