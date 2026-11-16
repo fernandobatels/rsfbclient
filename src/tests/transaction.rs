@@ -79,7 +79,15 @@ mk_tests_default! {
         let mut driver = cbuilder().connect()?;
         setup(&mut driver, "RSFB_TX_LIFECYCLE")?;
         let mut writer: SimpleConnection = driver.into();
-        let mut observer = cbuilder().connect()?;
+        // Use fresh read-only snapshots so older servers can inspect committed
+        // rows while the writer still holds an uncommitted version.
+        let mut observer = cbuilder()
+            .transaction(TransactionConfiguration {
+                isolation: TrIsolationLevel::Concurrency,
+                data_access: TrDataAccessMode::ReadOnly,
+                lock_resolution: TrLockResolution::NoWait,
+            })
+            .connect()?;
         let id_sql = "SELECT CURRENT_TRANSACTION FROM RDB$DATABASE";
         let context_sql = "SELECT RDB$GET_CONTEXT('USER_TRANSACTION','RSFB_TX_TEST') FROM RDB$DATABASE";
         let ids_sql = "SELECT ID FROM RSFB_TX_LIFECYCLE ORDER BY ID";
