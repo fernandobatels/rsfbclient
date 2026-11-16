@@ -117,6 +117,7 @@ mod connection;
 mod cursor;
 mod database;
 mod params;
+mod query_pages;
 mod row;
 mod services;
 mod transaction;
