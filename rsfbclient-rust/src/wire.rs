@@ -5,6 +5,8 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use std::{borrow::Cow, convert::TryFrom, str, sync::Arc};
 
+use rsfbclient_core::{ExternalPsqlContext, SqlDiagnostics};
+
 use crate::{
     client::BlobId,
     consts::{gds_to_msg, AuthPluginType, Cnct, ProtocolVersion, WireOp, P_REQ_ASYNC},
@@ -1474,9 +1476,34 @@ fn expand_status_message(template: &str, arguments: &[String]) -> String {
     result
 }
 
+fn append_status_entry(
+    message: &mut String,
+    diagnostics: &mut SqlDiagnostics,
+    code: u32,
+    template: &str,
+    arguments: &[String],
+    interpreted: &str,
+) {
+    let start = message.len();
+    let formatted = expand_status_message(template, arguments);
+    message.push_str(&formatted);
+    if code == ibase::isc_stack_trace {
+        let end = start + formatted.trim_end_matches('\n').len();
+        if end > start {
+            diagnostics.psql_contexts.push(start..end);
+        }
+    } else if let Some(context) =
+        ExternalPsqlContext::from_status_entry(code, &formatted, arguments, start)
+    {
+        diagnostics.external_psql_contexts.push(context);
+    }
+    message.push_str(interpreted);
+}
+
 /// Parses errors and consumes trailing warnings without treating them as errors.
 pub fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
-    let mut sql_code = -1;
+    let mut sql_code = None;
+    let mut diagnostics = SqlDiagnostics::default();
     let mut message = String::new();
     let mut gds_code = 0;
     let mut template = "";
@@ -1485,38 +1512,39 @@ pub fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
     let mut warning = false;
     loop {
         match resp.get_u32()? {
-            ibase::isc_arg_gds => {
-                let next_code = resp.get_u32()?;
-                if warning {
-                    continue;
-                }
-                message.push_str(&expand_status_message(template, &arguments));
-                message.push_str(&interpreted);
-                arguments.clear();
-                interpreted.clear();
-                gds_code = next_code;
-                template = if gds_code == 0 {
-                    ""
-                } else {
-                    gds_to_msg(gds_code)
-                };
-            }
-            ibase::isc_arg_warning => {
-                resp.get_u32()?;
+            kind @ (ibase::isc_arg_gds | ibase::isc_arg_warning | ibase::isc_arg_end) => {
                 if !warning {
-                    message.push_str(&expand_status_message(template, &arguments));
-                    message.push_str(&interpreted);
-                    template = "";
+                    append_status_entry(
+                        &mut message,
+                        &mut diagnostics,
+                        gds_code,
+                        template,
+                        &arguments,
+                        &interpreted,
+                    );
                     arguments.clear();
                     interpreted.clear();
                 }
-                warning = true;
+                if kind == ibase::isc_arg_end {
+                    break;
+                }
+                let next_code = resp.get_u32()?;
+                warning |= kind == ibase::isc_arg_warning;
+                if !warning {
+                    gds_code = next_code;
+                    template = if gds_code == 0 {
+                        ""
+                    } else {
+                        diagnostics.gds_codes.push(gds_code);
+                        gds_to_msg(gds_code)
+                    };
+                }
             }
             ibase::isc_arg_number => {
                 let num = resp.get_i32()?;
                 if !warning {
-                    if gds_code == 335544436 {
-                        sql_code = num;
+                    if gds_code == ibase::isc_sqlerr && arguments.is_empty() {
+                        sql_code.get_or_insert(num);
                     }
                     arguments.push(num.to_string());
                 }
@@ -1526,19 +1554,25 @@ pub fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
             | ibase::isc_arg_sql_state) => {
                 // Read even ignored warning parameters so the next packet stays aligned.
                 let bytes = resp.get_wire_bytes()?;
-                if !warning && kind != ibase::isc_arg_sql_state {
+                if !warning {
                     let value = std::str::from_utf8(&bytes).unwrap_or("**Invalid message**");
-                    if kind == ibase::isc_arg_string {
-                        arguments.push(value.to_owned());
-                    } else {
-                        interpreted.push_str(value);
+                    match kind {
+                        ibase::isc_arg_string => arguments.push(value.to_owned()),
+                        ibase::isc_arg_interpreted => interpreted.push_str(value),
+                        _ => {
+                            let state = value.trim_end_matches('\0');
+                            if state.len() == 5
+                                && state
+                                    .bytes()
+                                    .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+                            {
+                                diagnostics
+                                    .sql_state
+                                    .get_or_insert_with(|| state.to_owned());
+                            }
+                        }
                     }
                 }
-            }
-            ibase::isc_arg_end => {
-                message.push_str(&expand_status_message(template, &arguments));
-                message.push_str(&interpreted);
-                break;
             }
             code => return Err(format!("Invalid / Unknown status vector item: {}", code).into()),
         }
@@ -1546,14 +1580,25 @@ pub fn parse_status_vector(resp: &mut Bytes) -> Result<(), FbError> {
     if message.ends_with('\n') {
         message.pop();
     }
-    if message.is_empty() {
-        Ok(())
-    } else {
-        Err(FbError::Sql {
-            code: sql_code,
-            msg: message,
-        })
+    if message.is_empty() && diagnostics.gds_codes.is_empty() {
+        return Ok(());
     }
+
+    let code = sql_code.unwrap_or_else(|| {
+        diagnostics
+            .primary_gds_code()
+            .and_then(crate::status_map::lookup)
+            .map_or(-999, |(code, _)| code)
+    });
+    if diagnostics.sql_state.is_none() && !diagnostics.gds_codes.is_empty() {
+        diagnostics.sql_state =
+            Some(crate::status_map::sql_state(&diagnostics.gds_codes).to_owned());
+    }
+    Err(FbError::Sql {
+        code,
+        msg: message,
+        diagnostics: Box::new(diagnostics),
+    })
 }
 
 #[derive(Debug)]
@@ -2253,8 +2298,18 @@ mod warning_status_tests {
         bytes.extend_from_slice(&warning()[8..]);
         bytes.put_u32(ibase::isc_arg_end);
         let error = parse_status_vector(&mut bytes.freeze()).unwrap_err();
-        assert!(matches!(&error, FbError::Sql { code: -803, .. }), "{error}");
-        assert!(!error.to_string().contains("warning details"), "{error}");
+        let FbError::Sql {
+            code,
+            diagnostics,
+            msg,
+        } = error
+        else {
+            panic!("Expected a SQL error, got {error}");
+        };
+        assert_eq!(code, -803);
+        assert_eq!(diagnostics.sql_state.as_deref(), Some("HY000"));
+        assert_eq!(diagnostics.gds_codes, [ibase::isc_sqlerr]);
+        assert!(!msg.contains("warning details"), "{msg}");
     }
     #[test]
     fn incomplete_warning_packets_are_rejected() {
@@ -2293,5 +2348,41 @@ mod literal_status_tests {
             error.ends_with(context),
             "Server context must stay separate: {error}"
         );
+    }
+}
+
+#[cfg(test)]
+mod external_status_tests {
+    use super::*;
+
+    #[test]
+    fn external_detail_and_target_come_from_separate_status_arguments() {
+        let detail = "\n335544382 : ошибка\n335544842 : At block line: 3, col: 2\n";
+        let data_source = "localhost:/data/child.fdb";
+        let mut bytes = BytesMut::new();
+        bytes.put_u32(ibase::isc_arg_gds);
+        bytes.put_u32(ibase::isc_eds_statement);
+        for argument in [
+            "execute",
+            detail,
+            "SELECT 1 FROM RDB$DATABASE\n",
+            data_source,
+        ] {
+            bytes.put_u32(ibase::isc_arg_string);
+            bytes.put_wire_bytes(argument.as_bytes());
+        }
+        bytes.put_u32(ibase::isc_arg_end);
+        let error = parse_status_vector(&mut bytes.freeze()).unwrap_err();
+        let FbError::Sql {
+            msg, diagnostics, ..
+        } = error
+        else {
+            panic!("Expected a SQL error, got {error}");
+        };
+        let contexts = &diagnostics.external_psql_contexts;
+        assert_eq!(contexts.len(), 1);
+        assert_eq!(contexts[0].data_source, data_source);
+        assert_eq!(&msg[contexts[0].detail.clone()], detail);
+        assert!(diagnostics.psql_contexts.is_empty());
     }
 }
