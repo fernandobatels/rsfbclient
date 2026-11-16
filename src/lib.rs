@@ -211,3 +211,5 @@ pub use builders::*;
 /// Owned native transactions and cancellable events, including multi-database recovery.
 #[cfg(any(feature = "linking", feature = "dynamic_loading"))]
 pub use rsfbclient_native::managed;
+
+pub use crate::connection::{AttachmentInterrupt, StatementCancelHandle};

@@ -3,6 +3,21 @@
 
 pub use rsfbclient_core::ibase::*;
 
+pub(crate) type CancelOperation =
+    unsafe extern "system" fn(*mut ISC_STATUS, *mut isc_db_handle, ISC_USHORT) -> ISC_STATUS;
+
+#[cfg(feature = "linking")]
+pub(crate) fn linked_cancel_operation() -> CancelOperation {
+    extern "system" {
+        fn fb_cancel_operation(
+            status: *mut ISC_STATUS,
+            attachment: *mut isc_db_handle,
+            kind: ISC_USHORT,
+        ) -> ISC_STATUS;
+    }
+    fb_cancel_operation
+}
+
 //Generates the IBase trait and one or both of its implementations
 //(dynamic linking version, libloading version)
 macro_rules! parse_functions {
@@ -24,6 +39,7 @@ macro_rules! parse_functions {
       }
 
       #[cfg(feature = "dynamic_loading")]
+      #[derive(Clone)]
       pub struct IBaseDynLoading(std::sync::Arc<libloading::Library>);
       #[cfg(feature = "dynamic_loading")]
       impl IBase for IBaseDynLoading {
@@ -36,6 +52,10 @@ macro_rules! parse_functions {
 use std::ffi::OsStr;
 #[cfg(feature = "dynamic_loading")]
 impl IBaseDynLoading {
+    pub(crate) fn cancel_operation(&self) -> Result<CancelOperation, libloading::Error> {
+        unsafe { self.0.get(b"fb_cancel_operation").map(|symbol| *symbol) }
+    }
+
     pub fn with_client(fbclient: &OsStr) -> Result<Self, libloading::Error> {
         #[cfg(not(target_os = "macos"))]
         let lib = unsafe { libloading::Library::new(fbclient)? };
