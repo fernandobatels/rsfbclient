@@ -437,7 +437,7 @@ mk_tests_default! {
 
         for attempt in 0..1_100 {
             let result: Result<Option<(Vec<u8>,)>, FbError> = conn.query_first(
-                "select cast(null as blob sub_type 2) from rdb$database",
+                "select rdb$validation_blr from rdb$fields where 1=0",
                 (),
             );
             let error = result.expect_err("Custom positive BLOB subtype must remain unsupported");
