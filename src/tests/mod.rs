@@ -115,6 +115,9 @@ macro_rules! mk_tests_default {
 mod charset;
 mod connection;
 mod cursor;
+
+mod error_diagnostics;
+
 mod database;
 mod octet_strings;
 mod params;

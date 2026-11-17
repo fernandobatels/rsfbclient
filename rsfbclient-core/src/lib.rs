@@ -13,7 +13,7 @@ mod transaction;
 
 pub use charset::Charset;
 pub use connection::*;
-pub use error::FbError;
+pub use error::{ExternalPsqlContext, FbError, SqlDiagnostics};
 pub use params::*;
 pub use row::*;
 pub use transaction::*;
