@@ -36,6 +36,9 @@ pub struct XSqlVar {
     /// Sql type code
     pub sqltype: i16,
 
+    /// Column type before any requested server conversion.
+    pub source_sqltype: Option<u32>,
+
     /// Scale: indicates that the real value is `data * 10.pow(scale)`
     pub scale: i16,
 
@@ -70,6 +73,14 @@ impl XSqlVar {
 
         match sqltype as u32 {
             ibase::SQL_TEXT | ibase::SQL_VARYING => {
+                self.sqltype = ibase::SQL_VARYING as i16 + 1;
+            }
+
+            ibase::SQL_TIMESTAMP_TZ | ibase::SQL_TIME_TZ | ibase::SQL_DEC16 | ibase::SQL_DEC34 => {
+                self.source_sqltype = Some(sqltype as u32);
+                self.data_length = 128;
+                self.scale = 0;
+                self.sqlsubtype = 0;
                 self.sqltype = ibase::SQL_VARYING as i16 + 1;
             }
 

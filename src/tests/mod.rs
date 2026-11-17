@@ -121,3 +121,5 @@ mod params;
 mod row;
 mod services;
 mod transaction;
+
+mod extended_scalars;
