@@ -25,6 +25,8 @@ pub enum RawValue {
     /// (UTF-8 for a UTF8 connection). A refcounted slice: cloning is O(1) and
     /// there is no `String` allocation nor a copy out of the buffer.
     Text(Bytes),
+    /// Bytes from an OCTETS column, with no text encoding.
+    Octets(Bytes),
 }
 
 impl RawValue {

@@ -25,6 +25,10 @@ impl SqlType {
             Timestamp(_) => (ibase::SQL_TIMESTAMP + 1, 0),
             Null => (ibase::SQL_TEXT + 1, 0),
             Binary(_) => (ibase::SQL_BLOB + 1, 0),
+            Octets(_) => (
+                ibase::SQL_TEXT + 1,
+                u32::from(crate::charset::OCTETS_CHARSET_ID),
+            ),
             Boolean(_) => (ibase::SQL_BOOLEAN + 1, 0),
         }
     }

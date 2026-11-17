@@ -7,6 +7,9 @@ use std::{borrow::Cow, fmt, str, str::FromStr};
 
 use crate::FbError;
 
+/// Firebird charset identifier for byte strings without text conversion.
+pub const OCTETS_CHARSET_ID: u16 = 1;
+
 /// Charset definition. Used to encode/decode the
 /// strings.
 pub struct Charset {
