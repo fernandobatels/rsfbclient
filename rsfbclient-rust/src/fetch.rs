@@ -62,7 +62,7 @@ fn check_completed_rows(deferred: bool, raw: bool) {
             peer.write_all(&b).unwrap();
         });
         let mut conn = FirebirdWireConnection {
-            socket: FbStream::Plain(socket),
+            socket: FbStream::plain(socket),
             version: ProtocolVersion::V13,
             buff: vec![0; buffer].into_boxed_slice(),
             pending: Bytes::new(),

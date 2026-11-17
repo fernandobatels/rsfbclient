@@ -495,10 +495,14 @@ pub fn prepare_statement(
 
 /// Statement information request
 pub fn info_sql(stmt_handle: u32, requested_items: &[u8]) -> Bytes {
+    info_request(WireOp::InfoSql, stmt_handle, requested_items)
+}
+
+pub(crate) fn info_request(op: WireOp, handle: u32, requested_items: &[u8]) -> Bytes {
     let mut req = BytesMut::with_capacity(24 + requested_items.len());
 
-    req.put_u32(WireOp::InfoSql as u32);
-    req.put_u32(stmt_handle);
+    req.put_u32(op as u32);
+    req.put_u32(handle);
     req.put_u32(0); // Incarnation of object
     req.put_wire_bytes(requested_items);
     req.put_u32(INFO_BUFFER_LENGTH);

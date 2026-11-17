@@ -34,7 +34,10 @@ pub mod builders {
     pub use builder_pure_rust::*;
 }
 
+mod cancellation;
 pub(crate) mod conn_string;
+pub use cancellation::{AttachmentInterrupt, StatementCancelHandle};
+
 pub(crate) mod stmt_cache;
 
 pub(crate) mod simple;
@@ -101,6 +104,7 @@ pub struct Connection<C: FirebirdClient> {
 
     /// Default configuration for new transactions
     pub(crate) def_confs_tr: TransactionConfiguration,
+    statement_cancel: Option<StatementCancelHandle>,
 }
 
 impl<C: FirebirdClient> Connection<C> {
@@ -121,6 +125,7 @@ impl<C: FirebirdClient> Connection<C> {
             in_transaction: false,
             cli,
             def_confs_tr: conf.transaction_conf,
+            statement_cancel: None,
         })
     }
 
@@ -141,11 +146,15 @@ impl<C: FirebirdClient> Connection<C> {
             in_transaction: false,
             cli,
             def_confs_tr: conf.transaction_conf,
+            statement_cancel: None,
         })
     }
 
     /// Drop the current database
     pub fn drop_database(mut self) -> Result<(), FbError> {
+        if let Some(cancel) = self.statement_cancel.take() {
+            cancel.revoke();
+        }
         self.cli.drop_database(&mut self.handle)?;
 
         Ok(())
@@ -160,6 +169,9 @@ impl<C: FirebirdClient> Connection<C> {
 
     // Cleans up statement cache and releases the database handle
     fn cleanup_and_detach(&mut self) -> Result<(), FbError> {
+        if let Some(cancel) = self.statement_cancel.take() {
+            cancel.revoke();
+        }
         StmtCache::close_all(self);
 
         // Drop the default transaction
