@@ -1,26 +1,49 @@
-//! A connection-owned SELECT cursor that survives individual page requests.
+//! Fetch consecutive pages from a single execution of a SELECT.
 use super::{Connection, FbError, FirebirdClient, StatementData};
 use rsfbclient_core::{Row, SqlType, StmtType};
+use std::sync::{Arc, Weak};
 
-pub(crate) struct PagedQuery<C: FirebirdClient> {
-    statement: StatementData<C>,
+/// A paged SELECT in the connection and transaction that opened it.
+///
+/// Pass this cursor to the corresponding connection to fetch or close it.
+/// Several cursors may be open in the same transaction. Ending the transaction
+/// or disconnecting invalidates them all. Dropping a cursor without closing
+/// it releases its statement on the next paged open or at transaction end.
+#[must_use = "pass the cursor to fetch_query_page or close_paged_query"]
+pub struct PagedQuery {
+    id: Arc<()>,
+    columns: Vec<String>,
     pending: Option<Result<Row, FbError>>,
     exhausted: bool,
 }
 
+impl PagedQuery {
+    /// Prepared output column names, including for an empty result.
+    pub fn columns(&self) -> &[String] {
+        &self.columns
+    }
+}
+
+// Keep only handles that the connection must release, even if a caller drops
+// its cursor or ends the transaction first. Paging state belongs to PagedQuery.
+pub(super) struct PagedStatement<C: FirebirdClient> {
+    id: Weak<()>,
+    statement: StatementData<C>,
+}
+
 impl<C: FirebirdClient> Connection<C> {
-    /// Open one SELECT cursor in the explicitly active default transaction.
-    /// Replaces the previous paged cursor without reusing or re-executing it.
+    /// Open a SELECT cursor in the explicitly active default transaction.
     pub fn open_paged_query(
         &mut self,
         sql: &str,
         params: Vec<SqlType>,
-    ) -> Result<Vec<String>, FbError> {
-        self.close_paged_query()?;
+    ) -> Result<PagedQuery, FbError> {
         if !self.in_transaction {
             return Err("Paged queries require an explicitly active transaction".into());
         }
-        let (cursor, columns) = self.use_transaction(self.def_confs_tr, |tr| {
+        self.close_abandoned_paged_statements()?;
+
+        let (statement, columns) = self.use_transaction(self.def_confs_tr, |tr| {
             let mut statement = StatementData::prepare(tr.conn, &mut tr.data, sql, false)?;
             let result = if matches!(
                 statement.stmt_type,
@@ -35,41 +58,44 @@ impl<C: FirebirdClient> Connection<C> {
                 return Err(error);
             }
             let columns = tr.conn.cli.output_column_names(&statement.handle);
-            Ok((
-                PagedQuery {
-                    statement,
-                    pending: None,
-                    exhausted: false,
-                },
-                columns,
-            ))
+            Ok((statement, columns))
         })?;
-        self.paged_query = Some(cursor);
-        Ok(columns)
+        let id = Arc::new(());
+        self.paged_statements.push(PagedStatement {
+            id: Arc::downgrade(&id),
+            statement,
+        });
+        Ok(PagedQuery {
+            id,
+            columns,
+            pending: None,
+            exhausted: false,
+        })
     }
 
     /// Fetch at most `limit` new rows; retain one lookahead row for the next call.
     /// The flag indicates that another call can return a row or a pending error.
     /// A terminal fetch error is returned after any rows already collected.
     /// Reporting the error releases the cursor without re-executing its SELECT.
-    pub fn fetch_query_page(&mut self, limit: usize) -> Result<(Vec<Row>, bool), FbError> {
+    pub fn fetch_query_page(
+        &mut self,
+        cursor: &mut PagedQuery,
+        limit: usize,
+    ) -> Result<(Vec<Row>, bool), FbError> {
         if limit == 0 {
             return Err("The query page size must be greater than zero".into());
         }
-        let mut cursor = self
-            .paged_query
-            .take()
-            .ok_or("The SELECT cursor is no longer open")?;
         if cursor.exhausted {
-            self.paged_query = Some(cursor);
             return Err("The SELECT cursor is no longer open".into());
         }
+        let index = self.paged_statement_index(cursor)?;
+        let mut entry = self.paged_statements.swap_remove(index);
         let result = self.use_transaction(self.def_confs_tr, |tr| {
             let mut rows = Vec::new();
             while rows.len() < limit {
                 let next = match cursor.pending.take() {
                     Some(row) => row.map(Some),
-                    None => cursor
+                    None => entry
                         .statement
                         .fetch(tr.conn, &mut tr.data)
                         .map(|row| row.map(|cols| Row { cols })),
@@ -84,9 +110,8 @@ impl<C: FirebirdClient> Connection<C> {
                     }
                 }
             }
-            // If the lookahead finds an error, return the completed page first.
-            // The next page call reports the error and releases the statement.
-            cursor.pending = cursor
+            // Deliver a completed page before any error found during lookahead.
+            cursor.pending = entry
                 .statement
                 .fetch(tr.conn, &mut tr.data)
                 .map(|row| row.map(|cols| Row { cols }))
@@ -94,35 +119,63 @@ impl<C: FirebirdClient> Connection<C> {
             Ok((rows, cursor.pending.is_some()))
         });
         match result {
-            Ok((rows, true)) => {
-                self.paged_query = Some(cursor);
-                Ok((rows, true))
-            }
-            Ok((rows, false)) => {
-                if let Err(error) = cursor.statement.close_cursor(self) {
-                    cursor.statement.close(self).ok();
-                    return Err(error);
+            Ok((rows, more)) => {
+                if !more {
+                    cursor.exhausted = true;
+                    if let Err(error) = entry.statement.close_cursor(self) {
+                        entry.statement.close(self).ok();
+                        return Err(error);
+                    }
+                    // Keep the executed statement available to MON$ until the
+                    // caller closes it, even for an empty result.
                 }
-                // The cursor has ended. Keep this exact prepared handle until
-                // replacement/transaction completion so MON$ can report the
-                // executed plan, including for an empty result. Never re-fetch
-                // or re-prepare the user's SELECT to obtain diagnostics.
-                cursor.exhausted = true;
-                self.paged_query = Some(cursor);
-                Ok((rows, false))
+                self.paged_statements.push(entry);
+                Ok((rows, more))
             }
             Err(error) => {
-                cursor.statement.close(self).ok();
+                cursor.exhausted = true;
+                entry.statement.close(self).ok();
                 Err(error)
             }
         }
     }
 
-    /// Close the retained cursor before ending its transaction or connection.
-    pub fn close_paged_query(&mut self) -> Result<(), FbError> {
-        if let Some(mut cursor) = self.paged_query.take() {
-            cursor.statement.close(self)?;
+    /// Close this cursor and free its prepared statement.
+    pub fn close_paged_query(&mut self, cursor: &mut PagedQuery) -> Result<(), FbError> {
+        let index = self.paged_statement_index(cursor)?;
+        cursor.exhausted = true;
+        cursor.pending = None;
+        self.paged_statements
+            .swap_remove(index)
+            .statement
+            .close(self)
+    }
+
+    fn paged_statement_index(&self, cursor: &PagedQuery) -> Result<usize, FbError> {
+        self.paged_statements
+            .iter()
+            .position(|entry| entry.id.as_ptr() == Arc::as_ptr(&cursor.id))
+            .ok_or_else(|| "The SELECT cursor is no longer open on this connection".into())
+    }
+
+    fn close_abandoned_paged_statements(&mut self) -> Result<(), FbError> {
+        let mut index = 0;
+        while index < self.paged_statements.len() {
+            if self.paged_statements[index].id.strong_count() == 0 {
+                self.paged_statements
+                    .swap_remove(index)
+                    .statement
+                    .close(self)?;
+            } else {
+                index += 1;
+            }
         }
         Ok(())
+    }
+
+    pub(super) fn close_paged_statements(&mut self) {
+        for mut entry in std::mem::take(&mut self.paged_statements) {
+            entry.statement.close(self).ok();
+        }
     }
 }

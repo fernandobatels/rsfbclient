@@ -41,6 +41,7 @@ pub(crate) mod simple;
 pub use simple::SimpleConnection;
 
 mod paged;
+pub use paged::PagedQuery;
 
 /// A generic factory for creating multiple preconfigured instances of a particular client implementation
 /// Intended mainly for use by connection pool
@@ -94,8 +95,8 @@ pub struct Connection<C: FirebirdClient> {
     /// transaction is used
     pub(crate) def_tr: Option<TransactionData<C>>,
 
-    /// Result cursor retained across page requests.
-    paged_query: Option<paged::PagedQuery<C>>,
+    /// Prepared statements to release when their paged cursors are closed.
+    paged_statements: Vec<paged::PagedStatement<C>>,
 
     /// If true, methods in `Queryable` and `Executable` should not
     /// automatically commit and rollback
@@ -123,7 +124,7 @@ impl<C: FirebirdClient> Connection<C> {
             dialect: conf.dialect,
             stmt_cache,
             def_tr: None,
-            paged_query: None,
+            paged_statements: Vec::new(),
             in_transaction: false,
             cli,
             def_confs_tr: conf.transaction_conf,
@@ -144,7 +145,7 @@ impl<C: FirebirdClient> Connection<C> {
             dialect: conf.dialect,
             stmt_cache,
             def_tr: None,
-            paged_query: None,
+            paged_statements: Vec::new(),
             in_transaction: false,
             cli,
             def_confs_tr: conf.transaction_conf,
@@ -155,7 +156,7 @@ impl<C: FirebirdClient> Connection<C> {
     pub fn drop_database(mut self) -> Result<(), FbError> {
         self.cli.drop_database(&mut self.handle)?;
         // Dropping the database also closes its statement handles.
-        self.paged_query = None;
+        self.paged_statements.clear();
 
         Ok(())
     }
@@ -170,7 +171,7 @@ impl<C: FirebirdClient> Connection<C> {
     // Cleans up statement cache and releases the database handle
     fn cleanup_and_detach(&mut self) -> Result<(), FbError> {
         StmtCache::close_all(self);
-        self.close_paged_query().ok();
+        self.close_paged_statements();
 
         // Drop the default transaction
         if let Some(mut tr) = self.def_tr.take() {
@@ -288,7 +289,7 @@ impl<C: FirebirdClient> Connection<C> {
     /// Commit the default transaction
     pub fn commit(&mut self) -> Result<(), FbError> {
         self.in_transaction = false;
-        self.close_paged_query().ok();
+        self.close_paged_statements();
 
         if let Some(tr) = self.def_tr.take() {
             tr.into_transaction(self).commit()
@@ -300,7 +301,7 @@ impl<C: FirebirdClient> Connection<C> {
     /// Rollback the default transaction
     pub fn rollback(&mut self) -> Result<(), FbError> {
         self.in_transaction = false;
-        self.close_paged_query().ok();
+        self.close_paged_statements();
 
         if let Some(tr) = self.def_tr.take() {
             tr.into_transaction(self).rollback()
