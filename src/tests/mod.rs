@@ -112,6 +112,7 @@ macro_rules! mk_tests_default {
     };
 }
 
+mod arrays;
 mod charset;
 mod connection;
 mod cursor;

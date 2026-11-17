@@ -12,6 +12,7 @@ impl SqlType {
     /// Convert the sql value to interbase format
     pub fn sql_type_and_subtype(&self) -> (u32, u32) {
         match self {
+            Array(_) => (ibase::SQL_ARRAY + 1, 0),
             Text(s) => {
                 if s.len() > MAX_TEXT_LENGTH {
                     (ibase::SQL_BLOB + 1, 1)
@@ -37,6 +38,12 @@ impl SqlType {
 /// Implemented for types that can be sent as parameters
 pub trait IntoParam {
     fn into_param(self) -> SqlType;
+}
+
+impl IntoParam for crate::ArrayId {
+    fn into_param(self) -> SqlType {
+        Array(self)
+    }
 }
 
 impl IntoParam for Vec<u8> {

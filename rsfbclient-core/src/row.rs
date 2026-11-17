@@ -44,6 +44,8 @@ pub struct Column {
     /// with just a refcount bump — the name is constant across a result set, and
     /// cloning a `String` per column per row was the dominant decode allocation.
     pub name: Arc<str>,
+    /// Catalog origin of an ARRAY, when reported by the server.
+    pub array_origin: Option<Arc<crate::ArrayOrigin>>,
 }
 
 impl Column {
@@ -52,6 +54,7 @@ impl Column {
             name: name.into(),
             raw_type,
             value,
+            array_origin: None,
         }
     }
 }
@@ -77,6 +80,8 @@ impl ColumnToVal<String> for Column {
 
             Timestamp(ts) => Ok(ts.to_string()),
 
+            Array(_) => Err("An ARRAY requires a slice read".into()),
+
             Binary(_) => Err("This is a binary column. You cannot use string to access".into()),
 
             Boolean(bo) => Ok(bo.to_string()),
@@ -84,6 +89,16 @@ impl ColumnToVal<String> for Column {
             Octets(_) => Err("Read OCTETS values as bytes".into()),
 
             Null => Err(err_column_null("String")),
+        }
+    }
+}
+
+impl ColumnToVal<crate::ArrayId> for Column {
+    fn to_val(self) -> Result<crate::ArrayId, FbError> {
+        match self.value {
+            Array(id) => Ok(id),
+            Null => Err(err_column_null("ArrayId")),
+            _ => Err("This column is not an array".into()),
         }
     }
 }
