@@ -3,6 +3,7 @@
 #![allow(non_upper_case_globals)]
 
 use bytes::{BufMut, Bytes, BytesMut};
+use rsfbclient_core::FixedDecimal;
 use std::{borrow::Cow, convert::TryFrom, str, sync::Arc};
 
 use crate::{
@@ -1066,6 +1067,8 @@ trait RowSink {
 
     fn int128(&mut self, var: &XSqlVar, sqltype: u32, value: i128) -> Result<(), FbError>;
 
+    fn decimal(&mut self, var: &XSqlVar, sqltype: u32, value: FixedDecimal) -> Result<(), FbError>;
+
     fn floating(&mut self, var: &XSqlVar, sqltype: u32, value: f64) -> Result<(), FbError>;
 
     fn timestamp(
@@ -1092,9 +1095,10 @@ struct ParsedColumnSink<'a> {
 
 impl ParsedColumnSink<'_> {
     fn push(&mut self, var: &XSqlVar, sqltype: u32, value: SqlType) {
-        self.out.push(ParsedColumn::Complete(Column::new(
+        self.out.push(ParsedColumn::Complete(Column::with_scale(
             var.alias_name.clone(),
-            sqltype,
+            var.source_sqltype.unwrap_or(sqltype),
+            var.scale,
             value,
         )));
     }
@@ -1123,6 +1127,11 @@ impl RowSink for ParsedColumnSink<'_> {
 
     fn int128(&mut self, var: &XSqlVar, sqltype: u32, value: i128) -> Result<(), FbError> {
         self.push(var, sqltype, SqlType::Int128(value));
+        Ok(())
+    }
+
+    fn decimal(&mut self, var: &XSqlVar, sqltype: u32, value: FixedDecimal) -> Result<(), FbError> {
+        self.push(var, sqltype, SqlType::Decimal(value));
         Ok(())
     }
 
@@ -1182,8 +1191,12 @@ struct ColumnSink<'a> {
 
 impl ColumnSink<'_> {
     fn push(&mut self, var: &XSqlVar, sqltype: u32, value: SqlType) {
-        self.out
-            .push(Column::new(var.alias_name.clone(), sqltype, value));
+        self.out.push(Column::with_scale(
+            var.alias_name.clone(),
+            var.source_sqltype.unwrap_or(sqltype),
+            var.scale,
+            value,
+        ));
     }
 }
 
@@ -1210,6 +1223,11 @@ impl RowSink for ColumnSink<'_> {
 
     fn int128(&mut self, var: &XSqlVar, sqltype: u32, value: i128) -> Result<(), FbError> {
         self.push(var, sqltype, SqlType::Int128(value));
+        Ok(())
+    }
+
+    fn decimal(&mut self, var: &XSqlVar, sqltype: u32, value: FixedDecimal) -> Result<(), FbError> {
+        self.push(var, sqltype, SqlType::Decimal(value));
         Ok(())
     }
 
@@ -1271,6 +1289,16 @@ impl RowSink for RawSink<'_> {
 
     fn int128(&mut self, _var: &XSqlVar, _sqltype: u32, value: i128) -> Result<(), FbError> {
         self.out.push(RawValue::Int128(value));
+        Ok(())
+    }
+
+    fn decimal(
+        &mut self,
+        _var: &XSqlVar,
+        _sqltype: u32,
+        value: FixedDecimal,
+    ) -> Result<(), FbError> {
+        self.out.push(RawValue::Decimal(value));
         Ok(())
     }
 
@@ -1372,8 +1400,14 @@ fn decode_row<S: RowSink>(
 
                 if read_null(resp, col_index)? {
                     sink.null(var, sqltype)?
-                } else {
+                } else if var.scale == 0 {
                     sink.integer(var, sqltype, i)?
+                } else {
+                    sink.decimal(
+                        var,
+                        sqltype,
+                        FixedDecimal::new(i128::from(i), var.scale as i8),
+                    )?
                 }
             }
 
@@ -1384,8 +1418,10 @@ fn decode_row<S: RowSink>(
 
                 if read_null(resp, col_index)? {
                     sink.null(var, sqltype)?
-                } else {
+                } else if var.scale == 0 && var.sqlsubtype == 0 {
                     sink.int128(var, sqltype, i)?
+                } else {
+                    sink.decimal(var, sqltype, FixedDecimal::new(i, var.scale as i8))?
                 }
             }
 

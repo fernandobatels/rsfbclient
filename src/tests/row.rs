@@ -704,6 +704,7 @@ mod raw_stream {
             SqlType::Text(t) => t.clone(),
             SqlType::Integer(i) => i.to_string(),
             SqlType::Floating(f) => f.to_string(),
+            SqlType::Decimal(d) => d.to_string(),
             SqlType::Boolean(b) => b.to_string(),
             SqlType::Timestamp(ts) => ts.to_string(),
             other => return Err(format!("unexpected column {:?}", other).into()),
@@ -720,6 +721,7 @@ mod raw_stream {
             RawValue::Integer(i) => i.to_string(),
             RawValue::Int128(i) => i.to_string(),
             RawValue::Floating(f) => f.to_string(),
+            RawValue::Decimal(d) => d.to_string(),
             RawValue::Boolean(b) => b.to_string(),
             RawValue::Timestamp(ts) => ts.to_string(),
         })

@@ -113,6 +113,9 @@ macro_rules! mk_tests_default {
 }
 
 mod charset;
+
+mod exact_fixed_point;
+
 mod connection;
 mod cursor;
 mod database;

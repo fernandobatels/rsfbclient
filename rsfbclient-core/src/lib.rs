@@ -4,6 +4,7 @@
 pub mod charset;
 mod connection;
 pub mod date_time;
+mod decimal;
 pub(crate) mod error;
 pub mod ibase;
 mod params;
@@ -18,6 +19,8 @@ pub use params::*;
 pub use row::*;
 pub use transaction::*;
 
+pub use decimal::FixedDecimal;
+
 #[derive(Debug, Clone)]
 /// Sql parameter / column data
 pub enum SqlType {
@@ -29,6 +32,9 @@ pub enum SqlType {
     Int128(i128),
 
     Floating(f64),
+
+    /// Fixed-point NUMERIC/DECIMAL without a floating-point conversion.
+    Decimal(FixedDecimal),
 
     Timestamp(chrono::NaiveDateTime),
 

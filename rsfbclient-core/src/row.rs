@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::{
     error::{err_column_null, err_type_conv},
-    FbError, SqlType,
+    FbError, FixedDecimal, SqlType,
 };
 
 pub use SqlType::*;
@@ -40,6 +40,8 @@ impl Row {
 pub struct Column {
     pub value: SqlType,
     pub raw_type: u32,
+    /// Original SQLDA scale, negative for fractional digits.
+    pub raw_scale: i16,
     /// Column name/alias. `Arc<str>` so the driver can clone it into every row
     /// with just a refcount bump — the name is constant across a result set, and
     /// cloning a `String` per column per row was the dominant decode allocation.
@@ -48,9 +50,20 @@ pub struct Column {
 
 impl Column {
     pub fn new(name: impl Into<Arc<str>>, raw_type: u32, value: SqlType) -> Self {
+        Self::with_scale(name, raw_type, 0, value)
+    }
+
+    /// Construct a column with the server's original SQLDA scale.
+    pub fn with_scale(
+        name: impl Into<Arc<str>>,
+        raw_type: u32,
+        raw_scale: i16,
+        value: SqlType,
+    ) -> Self {
         Column {
             name: name.into(),
             raw_type,
+            raw_scale,
             value,
         }
     }
@@ -74,6 +87,8 @@ impl ColumnToVal<String> for Column {
             Int128(i) => Ok(i.to_string()),
 
             Floating(f) => Ok(f.to_string()),
+
+            Decimal(value) => Ok(value.to_string()),
 
             Timestamp(ts) => Ok(ts.to_string()),
 
@@ -126,10 +141,26 @@ impl ColumnToVal<i16> for Column {
     }
 }
 
+impl ColumnToVal<FixedDecimal> for Column {
+    fn to_val(self) -> Result<FixedDecimal, FbError> {
+        match self.value {
+            Decimal(value) => Ok(value),
+            Integer(value) => Ok(FixedDecimal::new(i128::from(value), 0)),
+            Int128(value) => Ok(FixedDecimal::new(value, 0)),
+            Null => Err(err_column_null("FixedDecimal")),
+            col => err_type_conv(col, "FixedDecimal"),
+        }
+    }
+}
+
 impl ColumnToVal<f64> for Column {
     fn to_val(self) -> Result<f64, FbError> {
         match self.value {
             Floating(f) => Ok(f),
+            Decimal(value) => value
+                .to_string()
+                .parse()
+                .map_err(|error: std::num::ParseFloatError| error.to_string().into()),
 
             Null => Err(err_column_null("f64")),
 
