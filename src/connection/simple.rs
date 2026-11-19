@@ -3,7 +3,10 @@
 //! multiple connection types/variations.
 //!
 
-use crate::{Connection, Execute, FbError, FromRow, IntoParams, PagedQuery, Queryable};
+use super::paged::PageConnection;
+use crate::{
+    Connection, Execute, FbError, FromRow, IntoParams, PagedQuery, PausedPagedQuery, Queryable,
+};
 use rsfbclient_core::TransactionConfiguration;
 
 #[cfg(feature = "linking")]
@@ -384,47 +387,64 @@ impl SimpleConnection {
         }
     }
 
-    /// Open a retained SELECT in the explicit default transaction.
-    pub fn open_paged_query(
+    /// Open a SELECT cursor in the explicitly active default transaction.
+    pub fn query_paged(
         &mut self,
         sql: &str,
         params: Vec<crate::SqlType>,
-    ) -> Result<PagedQuery, FbError> {
+    ) -> Result<PagedQuery<'_>, FbError> {
+        let state = self.start_page(sql, params)?;
+        Ok(self.resume_paged_query(state))
+    }
+
+    /// Resume a cursor paused on this connection.
+    ///
+    /// Fetching a cursor from a different connection or an ended transaction
+    /// reports that the cursor is closed.
+    pub fn resume_paged_query(&mut self, cursor: PausedPagedQuery) -> PagedQuery<'_> {
+        PagedQuery::new(self, cursor)
+    }
+}
+
+impl PageConnection for SimpleConnection {
+    fn start_page(
+        &mut self,
+        sql: &str,
+        params: Vec<crate::SqlType>,
+    ) -> Result<PausedPagedQuery, FbError> {
         match &mut self.inner {
             #[cfg(feature = "linking")]
-            TypeConnectionContainer::NativeDynLink(c) => c.open_paged_query(sql, params),
+            TypeConnectionContainer::NativeDynLink(c) => c.start_page(sql, params),
             #[cfg(feature = "dynamic_loading")]
-            TypeConnectionContainer::NativeDynLoad(c) => c.open_paged_query(sql, params),
+            TypeConnectionContainer::NativeDynLoad(c) => c.start_page(sql, params),
             #[cfg(feature = "pure_rust")]
-            TypeConnectionContainer::PureRust(c) => c.open_paged_query(sql, params),
+            TypeConnectionContainer::PureRust(c) => c.start_page(sql, params),
         }
     }
 
-    /// Fetch new rows from the retained SELECT, without executing it again.
-    pub fn fetch_query_page(
+    fn fetch_page(
         &mut self,
-        cursor: &mut PagedQuery,
+        cursor: &mut PausedPagedQuery,
         limit: usize,
     ) -> Result<(Vec<crate::Row>, bool), FbError> {
         match &mut self.inner {
             #[cfg(feature = "linking")]
-            TypeConnectionContainer::NativeDynLink(c) => c.fetch_query_page(cursor, limit),
+            TypeConnectionContainer::NativeDynLink(c) => c.fetch_page(cursor, limit),
             #[cfg(feature = "dynamic_loading")]
-            TypeConnectionContainer::NativeDynLoad(c) => c.fetch_query_page(cursor, limit),
+            TypeConnectionContainer::NativeDynLoad(c) => c.fetch_page(cursor, limit),
             #[cfg(feature = "pure_rust")]
-            TypeConnectionContainer::PureRust(c) => c.fetch_query_page(cursor, limit),
+            TypeConnectionContainer::PureRust(c) => c.fetch_page(cursor, limit),
         }
     }
 
-    /// Close the retained SELECT cursor.
-    pub fn close_paged_query(&mut self, cursor: &mut PagedQuery) -> Result<(), FbError> {
+    fn close_page(&mut self, cursor: &mut PausedPagedQuery) -> Result<(), FbError> {
         match &mut self.inner {
             #[cfg(feature = "linking")]
-            TypeConnectionContainer::NativeDynLink(c) => c.close_paged_query(cursor),
+            TypeConnectionContainer::NativeDynLink(c) => c.close_page(cursor),
             #[cfg(feature = "dynamic_loading")]
-            TypeConnectionContainer::NativeDynLoad(c) => c.close_paged_query(cursor),
+            TypeConnectionContainer::NativeDynLoad(c) => c.close_page(cursor),
             #[cfg(feature = "pure_rust")]
-            TypeConnectionContainer::PureRust(c) => c.close_paged_query(cursor),
+            TypeConnectionContainer::PureRust(c) => c.close_page(cursor),
         }
     }
 }

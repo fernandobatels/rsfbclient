@@ -187,7 +187,8 @@ pub mod services;
 
 pub use crate::{
     connection::{
-        Connection, ConnectionConfiguration, FirebirdClientFactory, PagedQuery, SimpleConnection,
+        Connection, ConnectionConfiguration, FirebirdClientFactory, PagedQuery, PausedPagedQuery,
+        SimpleConnection,
     },
     events::RemoteEventsManager,
     query::{Execute, Queryable},
