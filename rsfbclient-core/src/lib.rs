@@ -37,6 +37,10 @@ pub enum SqlType {
 
     Binary(Vec<u8>),
 
+    /// Bytes in a fixed or varying character string with charset OCTETS.
+    /// This is distinct from a binary BLOB.
+    Octets(Vec<u8>),
+
     /// Only works in fb >= 3.0
     Boolean(bool),
 

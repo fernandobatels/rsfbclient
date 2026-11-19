@@ -1,6 +1,6 @@
 use crate::{client::FirebirdWireConnection, consts};
 use bytes::{BufMut, Bytes, BytesMut};
-use rsfbclient_core::{FbError, SqlType};
+use rsfbclient_core::{charset::OCTETS_CHARSET_ID, FbError, SqlType};
 
 /// Maximum parameter data length
 pub const MAX_DATA_LENGTH: usize = 32767;
@@ -86,6 +86,19 @@ pub fn params_to_blr(
             }
 
             SqlType::Binary(data) => handle_blob(conn, &mut blr, &mut values, data, false)?,
+
+            SqlType::Octets(data) => {
+                if data.len() > MAX_DATA_LENGTH {
+                    return Err("OCTETS parameter exceeds 32767 bytes".into());
+                }
+                blr.put_u8(consts::blr::TEXT2);
+                blr.put_u16_le(OCTETS_CHARSET_ID);
+                blr.put_u16_le(data.len() as u16);
+                values.put_slice(data);
+                if data.len() % 4 != 0 {
+                    values.put_slice(&[0; 4][..4 - data.len() % 4]);
+                }
+            }
 
             SqlType::Integer(i) => {
                 blr.put_slice(&[
