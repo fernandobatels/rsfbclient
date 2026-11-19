@@ -98,6 +98,14 @@ pub trait FirebirdClientSqlOps {
         sql: &str,
     ) -> Result<(StmtType, Self::StmtHandle), FbError>;
 
+    /// Read the prepared statement's parameters and result columns.
+    fn statement_descriptors(
+        &mut self,
+        _statement: &mut Self::StmtHandle,
+    ) -> Result<(Vec<crate::ParameterDesc>, Vec<crate::ColumnDesc>), FbError> {
+        Err("This client does not expose prepared statement metadata".into())
+    }
+
     /// Closes or drops a statement
     fn free_statement(
         &mut self,

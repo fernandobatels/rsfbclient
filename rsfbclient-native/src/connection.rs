@@ -535,6 +535,36 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         ))
     }
 
+    fn statement_descriptors(
+        &mut self,
+        statement: &mut Self::StmtHandle,
+    ) -> Result<
+        (
+            Vec<rsfbclient_core::ParameterDesc>,
+            Vec<rsfbclient_core::ColumnDesc>,
+        ),
+        FbError,
+    > {
+        let charset = self.charset.clone();
+        rsfbclient_core::read_statement_descriptors(&charset, |request| {
+            let mut buffer = vec![0u8; 16_384];
+            if unsafe {
+                self.ibase.isc_dsql_sql_info()(
+                    &mut self.status[0],
+                    &mut statement.handle,
+                    request.len() as i16,
+                    request.as_ptr().cast(),
+                    buffer.len() as i16,
+                    buffer.as_mut_ptr().cast(),
+                )
+            } != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+            Ok(buffer)
+        })
+    }
+
     fn free_statement(
         &mut self,
         stmt_handle: &mut Self::StmtHandle,

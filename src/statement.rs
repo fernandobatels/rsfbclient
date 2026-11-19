@@ -32,6 +32,25 @@ where
         Ok(Statement { data, tr })
     }
 
+    /// The server's classification of this prepared statement.
+    pub fn statement_type(&self) -> StmtType {
+        self.data.stmt_type
+    }
+
+    /// Read input and output metadata without executing this statement.
+    pub fn describe(&mut self) -> Result<rsfbclient_core::StatementDescription, FbError> {
+        let (parameters, columns) = self
+            .tr
+            .conn
+            .cli
+            .statement_descriptors(&mut self.data.handle)?;
+        Ok(rsfbclient_core::StatementDescription {
+            statement_type: self.data.stmt_type,
+            parameters,
+            columns,
+        })
+    }
+
     /// Execute the current statement, returning a
     /// count of affected rows upon success
     ///
