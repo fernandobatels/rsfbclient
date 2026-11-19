@@ -74,6 +74,129 @@ mk_tests_default! {
     }
 
     #[test]
+    fn default_transaction_can_commit_and_roll_back_with_or_without_retaining() -> Result<(), FbError> {
+        use crate::{Execute, SimpleConnection};
+        let mut driver = cbuilder().connect()?;
+        setup(&mut driver, "RSFB_TX_LIFECYCLE")?;
+        let mut writer: SimpleConnection = driver.into();
+        // Use fresh read-only snapshots so older servers can inspect committed
+        // rows while the writer still holds an uncommitted version.
+        let mut observer = cbuilder()
+            .transaction(TransactionConfiguration {
+                isolation: TrIsolationLevel::Concurrency,
+                data_access: TrDataAccessMode::ReadOnly,
+                lock_resolution: TrLockResolution::NoWait,
+            })
+            .connect()?;
+        let id_sql = "SELECT CURRENT_TRANSACTION FROM RDB$DATABASE";
+        let context_sql = "SELECT RDB$GET_CONTEXT('USER_TRANSACTION','RSFB_TX_TEST') FROM RDB$DATABASE";
+        let ids_sql = "SELECT ID FROM RSFB_TX_LIFECYCLE ORDER BY ID";
+
+        writer.commit_transaction()?;
+        writer.rollback_retaining()?;
+        writer.begin_transaction()?;
+        writer.query_first::<_, (i32,)>(
+            "SELECT RDB$SET_CONTEXT('USER_TRANSACTION','RSFB_TX_TEST','kept') FROM RDB$DATABASE",
+            (),
+        )?;
+        writer.execute("INSERT INTO RSFB_TX_LIFECYCLE (ID) VALUES (1)", ())?;
+        assert!(observer.query::<_, (i32,)>(ids_sql, ())?.is_empty());
+        writer.commit_retaining()?;
+        assert_eq!(writer.query_first::<_, (String,)>(context_sql, ())?, Some(("kept".into(),)));
+        assert_eq!(observer.query::<_, (i32,)>(ids_sql, ())?, [(1,)]);
+
+        writer.execute("INSERT INTO RSFB_TX_LIFECYCLE (ID) VALUES (2)", ())?;
+        writer.rollback_retaining()?;
+        assert_eq!(writer.query_first::<_, (String,)>(context_sql, ())?, Some(("kept".into(),)));
+        assert_eq!(writer.query::<_, (i32,)>(ids_sql, ())?, [(1,)]);
+
+        let before_commit: Option<(i64,)> = writer.query_first(id_sql, ())?;
+        writer.execute("INSERT INTO RSFB_TX_LIFECYCLE (ID) VALUES (3)", ())?;
+        writer.commit_transaction()?;
+        assert_eq!(observer.query::<_, (i32,)>(ids_sql, ())?, [(1,), (3,)]);
+        writer.begin_transaction()?;
+        let next: Option<(i64,)> = writer.query_first(id_sql, ())?;
+        assert_ne!(next, before_commit);
+        writer.execute("INSERT INTO RSFB_TX_LIFECYCLE (ID) VALUES (4)", ())?;
+        writer.rollback_transaction()?;
+        assert_ne!(writer.query_first::<_, (i64,)>(id_sql, ())?, next);
+        assert_eq!(observer.query::<_, (i32,)>(ids_sql, ())?, [(1,), (3,)]);
+
+        writer.close()?;
+        observer.close()?;
+        teardown(cbuilder().connect()?, "RSFB_TX_LIFECYCLE")
+    }
+
+    #[test]
+    fn declining_a_transaction_configuration_change_keeps_pending_work() -> Result<(), FbError> {
+        use crate::Execute;
+        let mut conn = cbuilder().connect()?;
+        setup(&mut conn, "RSFB_TX_CONFIG")?;
+        let original = TransactionConfiguration {
+            isolation: TrIsolationLevel::Concurrency,
+            ..TransactionConfiguration::default()
+        };
+        let different = TransactionConfiguration {
+            data_access: TrDataAccessMode::ReadOnly,
+            ..original
+        };
+        conn.begin_transaction_config(original)?;
+        let id_sql = "SELECT CURRENT_TRANSACTION FROM RDB$DATABASE";
+        let first: Option<(i64,)> = conn.query_first(id_sql, ())?;
+        conn.execute("INSERT INTO RSFB_TX_CONFIG (ID) VALUES (1)", ())?;
+        assert!(conn.begin_transaction_config(different).is_err());
+        assert!(conn.with_transaction_config(different, |_| -> Result<(), FbError> {
+            panic!("an incompatible transaction must reject the closure before it runs");
+        }).is_err());
+        conn.begin_transaction_config(original)?;
+        assert_eq!(conn.query_first::<_, (i64,)>(id_sql, ())?, first);
+        assert_eq!(conn.query_first::<_, (i32,)>("SELECT ID FROM RSFB_TX_CONFIG", ())?, Some((1,)));
+        conn.rollback_transaction()?;
+
+        conn.begin_transaction_config(different)?;
+        assert_ne!(conn.query_first::<_, (i64,)>(id_sql, ())?, first);
+        assert!(conn.execute("INSERT INTO RSFB_TX_CONFIG (ID) VALUES (2)", ()).is_err());
+        assert!(conn.query::<_, (i32,)>("SELECT ID FROM RSFB_TX_CONFIG", ())?.is_empty());
+        conn.rollback_transaction()?;
+        conn.close()?;
+        teardown(cbuilder().connect()?, "RSFB_TX_CONFIG")
+    }
+
+    #[test]
+    fn failed_default_commit_allows_an_explicit_rollback() -> Result<(), FbError> {
+        use crate::Execute;
+        let mut writer = cbuilder().connect()?;
+        setup(&mut writer, "RSFB_TX_FAIL_COMMIT")?;
+        writer.execute("CREATE EXCEPTION RSFB_TX_ABORT 'Commit rejected by the fixture'", ())?;
+        writer.execute(
+            "CREATE TRIGGER RSFB_TX_CHECK_COMMIT ACTIVE ON TRANSACTION COMMIT AS
+             BEGIN
+               IF (RDB$GET_CONTEXT('USER_TRANSACTION','RSFB_TX_REJECT') = 'YES') THEN
+                 EXCEPTION RSFB_TX_ABORT;
+             END",
+            (),
+        )?;
+        writer.begin_transaction()?;
+        writer.execute("INSERT INTO RSFB_TX_FAIL_COMMIT (ID) VALUES (1)", ())?;
+        writer.query_first::<_, (i32,)>(
+            "SELECT RDB$SET_CONTEXT('USER_TRANSACTION','RSFB_TX_REJECT','YES') FROM RDB$DATABASE",
+            (),
+        )?;
+        assert!(writer.commit_transaction().unwrap_err().to_string().contains("Commit rejected by the fixture"));
+        assert_eq!(writer.query_first::<_, (i32,)>("SELECT ID FROM RSFB_TX_FAIL_COMMIT", ())?, Some((1,)));
+        writer.rollback_transaction()?;
+        writer.close()?;
+
+        let mut observer = cbuilder().connect()?;
+        assert!(observer.query::<_, (i32,)>("SELECT ID FROM RSFB_TX_FAIL_COMMIT", ())?.is_empty());
+        observer.close()?;
+        let mut cleanup = cbuilder().connect()?;
+        cleanup.execute("DROP TRIGGER RSFB_TX_CHECK_COMMIT", ())?;
+        cleanup.execute("DROP EXCEPTION RSFB_TX_ABORT", ())?;
+        teardown(cleanup, "RSFB_TX_FAIL_COMMIT")
+    }
+
+    #[test]
     fn recreate_insert_drop_with_commit() -> Result<(), FbError> {
         const TABLE_NAME: &str = "RSFBCLIENT_TEST_TRANS0";
 
