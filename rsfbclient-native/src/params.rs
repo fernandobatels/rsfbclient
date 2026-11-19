@@ -181,6 +181,12 @@ impl ParamBuffer {
                 (bytes.len(), Text(bytes.into_boxed_slice()))
             }
 
+            SqlType::TextBlob(s) => {
+                var.sqlscale = 4; // UTF8.
+                let bytes = binary_to_blob(s.as_bytes(), db, tr, ibase)?;
+                (bytes.len(), Text(bytes.into_boxed_slice()))
+            }
+
             SqlType::Octets(bytes) => {
                 if bytes.len() > MAX_TEXT_LENGTH {
                     return Err("OCTETS parameter exceeds 32767 bytes".into());
