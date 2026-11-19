@@ -18,6 +18,7 @@ mk_tests_default! {
         let (first, more) = cursor.fetch(2)?;
         assert!(more);
         assert_eq!(first.into_iter().map(|row| row.get::<i32>(0)).collect::<Result<Vec<_>, _>>()?, [1, 2]);
+        cursor.check_error()?;
         let paused = cursor.pause();
         assert_eq!(conn.query_first::<_, (i64, i64)>("SELECT CURRENT_CONNECTION, CURRENT_TRANSACTION FROM RDB$DATABASE", ())?, context);
         let mut cursor = conn.resume_paged_query(paused);
@@ -97,6 +98,27 @@ mk_tests_default! {
         assert!(cursor.fetch(2).is_err());
         drop(cursor);
         assert_eq!(conn.query_first::<_, (i32,)>("SELECT 42 FROM RDB$DATABASE", ())?, Some((42,)));
+        conn.rollback()?;
+
+        conn.begin_transaction()?;
+        let mut cursor = conn.query_paged(
+            "EXECUTE BLOCK RETURNS (N INT) AS BEGIN N=7;SUSPEND;N=1/0;SUSPEND;END",
+            Vec::new(),
+        )?;
+        let (rows, more) = cursor.fetch(2)?;
+        assert_eq!(rows[0].get::<i32>(0)?, 7);
+        assert!(more);
+        let paused = cursor.pause();
+        let mut other = conn.query_paged("SELECT 43 FROM RDB$DATABASE", Vec::new())?;
+        other.check_error()?;
+        let other = other.pause();
+        let mut cursor = conn.resume_paged_query(paused);
+        assert!(matches!(cursor.check_error(), Err(FbError::Sql { .. })));
+        assert!(cursor.fetch(1).is_err());
+        drop(cursor);
+        let mut other = conn.resume_paged_query(other);
+        assert_eq!(other.fetch(1)?.0[0].get::<i32>(0)?, 43);
+        other.close()?;
         conn.rollback()?;
 
         let mut columns = Vec::new();

@@ -35,6 +35,14 @@ impl<'a> PagedQuery<'a> {
             .fetch_page(self.state.as_mut().unwrap(), limit)
     }
 
+    /// Report a fetch error deferred by the last page, without fetching again.
+    ///
+    /// Use this after a cancellation request to report the actual outcome.
+    /// If a row is pending instead, it is left for the next page.
+    pub fn check_error(&mut self) -> Result<(), FbError> {
+        self.connection.check_page(self.state.as_mut().unwrap())
+    }
+
     /// Release the connection borrow without closing the statement.
     ///
     /// Resume the cursor on the same connection before ending its transaction.
@@ -80,6 +88,7 @@ pub(super) trait PageConnection: Send {
         cursor: &mut PausedPagedQuery,
         limit: usize,
     ) -> Result<(Vec<Row>, bool), FbError>;
+    fn check_page(&mut self, cursor: &mut PausedPagedQuery) -> Result<(), FbError>;
     fn close_page(&mut self, cursor: &mut PausedPagedQuery) -> Result<(), FbError>;
 }
 
@@ -208,6 +217,15 @@ impl<C: FirebirdClient> PageConnection for Connection<C> {
                 Err(error)
             }
         }
+    }
+
+    fn check_page(&mut self, cursor: &mut PausedPagedQuery) -> Result<(), FbError> {
+        self.paged_statement_index(cursor)?;
+        if let Some(Err(error)) = cursor.pending.take_if(|result| result.is_err()) {
+            self.close_page(cursor).ok();
+            return Err(error);
+        }
+        Ok(())
     }
 
     fn close_page(&mut self, cursor: &mut PausedPagedQuery) -> Result<(), FbError> {

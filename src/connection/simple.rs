@@ -577,6 +577,17 @@ impl PageConnection for SimpleConnection {
         }
     }
 
+    fn check_page(&mut self, cursor: &mut PausedPagedQuery) -> Result<(), FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.check_page(cursor),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.check_page(cursor),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.check_page(cursor),
+        }
+    }
+
     fn close_page(&mut self, cursor: &mut PausedPagedQuery) -> Result<(), FbError> {
         match &mut self.inner {
             #[cfg(feature = "linking")]
