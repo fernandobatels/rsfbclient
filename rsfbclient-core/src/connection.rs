@@ -105,6 +105,11 @@ pub trait FirebirdClientSqlOps {
         op: FreeStmtOp,
     ) -> Result<(), FbError>;
 
+    /// Output aliases available as soon as a statement has been prepared.
+    fn output_column_names(&self, _statement: &Self::StmtHandle) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Execute the prepared statement with parameters
     /// and returns the affected rows count
     fn execute(
