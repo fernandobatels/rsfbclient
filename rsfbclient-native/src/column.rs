@@ -8,6 +8,7 @@ use rsfbclient_core::{charset::OCTETS_CHARSET_ID, Charset, Column, FbError, SqlT
 use std::{mem, result::Result, sync::Arc};
 
 use crate::{ibase, ibase::IBase, status::Status, varchar::Varchar};
+use rsfbclient_core::FixedDecimal;
 
 use ColumnBufferData::*;
 
@@ -63,6 +64,8 @@ pub struct ColumnBuffer {
     /// row's `Column` is a refcount bump rather than a per-row allocation.
     col_name: Arc<str>,
 
+    raw_scale: i16,
+    raw_subtype: i16,
     raw_type: i16,
 }
 
@@ -74,6 +77,7 @@ impl ColumnBuffer {
         name: Option<String>,
         charset: &Charset,
     ) -> Result<Self, FbError> {
+        let original_scale = var.sqlscale;
         let original_type = var.sqltype & !1;
         if original_type as u32 == ibase::SQL_BLOB {
             var.sqlsubtype = 0;
@@ -91,6 +95,7 @@ impl ColumnBuffer {
         }
         let mut buffer = Self::from_xsqlvar_with_name(var, name, charset)?;
         buffer.raw_type = original_type;
+        buffer.raw_scale = original_scale;
         Ok(buffer)
     }
 
@@ -107,6 +112,7 @@ impl ColumnBuffer {
         // Remove nullable type indicator
         let sqltype = var.sqltype & (!1);
         let sqlsubtype = var.sqlsubtype;
+        let raw_scale = var.sqlscale;
 
         let mut nullind = Box::new(0);
         var.sqlind = &mut *nullind;
@@ -148,36 +154,18 @@ impl ColumnBuffer {
                 }
             }
 
-            ibase::SQL_INT128 if sqlsubtype == 0 && var.sqlscale == 0 => {
+            ibase::SQL_INT128 => {
                 var.sqllen = mem::size_of::<i128>() as i16;
                 var.sqltype = ibase::SQL_INT128 as i16 + 1;
 
                 Int128(Box::new(0))
             }
 
-            ibase::SQL_INT128 => {
-                // NUMERIC/DECIMAL backed by INT128 follows the crate's existing
-                // fixed-point policy and is converted to double by fbclient.
-                var.sqllen = mem::size_of::<f64>() as i16;
-                var.sqlscale = 0;
-                var.sqltype = ibase::SQL_DOUBLE as i16 + 1;
-
-                Float(Box::new(0.0))
-            }
-
             ibase::SQL_SHORT | ibase::SQL_LONG | ibase::SQL_INT64 => {
                 var.sqllen = mem::size_of::<i64>() as i16;
+                var.sqltype = ibase::SQL_INT64 as i16 + 1;
 
-                if var.sqlscale == 0 {
-                    var.sqltype = ibase::SQL_INT64 as i16 + 1;
-
-                    Integer(Box::new(0))
-                } else {
-                    var.sqlscale = 0;
-                    var.sqltype = ibase::SQL_DOUBLE as i16 + 1;
-
-                    Float(Box::new(0.0))
-                }
+                Integer(Box::new(0))
             }
 
             ibase::SQL_FLOAT | ibase::SQL_DOUBLE => {
@@ -222,6 +210,8 @@ impl ColumnBuffer {
             buffer,
             nullind,
             col_name,
+            raw_scale,
+            raw_subtype: sqlsubtype,
             raw_type: sqltype,
         })
     }
@@ -235,9 +225,10 @@ impl ColumnBuffer {
         charset: &Charset,
     ) -> Result<Column, FbError> {
         if *self.nullind != 0 {
-            return Ok(Column::new(
+            return Ok(Column::with_scale(
                 self.col_name.clone(),
                 self.raw_type as u32,
+                self.raw_scale,
                 SqlType::Null,
             ));
         }
@@ -246,7 +237,15 @@ impl ColumnBuffer {
             Text(varchar) => SqlType::Text(charset.decode(varchar.as_bytes())?),
             Octets(varchar) => SqlType::Octets(varchar.as_bytes().to_vec()),
 
+            Integer(i) if self.raw_scale != 0 => {
+                SqlType::Decimal(FixedDecimal::new(i128::from(**i), self.raw_scale as i8))
+            }
+
             Integer(i) => SqlType::Integer(**i),
+
+            Int128(i) if self.raw_scale != 0 || self.raw_subtype != 0 => {
+                SqlType::Decimal(FixedDecimal::new(**i, self.raw_scale as i8))
+            }
 
             Int128(i) => SqlType::Int128(**i),
 
@@ -261,9 +260,10 @@ impl ColumnBuffer {
             Boolean(b) => SqlType::Boolean(**b != 0),
         };
 
-        Ok(Column::new(
+        Ok(Column::with_scale(
             self.col_name.clone(),
             self.raw_type as u32,
+            self.raw_scale,
             col_type,
         ))
     }

@@ -194,6 +194,18 @@ impl ParamBuffer {
 
             SqlType::Floating(f) => (mem::size_of_val(&f), Floating(Box::new(f))),
 
+            SqlType::Decimal(value) => {
+                var.sqlscale = i16::from(value.scale());
+                if let Some(coefficient) = value.as_i64_coefficient() {
+                    (mem::size_of::<i64>(), Integer(Box::new(coefficient)))
+                } else {
+                    (
+                        mem::size_of::<i128>(),
+                        Int128(Box::new(value.coefficient())),
+                    )
+                }
+            }
+
             SqlType::Timestamp(dt) => {
                 let ts = rsfbclient_core::date_time::encode_timestamp(dt);
 

@@ -19,6 +19,8 @@ pub enum RawValue {
     Integer(i64),
     Int128(i128),
     Floating(f64),
+    /// An exact scaled numeric value.
+    Decimal(rsfbclient_core::FixedDecimal),
     Boolean(bool),
     Timestamp(NaiveDateTime),
     /// Raw column bytes straight from the wire buffer, in the connection charset

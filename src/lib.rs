@@ -129,7 +129,8 @@
 //! |---|---|
 //! | `SMALLINT`, `INTEGER`, `BIGINT` | `i64` (or any smaller integer type via `try_into`) |
 //! | `INT128` (Firebird 4+) | `i128` |
-//! | `FLOAT`, `DOUBLE PRECISION`, `NUMERIC`, `DECIMAL` | `f64` / `f32` |
+//! | `FLOAT`, `DOUBLE PRECISION` | `f64` / `f32` |
+//! | Scaled `NUMERIC` and `DECIMAL` | `FixedDecimal`, or an explicit conversion to `f64` / `f32` |
 //! | `CHAR`, `VARCHAR` | `String` (decoded with the connection charset) |
 //! | `BLOB SUB_TYPE TEXT` | `String` |
 //! | `BLOB SUB_TYPE BINARY` | `Vec<u8>` |
@@ -139,10 +140,8 @@
 //!
 //! The sharp edges:
 //!
-//! - **`NUMERIC`/`DECIMAL` go through `f64`**: scaled values whose integer form exceeds
-//!   2^53 lose precision silently (e.g. `NUMERIC(18,2)` storing `90071992547409.93` reads
-//!   back as `90071992547409.92`). When the exact digits matter, `CAST` the column to
-//!   `VARCHAR` in SQL and parse, or keep the value in a wider text/integer form.
+//! - For exact fixed-point reads and parameters, use [FixedDecimal](./struct.FixedDecimal.html).
+//!   Converting to a binary floating-point type can round the value.
 //! - **Some Firebird 4+ types are not supported by the row reader**: selecting a
 //!   `DECFLOAT(16/34)`, `TIMESTAMP WITH TIME ZONE` or `TIME WITH TIME ZONE` column (or a
 //!   blob with `sub_type > 1`) fails at describe time with *"Unsupported column type"*.
@@ -199,7 +198,7 @@ pub use rsfbclient_core::{
 };
 
 #[doc(hidden)]
-pub use rsfbclient_core::{charset, Charset};
+pub use rsfbclient_core::{charset, Charset, FixedDecimal};
 
 /// Zero-copy row value for [`Connection::stream_raw`] (pure-rust backend only).
 #[cfg(feature = "pure_rust")]
