@@ -353,6 +353,29 @@ impl FirebirdClientSqlOps for RustFbClient {
             .unwrap_or_else(err_client_not_connected)
     }
 
+    fn statement_descriptors(
+        &mut self,
+        statement: &mut Self::StmtHandle,
+    ) -> Result<
+        (
+            Vec<rsfbclient_core::ParameterDesc>,
+            Vec<rsfbclient_core::ColumnDesc>,
+        ),
+        FbError,
+    > {
+        let conn = self
+            .conn
+            .as_mut()
+            .ok_or_else(|| FbError::from("Client is not connected"))?;
+        let charset = conn.charset.clone();
+        rsfbclient_core::read_statement_descriptors(&charset, |request| {
+            conn.socket
+                .write_all(&info_sql(statement.handle.0, request))?;
+            conn.socket.flush()?;
+            Ok(conn.read_response()?.data.to_vec())
+        })
+    }
+
     fn free_statement(
         &mut self,
         stmt_handle: &mut Self::StmtHandle,

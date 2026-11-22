@@ -189,6 +189,39 @@ impl SimpleConnection {
         }
     }
 
+    /// Prepare a statement without executing it and return its server classification.
+    pub fn prepare_statement_type(
+        &mut self,
+        sql: &str,
+    ) -> Result<rsfbclient_core::StmtType, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.prepare_statement_type(sql),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.prepare_statement_type(sql),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.prepare_statement_type(sql),
+        }
+    }
+
+    /// Prepare and describe a statement without opening a cursor.
+    ///
+    /// Set `named_params` to parse named parameters as in [`Transaction::prepare`](crate::Transaction::prepare).
+    pub fn describe_statement(
+        &mut self,
+        sql: &str,
+        named_params: bool,
+    ) -> Result<rsfbclient_core::StatementDescription, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.describe_statement(sql, named_params),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.describe_statement(sql, named_params),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.describe_statement(sql, named_params),
+        }
+    }
+
     /// Begins a new transaction, and instructs all the `query` and `execute` methods
     /// performed in the [`SimpleConnection`] type to not automatically commit and rollback
     /// until [`commit`][`SimpleConnection::commit`] or [`rollback`][`SimpleConnection::rollback`] are called

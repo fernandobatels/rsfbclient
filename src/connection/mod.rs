@@ -253,6 +253,25 @@ impl<C: FirebirdClient> Connection<C> {
         res
     }
 
+    /// Prepare a statement without executing it and return its server classification.
+    pub fn prepare_statement_type(
+        &mut self,
+        sql: &str,
+    ) -> Result<rsfbclient_core::StmtType, FbError> {
+        self.with_transaction(|tr| Ok(tr.prepare(sql, false)?.statement_type()))
+    }
+
+    /// Prepare and describe a statement without opening a cursor.
+    ///
+    /// Set `named_params` to parse named parameters as in [`Transaction::prepare`].
+    pub fn describe_statement(
+        &mut self,
+        sql: &str,
+        named_params: bool,
+    ) -> Result<rsfbclient_core::StatementDescription, FbError> {
+        self.with_transaction(|tr| tr.prepare(sql, named_params)?.describe())
+    }
+
     /// Begins a new transaction, and instructs all the `query` and `execute` methods
     /// performed in the [`Connection`] type to not automatically commit and rollback
     /// until [`commit`][`Connection::commit`] or [`rollback`][`Connection::rollback`] are called
