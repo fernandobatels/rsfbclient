@@ -175,3 +175,91 @@ fn restore_without_replace_fails_on_existing() -> Result<(), FbError> {
 
     Ok(())
 }
+
+#[test]
+fn backup_and_restore_can_filter_table_data_and_use_parallel_workers() -> Result<(), FbError> {
+    let db = "test_svc_filtered.fdb";
+    let partial = "test_svc_filtered.fbk";
+    let full = "test_svc_filtered_full.fbk";
+    let restored = "test_svc_filtered_restored.fdb";
+    let mut source = cbuilder()
+        .db_name(db)
+        .connect()
+        .or_else(|_| cbuilder().db_name(db).create_database())?;
+    let (version,): (String,) = source
+        .query_first(
+            "SELECT RDB$GET_CONTEXT('SYSTEM', 'ENGINE_VERSION') FROM RDB$DATABASE",
+            (),
+        )?
+        .expect("the server reports an engine version");
+    let major = version
+        .split('.')
+        .next()
+        .and_then(|major| major.parse::<u32>().ok())
+        .expect("Firebird engine version starts with the major version");
+    if major < 4 {
+        return source.drop_database();
+    }
+
+    let mut svc = svc()?;
+    // The Firebird 4 CI image ships Beta 2. Its Services API accepts
+    // SKIP_DATA, but INCLUDE_DATA needs the released Firebird 4 or later.
+    let include = major >= 5 || !svc.server_version()?.contains("-T4.");
+    let include_data = include.then(|| "KEEP%".to_string());
+    let skip_data = if include {
+        "KEEP_SKIP"
+    } else {
+        "KEEP_SKIP|OMIT_DATA"
+    };
+    let workers = (major >= 5).then_some(2);
+    for table in ["KEEP_DATA", "KEEP_SKIP", "OMIT_DATA"] {
+        let _ = source.execute(&format!("DROP TABLE {table}"), ());
+        source.execute(&format!("CREATE TABLE {table} (ID INT PRIMARY KEY)"), ())?;
+        source.execute(&format!("INSERT INTO {table} VALUES (7)"), ())?;
+    }
+    source.close()?;
+
+    svc.backup(
+        db,
+        partial,
+        SvcBackupOptions {
+            include_data: include_data.clone(),
+            skip_data: Some(skip_data.into()),
+            parallel_workers: workers,
+            ..SvcBackupOptions::default()
+        },
+    )?;
+    svc.backup(db, full, SvcBackupOptions::default())?;
+    for (archive, options) in [
+        (
+            partial,
+            SvcRestoreOptions {
+                replace: true,
+                parallel_workers: workers,
+                ..SvcRestoreOptions::default()
+            },
+        ),
+        (
+            full,
+            SvcRestoreOptions {
+                replace: true,
+                include_data,
+                skip_data: Some(skip_data.into()),
+                parallel_workers: workers,
+                ..SvcRestoreOptions::default()
+            },
+        ),
+    ] {
+        svc.restore(archive, restored, options)?;
+        let mut conn = cbuilder().db_name(restored).connect()?;
+        let rows: Vec<(i32,)> = conn.query("SELECT ID FROM KEEP_DATA", ())?;
+        assert_eq!(rows, [(7,)]);
+        for table in ["KEEP_SKIP", "OMIT_DATA"] {
+            let rows: Vec<(i32,)> = conn.query(&format!("SELECT ID FROM {table}"), ())?;
+            assert!(rows.is_empty(), "{table} rows must be skipped");
+        }
+        conn.drop_database()?;
+    }
+    cbuilder().db_name(db).connect()?.drop_database()?;
+    Ok(())
+}
