@@ -669,6 +669,14 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
         })
     }
 
+    fn output_column_names(&self, stmt_handle: &Self::StmtHandle) -> Vec<String> {
+        stmt_handle
+            .col_buffers
+            .iter()
+            .map(|column| column.column_name().to_owned())
+            .collect()
+    }
+
     fn free_statement(
         &mut self,
         stmt_handle: &mut Self::StmtHandle,

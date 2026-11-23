@@ -43,6 +43,9 @@ pub(crate) mod stmt_cache;
 pub(crate) mod simple;
 pub use simple::SimpleConnection;
 
+mod paged;
+pub use paged::{PagedQuery, PausedPagedQuery};
+
 /// A generic factory for creating multiple preconfigured instances of a particular client implementation
 /// Intended mainly for use by connection pool
 pub trait FirebirdClientFactory {
@@ -96,6 +99,9 @@ pub struct Connection<C: FirebirdClient> {
     /// transaction is used
     pub(crate) def_tr: Option<TransactionData<C>>,
 
+    /// Prepared statements to release when their paged cursors are closed.
+    paged_statements: Vec<paged::PagedStatement<C>>,
+
     /// If true, methods in `Queryable` and `Executable` should not
     /// automatically commit and rollback
     pub(crate) in_transaction: bool,
@@ -124,6 +130,7 @@ impl<C: FirebirdClient> Connection<C> {
             stmt_cache,
             last_prepare_time: None,
             def_tr: None,
+            paged_statements: Vec::new(),
             in_transaction: false,
             cli,
             def_confs_tr: conf.transaction_conf,
@@ -146,6 +153,7 @@ impl<C: FirebirdClient> Connection<C> {
             stmt_cache,
             last_prepare_time: None,
             def_tr: None,
+            paged_statements: Vec::new(),
             in_transaction: false,
             cli,
             def_confs_tr: conf.transaction_conf,
@@ -159,6 +167,8 @@ impl<C: FirebirdClient> Connection<C> {
             cancel.revoke();
         }
         self.cli.drop_database(&mut self.handle)?;
+        // Dropping the database also closes its statement handles.
+        self.paged_statements.clear();
 
         Ok(())
     }
@@ -176,6 +186,7 @@ impl<C: FirebirdClient> Connection<C> {
             cancel.revoke();
         }
         StmtCache::close_all(self);
+        self.close_paged_statements();
 
         // Drop the default transaction
         if let Some(mut tr) = self.def_tr.take() {
@@ -364,6 +375,7 @@ impl<C: FirebirdClient> Connection<C> {
     pub fn commit(&mut self) -> Result<(), FbError> {
         let in_transaction = self.in_transaction;
         self.in_transaction = false;
+        self.close_paged_statements();
 
         if in_transaction {
             let result = self.complete_default_transaction(TransactionData::commit);
@@ -380,6 +392,7 @@ impl<C: FirebirdClient> Connection<C> {
     pub fn rollback(&mut self) -> Result<(), FbError> {
         let in_transaction = self.in_transaction;
         self.in_transaction = false;
+        self.close_paged_statements();
 
         if in_transaction {
             let result = self.complete_default_transaction(TransactionData::rollback);
@@ -527,6 +540,22 @@ where
         P: IntoParams,
         R: FromRow + 'static,
     {
+        self.query_iter_with_columns(sql, params, None)
+    }
+}
+
+impl<C: FirebirdClient> Connection<C> {
+    /// Open a query iterator and optionally return its prepared output aliases.
+    pub(crate) fn query_iter_with_columns<'a, P, R>(
+        &'a mut self,
+        sql: &str,
+        params: P,
+        columns: Option<&mut Vec<String>>,
+    ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
+    where
+        P: IntoParams,
+        R: FromRow + 'static,
+    {
         let in_transaction = self.in_transaction;
         let stmt_cache_data = match self.use_transaction(self.def_confs_tr, |tr| {
             let params = params.to_params();
@@ -535,7 +564,15 @@ where
             let mut stmt_cache_data = StmtCache::get_or_prepare(tr, sql, params.named())?;
 
             match stmt_cache_data.stmt.query(tr.conn, &mut tr.data, params) {
-                Ok(_) => Ok(stmt_cache_data),
+                Ok(_) => {
+                    if let Some(columns) = columns {
+                        *columns = tr
+                            .conn
+                            .cli
+                            .output_column_names(&stmt_cache_data.stmt.handle);
+                    }
+                    Ok(stmt_cache_data)
+                }
                 Err(e) => {
                     // A statement that failed to open its cursor must not be reused.
                     stmt_cache_data.stmt.close(tr.conn).ok();

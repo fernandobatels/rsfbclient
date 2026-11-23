@@ -225,6 +225,10 @@ impl ColumnBuffer {
         })
     }
 
+    pub(crate) fn column_name(&self) -> &str {
+        &self.col_name
+    }
+
     /// Converts the buffer to a Column
     pub fn to_column<T: IBase>(
         &self,

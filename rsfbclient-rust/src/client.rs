@@ -431,6 +431,14 @@ impl FirebirdClientSqlOps for RustFbClient {
         })
     }
 
+    fn output_column_names(&self, stmt_handle: &Self::StmtHandle) -> Vec<String> {
+        stmt_handle
+            .xsqlda
+            .iter()
+            .map(|column| column.alias_name.to_string())
+            .collect()
+    }
+
     fn free_statement(
         &mut self,
         stmt_handle: &mut Self::StmtHandle,
