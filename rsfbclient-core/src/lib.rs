@@ -1,6 +1,7 @@
 //! Types, traits and constants to abstract over the different
 //! implementations of the firebird client
 
+mod array;
 pub mod charset;
 mod connection;
 pub mod date_time;
@@ -13,9 +14,10 @@ mod sql_params;
 mod statement_info;
 mod transaction;
 
+pub use array::*;
 pub use charset::Charset;
 pub use connection::*;
-pub use error::FbError;
+pub use error::{ExternalPsqlContext, FbError, SqlDiagnostics};
 pub use params::*;
 pub use row::*;
 pub use statement_info::*;
@@ -26,7 +28,13 @@ pub use decimal::FixedDecimal;
 #[derive(Debug, Clone)]
 /// Sql parameter / column data
 pub enum SqlType {
+    /// Identifier of an ARRAY in the transaction that returned or created it.
+    Array(ArrayId),
+
     Text(String),
+
+    /// Bind UTF-8 text as a text BLOB. Result columns still use [`Self::Text`].
+    TextBlob(String),
 
     Integer(i64),
 

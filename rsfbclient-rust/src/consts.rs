@@ -118,6 +118,10 @@ pub enum WireOp {
     /// Create blob v2
     CreateBlob2 = 57,
 
+    GetSlice = 58,
+    PutSlice = 59,
+    Slice = 60,
+
     /// Allocate a statment handle
     AllocateStatement = 62,
     /// Execute a prepared statement

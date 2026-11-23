@@ -240,6 +240,7 @@ impl<C: FirebirdClient> Execute for Transaction<'_, C> {
 /// Needs to be closed calling `rollback` before dropping.
 pub struct TransactionData<C: FirebirdClient> {
     pub(crate) handle: C::TrHandle,
+    pub(crate) configuration: TransactionConfiguration,
 }
 
 impl<C: FirebirdClient> TransactionData<C>
@@ -250,7 +251,10 @@ where
     fn new(conn: &mut Connection<C>, confs: TransactionConfiguration) -> Result<Self, FbError> {
         let handle = conn.cli.begin_transaction(&mut conn.handle, confs)?;
 
-        Ok(Self { handle })
+        Ok(Self {
+            handle,
+            configuration: confs,
+        })
     }
 
     /// Execute the statement without returning any row

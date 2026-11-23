@@ -113,6 +113,59 @@ pub trait FirebirdClientSqlOps {
         op: FreeStmtOp,
     ) -> Result<(), FbError>;
 
+    /// Output aliases available as soon as a statement has been prepared.
+    fn output_column_names(&self, _statement: &Self::StmtHandle) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Encode identifiers in the attachment character set.
+    fn encode_text(&self, value: &str) -> Result<Vec<u8>, FbError> {
+        Ok(value.as_bytes().to_vec())
+    }
+
+    fn read_array(
+        &mut self,
+        _db: &mut Self::DbHandle,
+        _tr: &mut Self::TrHandle,
+        _id: crate::ArrayId,
+        _slice: &crate::ArraySlice,
+    ) -> Result<Vec<u8>, FbError> {
+        Err("This client cannot read typed ARRAY slices".into())
+    }
+
+    fn put_array(
+        &mut self,
+        _db: &mut Self::DbHandle,
+        _tr: &mut Self::TrHandle,
+        _temporary: crate::ArrayId,
+        _slice: &crate::ArraySlice,
+        _values: &[u8],
+    ) -> Result<crate::ArrayId, FbError> {
+        Err("This client cannot write typed ARRAY slices".into())
+    }
+
+    fn read_integer_array(
+        &mut self,
+        _db: &mut Self::DbHandle,
+        _tr: &mut Self::TrHandle,
+        _id: crate::ArrayId,
+        _slice: &crate::IntegerArraySlice,
+    ) -> Result<Vec<i32>, FbError> {
+        Err("This client cannot read INTEGER array slices".into())
+    }
+
+    /// Allocate a new array or write another slice of an unassigned temporary array.
+    fn put_integer_array(
+        &mut self,
+        _db: &mut Self::DbHandle,
+        _tr: &mut Self::TrHandle,
+        _temporary: crate::ArrayId,
+        _slice: &crate::IntegerArraySlice,
+        _values: &[i32],
+    ) -> Result<crate::ArrayId, FbError> {
+        Err("This client cannot write INTEGER array slices".into())
+    }
+
     /// Execute the prepared statement with parameters
     /// and returns the affected rows count
     fn execute(

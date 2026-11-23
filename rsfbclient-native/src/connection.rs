@@ -94,6 +94,106 @@ pub struct NativeFbClient<T: LinkageMarker> {
     charset: Charset,
     pub(crate) text_rows: bool,
     wire_crypt: Option<WireCrypt>,
+    #[cfg(all(target_os = "macos", feature = "dynamic_loading"))]
+    tcp_transport: Option<std::sync::Arc<crate::macos_transport::Transport>>,
+}
+
+impl<T: LinkageMarker> NativeFbClient<T> {
+    /// Request a server-side counter without starting or touching a transaction.
+    pub fn probe_attachment(&mut self, handle: &mut NativeDbHandle) -> Result<(), FbError> {
+        let items = [ibase::db_info_types_isc_info_reads as u8];
+        let mut buffer = [0_u8; 32];
+        let result = unsafe {
+            self.ibase.isc_database_info()(
+                self.status.as_mut_ptr(),
+                handle,
+                1,
+                items.as_ptr().cast(),
+                32,
+                buffer.as_mut_ptr().cast(),
+            )
+        };
+        if result != 0 {
+            return Err(self.status.as_error(&self.ibase));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
+fn cancel_attachment(
+    library: &impl IBase,
+    cancel: ibase::CancelOperation,
+    mut handle: NativeDbHandle,
+    kind: u16,
+) -> Result<(), FbError> {
+    let mut status = Status::default();
+    // Firebird's cancellation API is asynchronous. It receives a copy of the
+    // attachment handle and its own status vector.
+    if unsafe { cancel(status.as_mut_ptr(), &mut handle, kind) } != 0 {
+        return Err(status.as_error(library));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "linking")]
+impl NativeFbClient<DynLink> {
+    /// # Safety
+    /// The callback must only be used while the supplied attachment is alive.
+    pub unsafe fn attachment_cancel(
+        &self,
+        handle: NativeDbHandle,
+        kind: u16,
+    ) -> Result<Box<dyn Fn() -> Result<(), FbError> + Send>, FbError> {
+        Ok(Box::new(move || {
+            cancel_attachment(
+                &ibase::IBaseLinking,
+                ibase::linked_cancel_operation(),
+                handle,
+                kind,
+            )
+        }))
+    }
+}
+
+#[cfg(feature = "dynamic_loading")]
+impl NativeFbClient<DynLoad> {
+    /// Route this one remote attachment through a private local TCP endpoint so
+    /// abort can wake fbclient's reader without closing the descriptor it polls.
+    #[cfg(target_os = "macos")]
+    pub fn interruptible_tcp_port(&mut self, host: &str, port: u16) -> Result<u16, FbError> {
+        let transport = std::sync::Arc::new(crate::macos_transport::Transport::open(host, port)?);
+        let local_port = transport.port();
+        self.tcp_transport = Some(transport);
+        Ok(local_port)
+    }
+
+    /// # Safety
+    /// The callback must only be used while the supplied attachment is alive.
+    pub unsafe fn attachment_cancel(
+        &self,
+        handle: NativeDbHandle,
+        kind: u16,
+    ) -> Result<Box<dyn Fn() -> Result<(), FbError> + Send>, FbError> {
+        #[cfg(target_os = "macos")]
+        if let Some(transport) = self
+            .tcp_transport
+            .as_ref()
+            .filter(|_| kind == ibase::fb_cancel_abort as u16)
+        {
+            let transport = transport.clone();
+            return Ok(Box::new(move || {
+                transport.shutdown().map_err(FbError::from)
+            }));
+        }
+        let library = self.ibase.clone();
+        let cancel = library
+            .cancel_operation()
+            .map_err(|error| error.to_string())?;
+        Ok(Box::new(move || {
+            cancel_attachment(&library, cancel, handle, kind)
+        }))
+    }
 }
 
 /// Per-attachment wire encryption policy for the native Firebird client.
@@ -166,6 +266,8 @@ impl DynLink {
             charset: self.0.clone(),
             text_rows: false,
             wire_crypt: None,
+            #[cfg(all(target_os = "macos", feature = "dynamic_loading"))]
+            tcp_transport: None,
         };
         result
     }
@@ -195,6 +297,8 @@ impl DynLoad {
             charset: self.charset.clone(),
             text_rows: false,
             wire_crypt: None,
+            #[cfg(all(target_os = "macos", feature = "dynamic_loading"))]
+            tcp_transport: None,
         };
 
         Ok(result)
@@ -325,6 +429,161 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
     type DbHandle = NativeDbHandle;
     type TrHandle = NativeTrHandle;
     type StmtHandle = StmtHandleData;
+
+    fn read_array(
+        &mut self,
+        db: &mut Self::DbHandle,
+        tr: &mut Self::TrHandle,
+        id: ArrayId,
+        slice: &rsfbclient_core::ArraySlice,
+    ) -> Result<Vec<u8>, FbError> {
+        let mut quad = ibase::GDS_QUAD_t {
+            gds_quad_high: id.high,
+            gds_quad_low: id.low,
+        };
+        let mut values = vec![0; slice.byte_len() as usize];
+        let mut bytes_read = 0;
+        unsafe {
+            if self.ibase.isc_get_slice()(
+                &mut self.status[0],
+                db,
+                tr,
+                &mut quad,
+                slice.sdl().len() as i16,
+                slice.sdl().as_ptr().cast(),
+                0,
+                std::ptr::null(),
+                slice.byte_len(),
+                values.as_mut_ptr().cast(),
+                &mut bytes_read,
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+        if !(0..=slice.byte_len()).contains(&bytes_read)
+            || bytes_read as usize % slice.stride() != 0
+        {
+            return Err("Invalid Firebird typed ARRAY slice length".into());
+        }
+        slice.validate(&values)?;
+        Ok(values)
+    }
+
+    fn put_array(
+        &mut self,
+        db: &mut Self::DbHandle,
+        tr: &mut Self::TrHandle,
+        temporary: ArrayId,
+        slice: &rsfbclient_core::ArraySlice,
+        values: &[u8],
+    ) -> Result<ArrayId, FbError> {
+        slice.validate(values)?;
+        let mut quad = ibase::GDS_QUAD_t {
+            gds_quad_high: temporary.high,
+            gds_quad_low: temporary.low,
+        };
+        unsafe {
+            if self.ibase.isc_put_slice()(
+                &mut self.status[0],
+                db,
+                tr,
+                &mut quad,
+                slice.sdl().len() as i16,
+                slice.sdl().as_ptr().cast(),
+                0,
+                std::ptr::null(),
+                slice.byte_len(),
+                values.as_ptr().cast(),
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+        Ok(ArrayId {
+            high: quad.gds_quad_high,
+            low: quad.gds_quad_low,
+        })
+    }
+
+    fn read_integer_array(
+        &mut self,
+        db: &mut Self::DbHandle,
+        tr: &mut Self::TrHandle,
+        id: ArrayId,
+        slice: &IntegerArraySlice,
+    ) -> Result<Vec<i32>, FbError> {
+        let mut quad = ibase::GDS_QUAD_t {
+            gds_quad_high: id.high,
+            gds_quad_low: id.low,
+        };
+        let mut values = vec![0i32; slice.count()];
+        let mut bytes_read = 0;
+        unsafe {
+            if self.ibase.isc_get_slice()(
+                &mut self.status[0],
+                db,
+                tr,
+                &mut quad,
+                slice.sdl().len() as i16,
+                slice.sdl().as_ptr().cast(),
+                0,
+                std::ptr::null(),
+                slice.byte_len(),
+                values.as_mut_ptr().cast(),
+                &mut bytes_read,
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+        // Firebird only counts stored INTEGER elements. The untouched
+        // remainder of the initialized buffer represents the logical zeros.
+        if !(0..=slice.byte_len()).contains(&bytes_read)
+            || bytes_read % size_of::<i32>() as i32 != 0
+        {
+            return Err("Invalid Firebird INTEGER array slice length".into());
+        }
+        Ok(values)
+    }
+
+    fn put_integer_array(
+        &mut self,
+        db: &mut Self::DbHandle,
+        tr: &mut Self::TrHandle,
+        temporary: ArrayId,
+        slice: &IntegerArraySlice,
+        values: &[i32],
+    ) -> Result<ArrayId, FbError> {
+        if values.len() != slice.count() {
+            return Err("The INTEGER array element count does not match its bounds".into());
+        }
+        let mut quad = ibase::GDS_QUAD_t {
+            gds_quad_high: temporary.high,
+            gds_quad_low: temporary.low,
+        };
+        unsafe {
+            if self.ibase.isc_put_slice()(
+                &mut self.status[0],
+                db,
+                tr,
+                &mut quad,
+                slice.sdl().len() as i16,
+                slice.sdl().as_ptr().cast(),
+                0,
+                std::ptr::null(),
+                slice.byte_len(),
+                values.as_ptr().cast(),
+            ) != 0
+            {
+                return Err(self.status.as_error(&self.ibase));
+            }
+        }
+        Ok(ArrayId {
+            high: quad.gds_quad_high,
+            low: quad.gds_quad_low,
+        })
+    }
 
     fn begin_transaction(
         &mut self,
@@ -494,8 +753,12 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
             let var = xsqlda.get_xsqlvar_mut(col as usize).unwrap();
             usize::min(var.aliasname_length as usize, var.aliasname.len()) >= 31
         });
-        let mut names = if needs_full_names {
-            self.full_column_names(&mut handle, xsqlda.sqld as usize)
+        let needs_origins = (0..xsqlda.sqld).any(|col| {
+            let var = xsqlda.get_xsqlvar_mut(col as usize).unwrap();
+            u32::from((var.sqltype & !1) as u16) == ibase::SQL_ARRAY
+        });
+        let mut names = if needs_full_names || needs_origins {
+            self.full_column_names(&mut handle, xsqlda.sqld as usize, needs_origins)
                 .map_err(|error| self.drop_statement_after_prepare_error(&mut handle, error))?
         } else {
             Vec::new()
@@ -508,19 +771,23 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
                     .get_xsqlvar_mut(col as usize)
                     .ok_or_else(|| FbError::from("Error getting the xsqlvar"))?;
 
-                if self.text_rows {
-                    ColumnBuffer::from_xsqlvar_text(
-                        xcol,
-                        names.get_mut(col as usize).and_then(Option::take),
-                        &self.charset,
-                    )
+                let names = names
+                    .get_mut(col as usize)
+                    .map(std::mem::take)
+                    .unwrap_or_default();
+                let is_array = u32::from((xcol.sqltype & !1) as u16) == ibase::SQL_ARRAY;
+                let mut buffer = if self.text_rows {
+                    ColumnBuffer::from_xsqlvar_text(xcol, names.alias, &self.charset)?
                 } else {
-                    ColumnBuffer::from_xsqlvar_with_name(
-                        xcol,
-                        names.get_mut(col as usize).and_then(Option::take),
-                        &self.charset,
-                    )
+                    ColumnBuffer::from_xsqlvar_with_name(xcol, names.alias, &self.charset)?
+                };
+                if is_array {
+                    buffer.set_array_origin(ArrayOrigin::from_names(
+                        names.relation.unwrap_or_default(),
+                        names.field.unwrap_or_default(),
+                    ));
                 }
+                Ok(buffer)
             })
             .collect::<Result<_, _>>()
             .map_err(|error| self.drop_statement_after_prepare_error(&mut handle, error))?;
@@ -533,6 +800,18 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
                 col_buffers,
             },
         ))
+    }
+
+    fn output_column_names(&self, stmt_handle: &Self::StmtHandle) -> Vec<String> {
+        stmt_handle
+            .col_buffers
+            .iter()
+            .map(|column| column.column_name().to_owned())
+            .collect()
+    }
+
+    fn encode_text(&self, value: &str) -> Result<Vec<u8>, FbError> {
+        self.charset.encode(value).map(|v| v.into_owned())
     }
 
     fn statement_descriptors(
@@ -846,11 +1125,14 @@ impl<T: LinkageMarker> NativeFbClient<T> {
         &mut self,
         handle: &mut NativeStmtHandle,
         count: usize,
-    ) -> Result<Vec<Option<String>>, FbError> {
-        let mut names = vec![None; count];
-        while let Some(start) = names.iter().position(Option::is_none) {
+        origins: bool,
+    ) -> Result<Vec<crate::column::ColumnNames>, FbError> {
+        let mut names: Vec<_> = (0..count)
+            .map(|_| crate::column::ColumnNames::default())
+            .collect();
+        while let Some(start) = names.iter().position(|name| !name.complete(origins)) {
             let first = ((start + 1) as u16).to_le_bytes();
-            let request = [
+            let mut request = vec![
                 ibase::isc_info_sql_sqlda_start as c_char,
                 2,
                 first[0] as c_char,
@@ -859,8 +1141,14 @@ impl<T: LinkageMarker> NativeFbClient<T> {
                 ibase::isc_info_sql_describe_vars as c_char,
                 ibase::isc_info_sql_sqlda_seq as c_char,
                 ibase::isc_info_sql_alias as c_char,
-                ibase::isc_info_sql_describe_end as c_char,
             ];
+            if origins {
+                request.extend([
+                    ibase::isc_info_sql_relation as c_char,
+                    ibase::isc_info_sql_field as c_char,
+                ]);
+            }
+            request.push(ibase::isc_info_sql_describe_end as c_char);
             let mut buffer = vec![0u8; 16_384];
             if unsafe {
                 self.ibase.isc_dsql_sql_info()(
@@ -875,12 +1163,14 @@ impl<T: LinkageMarker> NativeFbClient<T> {
             {
                 return Err(self.status.as_error(&self.ibase));
             }
-            let truncated =
-                crate::column::parse_aliases_with_charset(&buffer, &mut names, &self.charset)?;
-            match names.iter().position(Option::is_none) {
+            let truncated = crate::column::parse_column_names(&buffer, &mut names, &self.charset)?;
+            match names.iter().position(|name| !name.complete(origins)) {
                 None => break,
-                Some(next) if truncated && next > start => {},
-                _ => return Err("Incomplete native column-name metadata; no progress while reading full aliases".into()),
+                Some(next) if truncated && next > start => {}
+                _ => return Err(
+                    "Incomplete native column-name metadata; no progress while reading full names"
+                        .into(),
+                ),
             }
         }
         Ok(names)

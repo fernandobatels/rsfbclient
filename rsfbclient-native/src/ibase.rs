@@ -3,6 +3,21 @@
 
 pub use rsfbclient_core::ibase::*;
 
+pub(crate) type CancelOperation =
+    unsafe extern "system" fn(*mut ISC_STATUS, *mut isc_db_handle, ISC_USHORT) -> ISC_STATUS;
+
+#[cfg(feature = "linking")]
+pub(crate) fn linked_cancel_operation() -> CancelOperation {
+    extern "system" {
+        fn fb_cancel_operation(
+            status: *mut ISC_STATUS,
+            attachment: *mut isc_db_handle,
+            kind: ISC_USHORT,
+        ) -> ISC_STATUS;
+    }
+    fb_cancel_operation
+}
+
 //Generates the IBase trait and one or both of its implementations
 //(dynamic linking version, libloading version)
 macro_rules! parse_functions {
@@ -24,6 +39,7 @@ macro_rules! parse_functions {
       }
 
       #[cfg(feature = "dynamic_loading")]
+      #[derive(Clone)]
       pub struct IBaseDynLoading(std::sync::Arc<libloading::Library>);
       #[cfg(feature = "dynamic_loading")]
       impl IBase for IBaseDynLoading {
@@ -36,6 +52,10 @@ macro_rules! parse_functions {
 use std::ffi::OsStr;
 #[cfg(feature = "dynamic_loading")]
 impl IBaseDynLoading {
+    pub(crate) fn cancel_operation(&self) -> Result<CancelOperation, libloading::Error> {
+        unsafe { self.0.get(b"fb_cancel_operation").map(|symbol| *symbol) }
+    }
+
     pub fn with_client(fbclient: &OsStr) -> Result<Self, libloading::Error> {
         #[cfg(not(target_os = "macos"))]
         let lib = unsafe { libloading::Library::new(fbclient)? };
@@ -500,21 +520,21 @@ parse_functions! {
             arg5: *mut ISC_SCHAR,
         ) -> ISC_STATUS;
     }
-    // extern "C" {
-    //     pub fn isc_get_slice(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_db_handle,
-    //         arg3: *mut isc_tr_handle,
-    //         arg4: *mut ISC_QUAD,
-    //         arg5: ::std::os::raw::c_short,
-    //         arg6: *const ISC_SCHAR,
-    //         arg7: ::std::os::raw::c_short,
-    //         arg8: *const ISC_LONG,
-    //         arg9: ISC_LONG,
-    //         arg10: *mut ::std::os::raw::c_void,
-    //         arg11: *mut ISC_LONG,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "system" {
+        pub fn isc_get_slice(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_db_handle,
+            arg3: *mut isc_tr_handle,
+            arg4: *mut ISC_QUAD,
+            arg5: ::std::os::raw::c_short,
+            arg6: *const ISC_SCHAR,
+            arg7: ::std::os::raw::c_short,
+            arg8: *const ISC_LONG,
+            arg9: ISC_LONG,
+            arg10: *mut ::std::os::raw::c_void,
+            arg11: *mut ISC_LONG,
+        ) -> ISC_STATUS;
+    }
     // extern "C" {
     //     pub fn isc_interprete(arg1: *mut ISC_SCHAR, arg2: *mut *mut ISC_STATUS) -> ISC_LONG;
     // }
@@ -567,20 +587,20 @@ parse_functions! {
             arg4: *const ISC_SCHAR,
         ) -> ISC_STATUS;
     }
-    // extern "C" {
-    //     pub fn isc_put_slice(
-    //         arg1: *mut ISC_STATUS,
-    //         arg2: *mut isc_db_handle,
-    //         arg3: *mut isc_tr_handle,
-    //         arg4: *mut ISC_QUAD,
-    //         arg5: ::std::os::raw::c_short,
-    //         arg6: *const ISC_SCHAR,
-    //         arg7: ::std::os::raw::c_short,
-    //         arg8: *const ISC_LONG,
-    //         arg9: ISC_LONG,
-    //         arg10: *mut ::std::os::raw::c_void,
-    //     ) -> ISC_STATUS;
-    // }
+    extern "system" {
+        pub fn isc_put_slice(
+            arg1: *mut ISC_STATUS,
+            arg2: *mut isc_db_handle,
+            arg3: *mut isc_tr_handle,
+            arg4: *mut ISC_QUAD,
+            arg5: ::std::os::raw::c_short,
+            arg6: *const ISC_SCHAR,
+            arg7: ::std::os::raw::c_short,
+            arg8: *const ISC_LONG,
+            arg9: ISC_LONG,
+            arg10: *const ::std::os::raw::c_void,
+        ) -> ISC_STATUS;
+    }
     extern "system" {
         pub fn isc_que_events(
             arg1: *mut ISC_STATUS,
@@ -624,9 +644,9 @@ parse_functions! {
     // extern "C" {
     //     pub fn isc_sqlcode_s(arg1: *const ISC_STATUS, arg2: *mut ISC_ULONG);
     // }
-    // extern "C" {
-    //     pub fn fb_sqlstate(arg1: *mut ::std::os::raw::c_char, arg2: *const ISC_STATUS);
-    // }
+    extern "system" {
+        pub fn fb_sqlstate(arg1: *mut ::std::os::raw::c_char, arg2: *const ISC_STATUS) -> ();
+    }
     // extern "C" {
     //     pub fn isc_sql_interprete(
     //         arg1: ::std::os::raw::c_short,

@@ -15,6 +15,7 @@ use ColumnBufferData::*;
 #[derive(Debug)]
 /// Types supported by the crate
 pub enum ColumnBufferData {
+    Array(Box<ibase::GDS_QUAD_t>),
     /// Coerces to Varchar
     Text(Varchar),
     /// Binary string, with no attachment character-set conversion.
@@ -38,6 +39,7 @@ pub enum ColumnBufferData {
 impl ColumnBufferData {
     fn as_mut_ptr(&mut self) -> *mut ibase::ISC_SCHAR {
         match self {
+            Array(id) => &**id as *const _ as _,
             Text(v) => v.as_ptr() as _,
             Integer(i) => &**i as *const _ as _,
             Int128(i) => i.as_mut() as *mut i128 as _,
@@ -67,6 +69,7 @@ pub struct ColumnBuffer {
     raw_scale: i16,
     raw_subtype: i16,
     raw_type: i16,
+    array_origin: Option<Arc<rsfbclient_core::ArrayOrigin>>,
 }
 
 impl ColumnBuffer {
@@ -79,6 +82,9 @@ impl ColumnBuffer {
     ) -> Result<Self, FbError> {
         let original_scale = var.sqlscale;
         let original_type = var.sqltype & !1;
+        if original_type as u32 == ibase::SQL_ARRAY {
+            return Self::from_xsqlvar_with_name(var, name, charset);
+        }
         if original_type as u32 == ibase::SQL_BLOB {
             var.sqlsubtype = 0;
         } else {
@@ -118,6 +124,14 @@ impl ColumnBuffer {
         var.sqlind = &mut *nullind;
 
         let mut buffer = match sqltype as u32 {
+            ibase::SQL_ARRAY => {
+                var.sqllen = 8;
+                var.sqltype = ibase::SQL_ARRAY as i16 + 1;
+                Array(Box::new(ibase::GDS_QUAD_t {
+                    gds_quad_high: 0,
+                    gds_quad_low: 0,
+                }))
+            }
             ibase::SQL_BOOLEAN => {
                 var.sqllen = mem::size_of::<i8>() as i16;
 
@@ -152,6 +166,14 @@ impl ColumnBuffer {
                 } else {
                     Text(buffer)
                 }
+            }
+
+            ibase::SQL_TIMESTAMP_TZ | ibase::SQL_TIME_TZ | ibase::SQL_DEC16 | ibase::SQL_DEC34 => {
+                var.sqllen = 128;
+                var.sqlscale = 0;
+                var.sqlsubtype = 0;
+                var.sqltype = ibase::SQL_VARYING as i16 + 1;
+                Text(Varchar::new(128))
             }
 
             ibase::SQL_INT128 => {
@@ -213,7 +235,16 @@ impl ColumnBuffer {
             raw_scale,
             raw_subtype: sqlsubtype,
             raw_type: sqltype,
+            array_origin: None,
         })
+    }
+
+    pub(crate) fn set_array_origin(&mut self, origin: Option<Arc<rsfbclient_core::ArrayOrigin>>) {
+        self.array_origin = origin;
+    }
+
+    pub(crate) fn column_name(&self) -> &str {
+        &self.col_name
     }
 
     /// Converts the buffer to a Column
@@ -225,15 +256,22 @@ impl ColumnBuffer {
         charset: &Charset,
     ) -> Result<Column, FbError> {
         if *self.nullind != 0 {
-            return Ok(Column::with_scale(
+            let mut column = Column::with_scale(
                 self.col_name.clone(),
                 self.raw_type as u32,
                 self.raw_scale,
                 SqlType::Null,
-            ));
+            );
+            column.array_origin = self.array_origin.clone();
+            return Ok(column);
         }
 
         let col_type = match &self.buffer {
+            Array(id) => SqlType::Array(rsfbclient_core::ArrayId {
+                high: id.gds_quad_high,
+                low: id.gds_quad_low,
+            }),
+
             Text(varchar) => SqlType::Text(charset.decode(varchar.as_bytes())?),
             Octets(varchar) => SqlType::Octets(varchar.as_bytes().to_vec()),
 
@@ -260,12 +298,14 @@ impl ColumnBuffer {
             Boolean(b) => SqlType::Boolean(**b != 0),
         };
 
-        Ok(Column::with_scale(
+        let mut column = Column::with_scale(
             self.col_name.clone(),
             self.raw_type as u32,
             self.raw_scale,
             col_type,
-        ))
+        );
+        column.array_origin = self.array_origin.clone();
+        Ok(column)
     }
 }
 
@@ -543,11 +583,23 @@ fn runaway(what: String) -> FbError {
     ))
 }
 
-// SQL-info aliases are length-delimited and preserve complete identifiers.
+// SQL-info names are length-delimited, preserving complete identifiers.
+#[derive(Default)]
+pub(crate) struct ColumnNames {
+    pub alias: Option<String>,
+    pub relation: Option<String>,
+    pub field: Option<String>,
+}
 
-pub(crate) fn parse_aliases_with_charset(
+impl ColumnNames {
+    pub(crate) fn complete(&self, origins: bool) -> bool {
+        self.alias.is_some() && (!origins || self.relation.is_some() && self.field.is_some())
+    }
+}
+
+pub(crate) fn parse_column_names(
     data: &[u8],
-    names: &mut [Option<String>],
+    names: &mut [ColumnNames],
     charset: &Charset,
 ) -> Result<bool, FbError> {
     let mut offset = 0;
@@ -590,9 +642,16 @@ pub(crate) fn parse_aliases_with_charset(
                     column = Some(number - 1);
                 }
             }
-            ibase::isc_info_sql_alias => {
-                let column = column.ok_or("Native column alias has no column index")?;
-                names[column] = Some(charset.decode(value)?);
+            ibase::isc_info_sql_alias
+            | ibase::isc_info_sql_relation
+            | ibase::isc_info_sql_field => {
+                let column = column.ok_or("Native column name has no column index")?;
+                let target = match item as u32 {
+                    ibase::isc_info_sql_relation => &mut names[column].relation,
+                    ibase::isc_info_sql_field => &mut names[column].field,
+                    _ => &mut names[column].alias,
+                };
+                *target = Some(charset.decode(value)?);
             }
             _ => return Err(format!("Unexpected native column-name metadata item {item}").into()),
         }
@@ -682,6 +741,24 @@ mod tests {
         );
     }
 
+    fn parse_aliases_with_charset(
+        data: &[u8],
+        names: &mut [Option<String>],
+        charset: &Charset,
+    ) -> Result<bool, FbError> {
+        let mut columns: Vec<_> = names
+            .iter_mut()
+            .map(|name| ColumnNames {
+                alias: name.take(),
+                ..Default::default()
+            })
+            .collect();
+        let result = parse_column_names(data, &mut columns, charset);
+        for (target, column) in names.iter_mut().zip(columns) {
+            *target = column.alias;
+        }
+        result
+    }
     fn parse_aliases(data: &[u8], names: &mut [Option<String>]) -> Result<bool, FbError> {
         parse_aliases_with_charset(data, names, &rsfbclient_core::charset::UTF_8)
     }

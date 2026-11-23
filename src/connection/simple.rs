@@ -3,8 +3,11 @@
 //! multiple connection types/variations.
 //!
 
-use crate::{Connection, Execute, FbError, FromRow, IntoParams, Queryable};
-use rsfbclient_core::TransactionConfiguration;
+use super::{paged::PageConnection, ArrayReadContext};
+use crate::{
+    Connection, Execute, FbError, FromRow, IntoParams, PagedQuery, PausedPagedQuery, Queryable,
+};
+use rsfbclient_core::{StmtType, TransactionConfiguration};
 
 #[cfg(feature = "linking")]
 use rsfbclient_native::DynLink;
@@ -16,12 +19,79 @@ use rsfbclient_native::NativeFbClient;
 use rsfbclient_rust::RustFbClient;
 use std::convert::{From, TryFrom};
 
+/// A SELECT cursor with access to the transaction that owns its ARRAY values.
+pub trait QueryCursor {
+    fn fetch(&mut self) -> Result<Option<crate::Row>, FbError>;
+    fn array_reader(&mut self) -> &mut dyn ArrayReadContext;
+}
+
+impl<C: rsfbclient_core::FirebirdClient> QueryCursor
+    for crate::statement::StatementFetch<'_, '_, crate::Row, C>
+{
+    fn fetch(&mut self) -> Result<Option<crate::Row>, FbError> {
+        crate::statement::StatementFetch::fetch(self)
+    }
+
+    fn array_reader(&mut self) -> &mut dyn ArrayReadContext {
+        self.tr
+    }
+}
+
+fn with_query_cursor<C: rsfbclient_core::FirebirdClient, T>(
+    connection: &mut Connection<C>,
+    sql: &str,
+    params: Vec<crate::SqlType>,
+    consume: impl FnOnce(&[String], &mut dyn QueryCursor) -> Result<T, FbError>,
+) -> Result<T, FbError> {
+    connection.with_transaction(|transaction| {
+        let mut statement = crate::Statement::prepare(transaction, sql, false)?;
+        if !matches!(
+            statement.data.stmt_type,
+            StmtType::Select | StmtType::SelectForUpd
+        ) {
+            return Err("This method requires a SELECT statement".into());
+        }
+        let columns = statement
+            .tr
+            .conn
+            .cli
+            .output_column_names(&statement.data.handle);
+        let mut rows = statement.query::<crate::Row, _>(params)?;
+        consume(&columns, &mut rows)
+    })
+}
+
 /// A connection API without client types
 pub struct SimpleConnection {
     pub(crate) inner: TypeConnectionContainer,
 }
 
 impl SimpleConnection {
+    /// Read prepared column names and stream rows from the same SELECT.
+    pub fn with_query_cursor<T>(
+        &mut self,
+        sql: &str,
+        consume: impl FnOnce(&[String], &mut dyn QueryCursor) -> Result<T, FbError>,
+    ) -> Result<T, FbError> {
+        self.with_query_cursor_params(sql, Vec::new(), consume)
+    }
+
+    pub fn with_query_cursor_params<T>(
+        &mut self,
+        sql: &str,
+        params: Vec<crate::SqlType>,
+        consume: impl FnOnce(&[String], &mut dyn QueryCursor) -> Result<T, FbError>,
+    ) -> Result<T, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => with_query_cursor(c, sql, params, consume),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => with_query_cursor(c, sql, params, consume),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => with_query_cursor(c, sql, params, consume),
+        }
+    }
+
     /// Borrow the underlying native dyn link connection without consuming it.
     /// Returns `None` for a different client implementation.
     #[cfg(feature = "linking")]
@@ -86,6 +156,55 @@ impl SimpleConnection {
             TypeConnectionContainer::PureRust(connection) => Some(connection),
             _ => None,
         }
+    }
+    /// Check an idle remote attachment without issuing SQL. On timeout the
+    /// attachment is aborted because its unread response cannot be reused.
+    /// Only call on TCP connections, with exclusive ownership for this call.
+    pub fn probe_remote(&mut self, timeout: std::time::Duration) -> Result<(), FbError> {
+        use std::sync::mpsc::{self, RecvTimeoutError};
+
+        // The scope joins the watchdog before the connection can be dropped
+        // or the caller can start a different operation on it.
+        // An older native client may lack the asynchronous abort API.
+        let Ok(interrupt) = (unsafe { self.disposable_interrupt() }) else {
+            return Ok(());
+        };
+        std::thread::scope(|scope| {
+            let (done, pending) = mpsc::channel::<()>();
+            let watchdog = scope.spawn(move || {
+                if pending.recv_timeout(timeout) == Err(RecvTimeoutError::Timeout) {
+                    let _ = interrupt();
+                    return true;
+                }
+                false
+            });
+            let result = match &mut self.inner {
+                #[cfg(feature = "linking")]
+                TypeConnectionContainer::NativeDynLink(connection) => {
+                    connection.cli.probe_attachment(&mut connection.handle)
+                }
+                #[cfg(feature = "dynamic_loading")]
+                TypeConnectionContainer::NativeDynLoad(connection) => {
+                    connection.cli.probe_attachment(&mut connection.handle)
+                }
+                #[cfg(feature = "pure_rust")]
+                TypeConnectionContainer::PureRust(connection) => {
+                    connection.cli.probe_attachment(&mut connection.handle)
+                }
+            };
+            drop(done);
+            if watchdog
+                .join()
+                .map_err(|_| "Connection check watchdog failed")?
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Firebird did not answer the connection check",
+                )
+                .into());
+            }
+            result
+        })
     }
 }
 
@@ -189,6 +308,30 @@ impl SimpleConnection {
         }
     }
 
+    /// Enable or disable measurement of statement preparation.
+    pub fn set_prepare_timing_enabled(&mut self, enabled: bool) {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.set_prepare_timing_enabled(enabled),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.set_prepare_timing_enabled(enabled),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.set_prepare_timing_enabled(enabled),
+        }
+    }
+
+    /// Most recent preparation duration. Cached statements and disabled timing report zero.
+    pub fn last_prepare_duration(&self) -> std::time::Duration {
+        match &self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.last_prepare_duration(),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.last_prepare_duration(),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.last_prepare_duration(),
+        }
+    }
+
     /// Prepare a statement without executing it and return its server classification.
     pub fn prepare_statement_type(
         &mut self,
@@ -275,6 +418,40 @@ impl SimpleConnection {
             TypeConnectionContainer::NativeDynLoad(c) => c.rollback(),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.rollback(),
+        }
+    }
+
+    /// Commit and release the default transaction, if one exists.
+    pub fn commit_transaction(&mut self) -> Result<(), FbError> {
+        self.commit()
+    }
+
+    /// Roll back and release the default transaction, if one exists.
+    pub fn rollback_transaction(&mut self) -> Result<(), FbError> {
+        self.rollback()
+    }
+
+    /// Commit pending changes and keep the active transaction and its settings.
+    pub fn commit_retaining(&mut self) -> Result<(), FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.commit_retaining(),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.commit_retaining(),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.commit_retaining(),
+        }
+    }
+
+    /// Roll back pending changes and keep the active transaction and its settings.
+    pub fn rollback_retaining(&mut self) -> Result<(), FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.rollback_retaining(),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.rollback_retaining(),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.rollback_retaining(),
         }
     }
 
@@ -386,5 +563,106 @@ mk_tests_default! {
         assert_eq!(100, a);
 
         Ok(())
+    }
+}
+
+impl SimpleConnection {
+    /// Read prepared aliases and stream a query, including empty results.
+    pub fn query_iter_with_columns<'a, P, R>(
+        &'a mut self,
+        sql: &str,
+        params: P,
+        columns: &mut Vec<String>,
+    ) -> Result<Box<dyn Iterator<Item = Result<R, FbError>> + 'a>, FbError>
+    where
+        P: IntoParams,
+        R: FromRow + 'static,
+    {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => {
+                c.query_iter_with_columns(sql, params, Some(columns))
+            }
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => {
+                c.query_iter_with_columns(sql, params, Some(columns))
+            }
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => {
+                c.query_iter_with_columns(sql, params, Some(columns))
+            }
+        }
+    }
+
+    /// Open a SELECT cursor in the explicitly active default transaction.
+    pub fn query_paged(
+        &mut self,
+        sql: &str,
+        params: Vec<crate::SqlType>,
+    ) -> Result<PagedQuery<'_>, FbError> {
+        let state = self.start_page(sql, params)?;
+        Ok(self.resume_paged_query(state))
+    }
+
+    /// Resume a cursor paused on this connection.
+    ///
+    /// Fetching a cursor from a different connection or an ended transaction
+    /// reports that the cursor is closed.
+    pub fn resume_paged_query(&mut self, cursor: PausedPagedQuery) -> PagedQuery<'_> {
+        PagedQuery::new(self, cursor)
+    }
+}
+
+impl PageConnection for SimpleConnection {
+    fn start_page(
+        &mut self,
+        sql: &str,
+        params: Vec<crate::SqlType>,
+    ) -> Result<PausedPagedQuery, FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.start_page(sql, params),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.start_page(sql, params),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.start_page(sql, params),
+        }
+    }
+
+    fn fetch_page(
+        &mut self,
+        cursor: &mut PausedPagedQuery,
+        limit: usize,
+    ) -> Result<(Vec<crate::Row>, bool), FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.fetch_page(cursor, limit),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.fetch_page(cursor, limit),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.fetch_page(cursor, limit),
+        }
+    }
+
+    fn check_page(&mut self, cursor: &mut PausedPagedQuery) -> Result<(), FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.check_page(cursor),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.check_page(cursor),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.check_page(cursor),
+        }
+    }
+
+    fn close_page(&mut self, cursor: &mut PausedPagedQuery) -> Result<(), FbError> {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.close_page(cursor),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.close_page(cursor),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.close_page(cursor),
+        }
     }
 }

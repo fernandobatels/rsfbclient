@@ -6,6 +6,7 @@ use std::{
     env,
     io::{Read, Write},
     net::{SocketAddr, TcpStream},
+    sync::{Arc, Mutex},
 };
 
 use crate::{
@@ -22,6 +23,9 @@ use crate::{
     },
 };
 use rsfbclient_core::*;
+
+#[path = "array_wire.rs"]
+mod array_wire;
 
 type RustDbHandle = DbHandle;
 type RustTrHandle = TrHandle;
@@ -204,6 +208,60 @@ impl RustFbClient {
             charset,
         }
     }
+    /// Clone the transport handle for shutting down a disposable connection.
+    pub fn clone_socket(&self) -> Result<TcpStream, FbError> {
+        let connection = self.conn.as_ref().ok_or("Firebird is not attached")?;
+        Ok(match &connection.socket {
+            FbStream::Plain(socket, _) => socket.try_clone()?,
+            FbStream::Arc4(socket) => socket.clone_socket()?,
+        })
+    }
+
+    pub fn probe_attachment(&mut self, handle: &mut RustDbHandle) -> Result<(), FbError> {
+        let connection = self.conn.as_mut().ok_or("Firebird is not attached")?;
+        let request = info_request(
+            WireOp::InfoDatabase,
+            handle.0,
+            &[ibase::db_info_types_isc_info_reads as u8],
+        );
+        connection.socket.write_all(&request)?;
+        connection.socket.flush()?;
+        connection.read_response()?;
+        Ok(())
+    }
+
+    /// Send Firebird's asynchronous cancellation packet without closing the attachment.
+    pub fn statement_interrupt(
+        &self,
+    ) -> Result<Box<dyn Fn() -> Result<(), FbError> + Send>, FbError> {
+        let connection = self.conn.as_ref().ok_or("Firebird is not attached")?;
+        if matches!(
+            connection.version,
+            ProtocolVersion::V10 | ProtocolVersion::V11
+        ) {
+            return Err(
+                "The Firebird wire protocol does not support statement cancellation".into(),
+            );
+        }
+        let mut packet = [0; 8];
+        packet[..4].copy_from_slice(&(WireOp::Cancel as u32).to_be_bytes());
+        packet[4..].copy_from_slice(&ibase::fb_cancel_raise.to_be_bytes());
+        Ok(match &connection.socket {
+            FbStream::Plain(socket, gate) => {
+                let socket = socket.try_clone()?;
+                let gate = gate.clone();
+                Box::new(move || {
+                    let _guard = gate.lock().map_err(|_| "Wire writer lock is unavailable")?;
+                    (&socket).write_all(&packet)?;
+                    Ok(())
+                })
+            }
+            FbStream::Arc4(socket) => {
+                let send = socket.cancellation_sender(packet)?;
+                Box::new(move || Ok(send()?))
+            }
+        })
+    }
 }
 
 impl FirebirdClientDbOps for RustFbClient {
@@ -305,6 +363,99 @@ impl FirebirdClientSqlOps for RustFbClient {
     type TrHandle = RustTrHandle;
     type StmtHandle = StmtHandleData;
 
+    fn read_array(
+        &mut self,
+        _db: &mut Self::DbHandle,
+        tr: &mut Self::TrHandle,
+        id: ArrayId,
+        slice: &ArraySlice,
+    ) -> Result<Vec<u8>, FbError> {
+        let conn = self.conn.as_mut().ok_or("Client is not connected")?;
+        let packet = array_wire::request(WireOp::GetSlice, tr.0, id, slice, &[])?;
+        conn.socket.write_all(&packet)?;
+        conn.socket.flush()?;
+        let result = read_with(
+            &mut conn.socket,
+            &mut conn.buff,
+            &mut conn.pending,
+            &mut conn.lazy_count,
+            |resp, lazy| array_wire::response(resp, lazy, slice),
+        );
+        if matches!(&result, Err(FbError::Io(error)) if error.kind() == std::io::ErrorKind::InvalidData)
+        {
+            self.conn = None;
+        }
+        result
+    }
+
+    fn put_array(
+        &mut self,
+        _db: &mut Self::DbHandle,
+        tr: &mut Self::TrHandle,
+        temporary: ArrayId,
+        slice: &ArraySlice,
+        values: &[u8],
+    ) -> Result<ArrayId, FbError> {
+        slice.validate(values)?;
+        let packet = array_wire::request(WireOp::PutSlice, tr.0, temporary, slice, values)?;
+        let conn = self.conn.as_mut().ok_or("Client is not connected")?;
+        conn.socket.write_all(&packet)?;
+        conn.socket.flush()?;
+        conn.read_response()
+            .map(|response| ArrayId::from_u64(response.object_id))
+    }
+
+    fn read_integer_array(
+        &mut self,
+        _db: &mut Self::DbHandle,
+        tr: &mut Self::TrHandle,
+        id: ArrayId,
+        slice: &IntegerArraySlice,
+    ) -> Result<Vec<i32>, FbError> {
+        let conn = self
+            .conn
+            .as_mut()
+            .ok_or_else(|| FbError::from("Client is not connected"))?;
+        let packet = integer_slice_request(WireOp::GetSlice, tr.0, id, slice, &[]);
+        conn.socket.write_all(&packet)?;
+        conn.socket.flush()?;
+        let result = read_with(
+            &mut conn.socket,
+            &mut conn.buff,
+            &mut conn.pending,
+            &mut conn.lazy_count,
+            |resp, lazy| parse_integer_slice_response(resp, lazy, slice),
+        );
+        if matches!(&result, Err(FbError::Io(error)) if error.kind() == std::io::ErrorKind::InvalidData)
+        {
+            // An invalid payload has no safe frame boundary for subsequent commands.
+            self.conn = None;
+        }
+        result
+    }
+
+    fn put_integer_array(
+        &mut self,
+        _db: &mut Self::DbHandle,
+        tr: &mut Self::TrHandle,
+        temporary: ArrayId,
+        slice: &IntegerArraySlice,
+        values: &[i32],
+    ) -> Result<ArrayId, FbError> {
+        if values.len() != slice.count() {
+            return Err("The INTEGER array element count does not match its bounds".into());
+        }
+        let conn = self
+            .conn
+            .as_mut()
+            .ok_or_else(|| FbError::from("Client is not connected"))?;
+        let packet = integer_slice_request(WireOp::PutSlice, tr.0, temporary, slice, values);
+        conn.socket.write_all(&packet)?;
+        conn.socket.flush()?;
+        conn.read_response()
+            .map(|response| ArrayId::from_u64(response.object_id))
+    }
+
     fn begin_transaction(
         &mut self,
         db_handle: &mut Self::DbHandle,
@@ -351,6 +502,23 @@ impl FirebirdClientSqlOps for RustFbClient {
             .as_mut()
             .map(|conn| conn.prepare_statement(db_handle, tr_handle, dialect, sql))
             .unwrap_or_else(err_client_not_connected)
+    }
+
+    fn output_column_names(&self, stmt_handle: &Self::StmtHandle) -> Vec<String> {
+        stmt_handle
+            .xsqlda
+            .iter()
+            .map(|column| column.alias_name.to_string())
+            .collect()
+    }
+
+    fn encode_text(&self, value: &str) -> Result<Vec<u8>, FbError> {
+        self.conn
+            .as_ref()
+            .ok_or_else(|| FbError::from("Client not connected"))?
+            .charset
+            .encode(value)
+            .map(|v| v.into_owned())
     }
 
     fn statement_descriptors(
@@ -512,7 +680,7 @@ impl FirebirdWireConnection {
             .map(|addr| addr.to_string())
             .unwrap_or_default();
 
-        let mut socket = FbStream::Plain(socket);
+        let mut socket = FbStream::plain(socket);
 
         // Random key for the srp
         let srp_key: [u8; 32] = rand::random();
@@ -1542,6 +1710,14 @@ impl FirebirdWireConnection {
     where
         V: FnMut(&[RawValue]) -> Result<(), FbError>,
     {
+        if stmt_handle
+            .xsqlda
+            .iter()
+            .any(|column| (column.sqltype as u32 & !1) == ibase::SQL_ARRAY)
+        {
+            return Err("Raw streaming does not support ARRAY columns".into());
+        }
+
         if stmt_handle.has_blob {
             return Err("stream_raw requires a statement with no blob columns".into());
         }
@@ -1780,6 +1956,65 @@ fn read_with<T>(
             }
         }
     }
+}
+
+fn integer_slice_request(
+    operation: WireOp,
+    transaction: u32,
+    id: ArrayId,
+    slice: &IntegerArraySlice,
+    values: &[i32],
+) -> BytesMut {
+    let mut packet = BytesMut::new();
+    packet.put_u32(operation as u32);
+    packet.put_u32(transaction);
+    packet.put_u64(id.as_u64());
+    packet.put_i32(slice.byte_len());
+    packet.put_wire_bytes(slice.sdl());
+    packet.put_u32(0); // No SDL parameters; bounds are encoded in the SDL.
+    packet.put_u32((values.len() * size_of::<i32>()) as u32);
+    for &value in values {
+        packet.put_i32(value);
+    }
+    packet
+}
+
+fn parse_integer_slice_response(
+    resp: &mut Bytes,
+    lazy: &mut u32,
+    slice: &IntegerArraySlice,
+) -> Result<Vec<i32>, FbError> {
+    let operation = skip_lazy_responses(resp, lazy)?;
+    if operation == WireOp::Response as u32 {
+        parse_response(resp)?;
+        return Err("Firebird returned no INTEGER array slice".into());
+    }
+    if operation != WireOp::Slice as u32 {
+        return err_conn_rejected(operation);
+    }
+    let reported = resp.get_i32()?;
+    let encoded = resp.get_i32()?;
+    if reported != encoded
+        || !(0..=slice.byte_len()).contains(&encoded)
+        || encoded % size_of::<i32>() as i32 != 0
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Invalid Firebird INTEGER array slice length",
+        )
+        .into());
+    }
+    if resp.len() < encoded as usize {
+        return err_invalid_response();
+    }
+    // The server sends only the stored prefix of a sparse slice. Firebird
+    // scalar subscripts return zero for the remaining INTEGER elements.
+    let count = encoded as usize / size_of::<i32>();
+    let mut values = vec![0; slice.count()];
+    for value in &mut values[..count] {
+        *value = resp.get_i32()?;
+    }
+    Ok(values)
 }
 
 fn parse_execute2_response(
@@ -2068,7 +2303,7 @@ where
 
     socket = FbStream::Arc4(Arc4Stream::new(
         match socket {
-            FbStream::Plain(s) => s,
+            FbStream::Plain(s, _) => s,
             _ => unreachable!("Stream was already encrypted!"),
         },
         &verifier.get_key(),
@@ -2119,17 +2354,21 @@ pub struct BlobId(pub(crate) u64);
 /// Firebird tcp stream, may be encrypted
 enum FbStream {
     /// Plaintext stream
-    Plain(TcpStream),
+    Plain(TcpStream, Arc<Mutex<()>>),
 
     /// Arc4 ecrypted stream
     Arc4(Arc4Stream<TcpStream>),
 }
 
 impl FbStream {
+    fn plain(socket: TcpStream) -> Self {
+        Self::Plain(socket, Arc::new(Mutex::new(())))
+    }
+
     /// Address of the server this stream is connected to
     fn peer_addr(&self) -> std::io::Result<SocketAddr> {
         match self {
-            FbStream::Plain(s) => s.peer_addr(),
+            FbStream::Plain(s, _) => s.peer_addr(),
             FbStream::Arc4(s) => s.peer_addr(),
         }
     }
@@ -2138,7 +2377,7 @@ impl FbStream {
 impl Read for FbStream {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
-            FbStream::Plain(s) => s.read(buf),
+            FbStream::Plain(s, _) => s.read(buf),
             FbStream::Arc4(s) => s.read(buf),
         }
     }
@@ -2147,14 +2386,26 @@ impl Read for FbStream {
 impl Write for FbStream {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         match self {
-            FbStream::Plain(s) => s.write(buf),
+            FbStream::Plain(s, _) => s.write(buf),
             FbStream::Arc4(s) => s.write(buf),
+        }
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        match self {
+            FbStream::Plain(socket, gate) => {
+                let _guard = gate
+                    .lock()
+                    .map_err(|_| std::io::Error::other("Wire writer lock is unavailable"))?;
+                socket.write_all(buf)
+            }
+            FbStream::Arc4(socket) => socket.write_all(buf),
         }
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
         match self {
-            FbStream::Plain(s) => s.flush(),
+            FbStream::Plain(s, _) => s.flush(),
             FbStream::Arc4(s) => s.flush(),
         }
     }
@@ -2737,7 +2988,7 @@ mod pipeline_tests {
         socket.set_nodelay(true).unwrap();
 
         FirebirdWireConnection {
-            socket: FbStream::Plain(socket),
+            socket: FbStream::plain(socket),
             version,
             buff: vec![0; READ_BUFFER_LEN].into_boxed_slice(),
             pending: Bytes::new(),
@@ -3151,7 +3402,7 @@ mod cursor_execution_tests {
                 );
             });
             let mut conn = FirebirdWireConnection {
-                socket: FbStream::Plain(socket),
+                socket: FbStream::plain(socket),
                 version,
                 buff: vec![0; buffer_size].into_boxed_slice(),
                 pending: Bytes::new(),
