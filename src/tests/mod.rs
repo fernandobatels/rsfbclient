@@ -118,6 +118,9 @@ mod exact_fixed_point;
 
 mod connection;
 mod cursor;
+
+mod error_diagnostics;
+
 mod database;
 mod octet_strings;
 mod params;
@@ -125,4 +128,7 @@ mod row;
 mod services;
 mod transaction;
 
+mod cancellation;
+mod extended_scalars;
+mod prepare_timing;
 mod statement_description;

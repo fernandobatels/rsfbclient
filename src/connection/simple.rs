@@ -87,6 +87,55 @@ impl SimpleConnection {
             _ => None,
         }
     }
+    /// Check an idle remote attachment without issuing SQL. On timeout the
+    /// attachment is aborted because its unread response cannot be reused.
+    /// Only call on TCP connections, with exclusive ownership for this call.
+    pub fn probe_remote(&mut self, timeout: std::time::Duration) -> Result<(), FbError> {
+        use std::sync::mpsc::{self, RecvTimeoutError};
+
+        // The scope joins the watchdog before the connection can be dropped
+        // or the caller can start a different operation on it.
+        // An older native client may lack the asynchronous abort API.
+        let Ok(interrupt) = (unsafe { self.disposable_interrupt() }) else {
+            return Ok(());
+        };
+        std::thread::scope(|scope| {
+            let (done, pending) = mpsc::channel::<()>();
+            let watchdog = scope.spawn(move || {
+                if pending.recv_timeout(timeout) == Err(RecvTimeoutError::Timeout) {
+                    let _ = interrupt();
+                    return true;
+                }
+                false
+            });
+            let result = match &mut self.inner {
+                #[cfg(feature = "linking")]
+                TypeConnectionContainer::NativeDynLink(connection) => {
+                    connection.cli.probe_attachment(&mut connection.handle)
+                }
+                #[cfg(feature = "dynamic_loading")]
+                TypeConnectionContainer::NativeDynLoad(connection) => {
+                    connection.cli.probe_attachment(&mut connection.handle)
+                }
+                #[cfg(feature = "pure_rust")]
+                TypeConnectionContainer::PureRust(connection) => {
+                    connection.cli.probe_attachment(&mut connection.handle)
+                }
+            };
+            drop(done);
+            if watchdog
+                .join()
+                .map_err(|_| "Connection check watchdog failed")?
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Firebird did not answer the connection check",
+                )
+                .into());
+            }
+            result
+        })
+    }
 }
 
 pub(crate) enum TypeConnectionContainer {
@@ -219,6 +268,30 @@ impl SimpleConnection {
             TypeConnectionContainer::NativeDynLoad(c) => c.describe_statement(sql, named_params),
             #[cfg(feature = "pure_rust")]
             TypeConnectionContainer::PureRust(c) => c.describe_statement(sql, named_params),
+        }
+    }
+
+    /// Enable or disable measurement of statement preparation.
+    pub fn set_prepare_timing_enabled(&mut self, enabled: bool) {
+        match &mut self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.set_prepare_timing_enabled(enabled),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.set_prepare_timing_enabled(enabled),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.set_prepare_timing_enabled(enabled),
+        }
+    }
+
+    /// Most recent preparation duration. Cached statements and disabled timing report zero.
+    pub fn last_prepare_duration(&self) -> std::time::Duration {
+        match &self.inner {
+            #[cfg(feature = "linking")]
+            TypeConnectionContainer::NativeDynLink(c) => c.last_prepare_duration(),
+            #[cfg(feature = "dynamic_loading")]
+            TypeConnectionContainer::NativeDynLoad(c) => c.last_prepare_duration(),
+            #[cfg(feature = "pure_rust")]
+            TypeConnectionContainer::PureRust(c) => c.last_prepare_duration(),
         }
     }
 

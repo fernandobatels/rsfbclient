@@ -3,6 +3,7 @@
 use std::{
     io::{Read, Write},
     net::{SocketAddr, TcpStream},
+    sync::{Arc, Mutex},
 };
 
 #[derive(Clone)]
@@ -52,7 +53,7 @@ impl Arc4 {
 /// Wraps a stream, encoding / decoding the data
 pub struct Arc4Stream<S> {
     read_rc4: Box<Arc4>,
-    write_rc4: Box<Arc4>,
+    write_rc4: Arc<Mutex<Arc4>>,
     enc_buf: Box<[u8]>,
     stream: S,
 }
@@ -61,7 +62,7 @@ impl<S> Arc4Stream<S> {
     pub fn new(stream: S, key: &[u8], buf_len: usize) -> Self {
         Self {
             read_rc4: Box::new(Arc4::new(key)),
-            write_rc4: Box::new(Arc4::new(key)),
+            write_rc4: Arc::new(Mutex::new(Arc4::new(key))),
             enc_buf: vec![0; buf_len].into_boxed_slice(),
             stream,
         }
@@ -72,6 +73,21 @@ impl Arc4Stream<TcpStream> {
     /// Address of the server the wrapped stream is connected to
     pub fn peer_addr(&self) -> std::io::Result<SocketAddr> {
         self.stream.peer_addr()
+    }
+    pub(crate) fn clone_socket(&self) -> std::io::Result<TcpStream> {
+        self.stream.try_clone()
+    }
+
+    pub(crate) fn cancellation_sender(
+        &self,
+        packet: [u8; 8],
+    ) -> std::io::Result<impl Fn() -> std::io::Result<()> + Send + 'static> {
+        let cipher = self.write_rc4.clone();
+        let socket = self.clone_socket()?;
+        Ok(move || {
+            let mut cipher = cipher.lock().map_err(|_| writer_lock_error())?;
+            write_encrypted_all(&mut &socket, &mut cipher, &mut [0; 8], &packet)
+        })
     }
 }
 
@@ -103,23 +119,59 @@ impl<S: Write> Write for Arc4Stream<S> {
             ..
         } = self;
 
-        let max_len = buf.len().min(enc_buf.len());
-        // The underlying writer may accept a prefix, return zero, or fail.
-        // Advance the real cipher only for plaintext actually consumed.
-        let mut next = write_rc4.clone();
-        next.process(&buf[..max_len], &mut enc_buf[..max_len]);
-        let len = stream.write(&enc_buf[..max_len])?;
-        if len == max_len {
-            *write_rc4 = next;
-        } else {
-            write_rc4.process(&buf[..len], &mut enc_buf[..len]);
-        }
-        Ok(len)
+        let mut cipher = write_rc4.lock().map_err(|_| writer_lock_error())?;
+        write_encrypted(stream, &mut cipher, enc_buf, buf)
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        // Reserve the writer for the complete packet, including short writes.
+        let mut cipher = self.write_rc4.lock().map_err(|_| writer_lock_error())?;
+        write_encrypted_all(&mut self.stream, &mut cipher, &mut self.enc_buf, buf)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
         self.stream.flush()
     }
+}
+
+fn writer_lock_error() -> std::io::Error {
+    std::io::Error::other("Wire writer lock is unavailable")
+}
+
+fn write_encrypted(
+    stream: &mut impl Write,
+    cipher: &mut Arc4,
+    encrypted: &mut [u8],
+    plaintext: &[u8],
+) -> std::io::Result<usize> {
+    let max_len = plaintext.len().min(encrypted.len());
+    let mut next = cipher.clone();
+    next.process(&plaintext[..max_len], &mut encrypted[..max_len]);
+    let len = stream.write(&encrypted[..max_len])?;
+    if len == max_len {
+        *cipher = next;
+    } else {
+        // Advance the cipher only for the bytes the socket accepted.
+        cipher.process(&plaintext[..len], &mut encrypted[..len]);
+    }
+    Ok(len)
+}
+
+fn write_encrypted_all(
+    stream: &mut impl Write,
+    cipher: &mut Arc4,
+    encrypted: &mut [u8],
+    mut plaintext: &[u8],
+) -> std::io::Result<()> {
+    while !plaintext.is_empty() {
+        match write_encrypted(stream, cipher, encrypted, plaintext) {
+            Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(len) => plaintext = &plaintext[len..],
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 #[test]

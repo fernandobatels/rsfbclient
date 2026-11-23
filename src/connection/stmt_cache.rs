@@ -91,6 +91,9 @@ where
         named_params: bool,
     ) -> Result<StmtCacheData<StatementData<C>>, FbError> {
         if let Some(data) = tr.conn.stmt_cache.get(sql) {
+            if let Some(time) = tr.conn.last_prepare_time.as_mut() {
+                *time = std::time::Duration::ZERO;
+            }
             Ok(data)
         } else {
             Ok(StmtCacheData {
