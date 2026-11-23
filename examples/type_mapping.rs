@@ -12,8 +12,8 @@
 //!  - NUMERIC/DECIMAL are converted through f64, so scaled values whose
 //!    integer form exceeds 2^53 silently lose precision (shown below
 //!    with a value that comes back one cent off).
-//!  - Some Firebird 4+ types (DECFLOAT and TIMESTAMP/TIME WITH TIME ZONE)
-//!    and blobs with sub_type > 1 are not supported by the row reader.
+//!  - DECFLOAT and TIMESTAMP/TIME WITH TIME ZONE are read as server-formatted text.
+//!    Blobs with a subtype greater than 1 remain unsupported.
 //!
 //! The table is created by the example itself (idempotent); you only
 //! need an `examples.fdb` database. The FB4-specific columns are added
@@ -132,14 +132,8 @@ fn main() -> Result<(), FbError> {
             .unwrap();
         println!("int128   -> i128   : {}", int128);
 
-        // DECFLOAT remains unsupported. Text conversion is shown only to
-        // demonstrate its exact digits, not as an INT128 compatibility path.
-        match conn.query_first::<(), (String,)>("select c_dec from type_probe", ()) {
-            Ok(_) => println!("unexpected: DECFLOAT fetched"),
-            Err(e) => println!("select c_dec fails   : {}", e),
-        }
         let (dec_text,): (String,) = conn
-            .query_first("select cast(c_dec as varchar(50)) from type_probe", ())?
+            .query_first("select c_dec from type_probe", ())?
             .unwrap();
         println!("decfloat as text    : {}", dec_text);
     } else {

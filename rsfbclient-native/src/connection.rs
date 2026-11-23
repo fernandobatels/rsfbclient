@@ -94,6 +94,106 @@ pub struct NativeFbClient<T: LinkageMarker> {
     charset: Charset,
     pub(crate) text_rows: bool,
     wire_crypt: Option<WireCrypt>,
+    #[cfg(all(target_os = "macos", feature = "dynamic_loading"))]
+    tcp_transport: Option<std::sync::Arc<crate::macos_transport::Transport>>,
+}
+
+impl<T: LinkageMarker> NativeFbClient<T> {
+    /// Request a server-side counter without starting or touching a transaction.
+    pub fn probe_attachment(&mut self, handle: &mut NativeDbHandle) -> Result<(), FbError> {
+        let items = [ibase::db_info_types_isc_info_reads as u8];
+        let mut buffer = [0_u8; 32];
+        let result = unsafe {
+            self.ibase.isc_database_info()(
+                self.status.as_mut_ptr(),
+                handle,
+                1,
+                items.as_ptr().cast(),
+                32,
+                buffer.as_mut_ptr().cast(),
+            )
+        };
+        if result != 0 {
+            return Err(self.status.as_error(&self.ibase));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(any(feature = "linking", feature = "dynamic_loading"))]
+fn cancel_attachment(
+    library: &impl IBase,
+    cancel: ibase::CancelOperation,
+    mut handle: NativeDbHandle,
+    kind: u16,
+) -> Result<(), FbError> {
+    let mut status = Status::default();
+    // Firebird's cancellation API is asynchronous. It receives a copy of the
+    // attachment handle and its own status vector.
+    if unsafe { cancel(status.as_mut_ptr(), &mut handle, kind) } != 0 {
+        return Err(status.as_error(library));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "linking")]
+impl NativeFbClient<DynLink> {
+    /// # Safety
+    /// The callback must only be used while the supplied attachment is alive.
+    pub unsafe fn attachment_cancel(
+        &self,
+        handle: NativeDbHandle,
+        kind: u16,
+    ) -> Result<Box<dyn Fn() -> Result<(), FbError> + Send>, FbError> {
+        Ok(Box::new(move || {
+            cancel_attachment(
+                &ibase::IBaseLinking,
+                ibase::linked_cancel_operation(),
+                handle,
+                kind,
+            )
+        }))
+    }
+}
+
+#[cfg(feature = "dynamic_loading")]
+impl NativeFbClient<DynLoad> {
+    /// Route this one remote attachment through a private local TCP endpoint so
+    /// abort can wake fbclient's reader without closing the descriptor it polls.
+    #[cfg(target_os = "macos")]
+    pub fn interruptible_tcp_port(&mut self, host: &str, port: u16) -> Result<u16, FbError> {
+        let transport = std::sync::Arc::new(crate::macos_transport::Transport::open(host, port)?);
+        let local_port = transport.port();
+        self.tcp_transport = Some(transport);
+        Ok(local_port)
+    }
+
+    /// # Safety
+    /// The callback must only be used while the supplied attachment is alive.
+    pub unsafe fn attachment_cancel(
+        &self,
+        handle: NativeDbHandle,
+        kind: u16,
+    ) -> Result<Box<dyn Fn() -> Result<(), FbError> + Send>, FbError> {
+        #[cfg(target_os = "macos")]
+        if let Some(transport) = self
+            .tcp_transport
+            .as_ref()
+            .filter(|_| kind == ibase::fb_cancel_abort as u16)
+        {
+            let transport = transport.clone();
+            return Ok(Box::new(move || {
+                transport.shutdown().map_err(FbError::from)
+            }));
+        }
+        let library = self.ibase.clone();
+        let cancel = library
+            .cancel_operation()
+            .map_err(|error| error.to_string())?;
+        Ok(Box::new(move || {
+            cancel_attachment(&library, cancel, handle, kind)
+        }))
+    }
 }
 
 /// Per-attachment wire encryption policy for the native Firebird client.
@@ -166,6 +266,8 @@ impl DynLink {
             charset: self.0.clone(),
             text_rows: false,
             wire_crypt: None,
+            #[cfg(all(target_os = "macos", feature = "dynamic_loading"))]
+            tcp_transport: None,
         };
         result
     }
@@ -195,6 +297,8 @@ impl DynLoad {
             charset: self.charset.clone(),
             text_rows: false,
             wire_crypt: None,
+            #[cfg(all(target_os = "macos", feature = "dynamic_loading"))]
+            tcp_transport: None,
         };
 
         Ok(result)
@@ -563,6 +667,14 @@ impl<T: LinkageMarker> FirebirdClientSqlOps for NativeFbClient<T> {
             }
             Ok(buffer)
         })
+    }
+
+    fn output_column_names(&self, stmt_handle: &Self::StmtHandle) -> Vec<String> {
+        stmt_handle
+            .col_buffers
+            .iter()
+            .map(|column| column.column_name().to_owned())
+            .collect()
     }
 
     fn free_statement(

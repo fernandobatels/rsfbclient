@@ -159,9 +159,14 @@ where
         };
         let sql = &named_params.sql;
 
-        let (stmt_type, handle) =
+        let start = conn.last_prepare_time.map(|_| std::time::Instant::now());
+        let prepared =
             conn.cli
-                .prepare_statement(&mut conn.handle, &mut tr.handle, conn.dialect, sql)?;
+                .prepare_statement(&mut conn.handle, &mut tr.handle, conn.dialect, sql);
+        if let Some(start) = start {
+            conn.last_prepare_time = Some(start.elapsed());
+        }
+        let (stmt_type, handle) = prepared?;
 
         Ok(Self {
             stmt_type,
