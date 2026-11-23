@@ -84,6 +84,14 @@ impl XSqlVar {
                 self.sqltype = ibase::SQL_VARYING as i16 + 1;
             }
 
+            ibase::SQL_TIMESTAMP_TZ | ibase::SQL_TIME_TZ | ibase::SQL_DEC16 | ibase::SQL_DEC34 => {
+                self.source_sqltype = Some(sqltype as u32);
+                self.data_length = 128;
+                self.scale = 0;
+                self.sqlsubtype = 0;
+                self.sqltype = ibase::SQL_VARYING as i16 + 1;
+            }
+
             ibase::SQL_INT128 => {
                 self.data_length = mem::size_of::<i128>() as i16;
                 self.sqltype = ibase::SQL_INT128 as i16 + 1;

@@ -34,7 +34,10 @@ pub mod builders {
     pub use builder_pure_rust::*;
 }
 
+mod cancellation;
 pub(crate) mod conn_string;
+pub use cancellation::{AttachmentInterrupt, StatementCancelHandle};
+
 pub(crate) mod stmt_cache;
 
 pub(crate) mod simple;
@@ -87,6 +90,7 @@ pub struct Connection<C: FirebirdClient> {
 
     /// Cache for the prepared statements
     pub(crate) stmt_cache: StmtCache<StatementData<C>>,
+    pub(crate) last_prepare_time: Option<std::time::Duration>,
 
     /// Default transaction to be used when no explicit
     /// transaction is used
@@ -101,6 +105,7 @@ pub struct Connection<C: FirebirdClient> {
 
     /// Default configuration for new transactions
     pub(crate) def_confs_tr: TransactionConfiguration,
+    statement_cancel: Option<StatementCancelHandle>,
 }
 
 impl<C: FirebirdClient> Connection<C> {
@@ -117,10 +122,12 @@ impl<C: FirebirdClient> Connection<C> {
             handle,
             dialect: conf.dialect,
             stmt_cache,
+            last_prepare_time: None,
             def_tr: None,
             in_transaction: false,
             cli,
             def_confs_tr: conf.transaction_conf,
+            statement_cancel: None,
         })
     }
 
@@ -137,15 +144,20 @@ impl<C: FirebirdClient> Connection<C> {
             handle,
             dialect: conf.dialect,
             stmt_cache,
+            last_prepare_time: None,
             def_tr: None,
             in_transaction: false,
             cli,
             def_confs_tr: conf.transaction_conf,
+            statement_cancel: None,
         })
     }
 
     /// Drop the current database
     pub fn drop_database(mut self) -> Result<(), FbError> {
+        if let Some(cancel) = self.statement_cancel.take() {
+            cancel.revoke();
+        }
         self.cli.drop_database(&mut self.handle)?;
 
         Ok(())
@@ -160,6 +172,9 @@ impl<C: FirebirdClient> Connection<C> {
 
     // Cleans up statement cache and releases the database handle
     fn cleanup_and_detach(&mut self) -> Result<(), FbError> {
+        if let Some(cancel) = self.statement_cancel.take() {
+            cancel.revoke();
+        }
         StmtCache::close_all(self);
 
         // Drop the default transaction
@@ -178,12 +193,25 @@ impl<C: FirebirdClient> Connection<C> {
     where
         F: FnOnce(&mut Transaction<C>) -> Result<T, FbError>,
     {
-        self.with_transaction_config(self.def_confs_tr, closure)
+        self.run_with_transaction(self.def_confs_tr, closure)
     }
 
     /// Run a closure with a transaction, if the closure returns an error
-    /// and the default transaction is not active, the transaction will rollback, else it will be committed
+    /// and the default transaction is not active, the transaction will rollback, else it will be committed.
+    /// An active explicit transaction must already have the requested configuration.
     pub fn with_transaction_config<T, F>(
+        &mut self,
+        confs: TransactionConfiguration,
+        closure: F,
+    ) -> Result<T, FbError>
+    where
+        F: FnOnce(&mut Transaction<C>) -> Result<T, FbError>,
+    {
+        self.check_transaction_configuration(confs)?;
+        self.run_with_transaction(confs, closure)
+    }
+
+    fn run_with_transaction<T, F>(
         &mut self,
         confs: TransactionConfiguration,
         closure: F,
@@ -272,11 +300,31 @@ impl<C: FirebirdClient> Connection<C> {
         self.with_transaction(|tr| tr.prepare(sql, named_params)?.describe())
     }
 
+    /// Enable or disable measurement of statement preparation on this connection.
+    ///
+    /// Timing is disabled by default. It excludes binding, execution and fetch.
+    pub fn set_prepare_timing_enabled(&mut self, enabled: bool) {
+        self.last_prepare_time = enabled.then_some(std::time::Duration::ZERO);
+    }
+
+    /// Duration of the most recent preparation attempt, including server errors.
+    ///
+    /// Cached statements report zero. Returns zero while timing is disabled or
+    /// until a statement is prepared. Operations that do not prepare or look
+    /// up a statement leave this value unchanged.
+    pub fn last_prepare_duration(&self) -> std::time::Duration {
+        self.last_prepare_time.unwrap_or_default()
+    }
+
     /// Begins a new transaction, and instructs all the `query` and `execute` methods
     /// performed in the [`Connection`] type to not automatically commit and rollback
     /// until [`commit`][`Connection::commit`] or [`rollback`][`Connection::rollback`] are called
     pub fn begin_transaction(&mut self) -> Result<(), FbError> {
-        self.begin_transaction_config(self.def_confs_tr)
+        let configuration = self
+            .def_tr
+            .as_ref()
+            .map_or(self.def_confs_tr, |transaction| transaction.configuration);
+        self.begin_transaction_config(configuration)
     }
 
     /// Begins a new transaction with a new transaction configuration, and instructs
@@ -287,6 +335,7 @@ impl<C: FirebirdClient> Connection<C> {
         &mut self,
         custom_confs: TransactionConfiguration,
     ) -> Result<(), FbError> {
+        self.check_transaction_configuration(custom_confs)?;
         self.use_transaction(custom_confs, |_| Ok(()))?;
 
         self.in_transaction = true;
@@ -294,23 +343,98 @@ impl<C: FirebirdClient> Connection<C> {
         Ok(())
     }
 
-    /// Commit the default transaction
+    fn check_transaction_configuration(
+        &mut self,
+        requested: TransactionConfiguration,
+    ) -> Result<(), FbError> {
+        if self
+            .def_tr
+            .as_ref()
+            .is_some_and(|tr| tr.configuration != requested)
+        {
+            if self.in_transaction {
+                return Err("Cannot change an active transaction's configuration. Commit or roll it back first.".into());
+            }
+            self.rollback_transaction()?;
+        }
+        Ok(())
+    }
+
+    /// Commit and release the default transaction.
     pub fn commit(&mut self) -> Result<(), FbError> {
+        let in_transaction = self.in_transaction;
         self.in_transaction = false;
 
-        if let Some(tr) = self.def_tr.take() {
-            tr.into_transaction(self).commit()
+        if in_transaction {
+            let result = self.complete_default_transaction(TransactionData::commit);
+            self.in_transaction = result.is_err();
+            result
+        } else if let Some(transaction) = self.def_tr.take() {
+            transaction.into_transaction(self).commit()
         } else {
             Ok(())
         }
     }
 
-    /// Rollback the default transaction
+    /// Roll back and release the default transaction.
     pub fn rollback(&mut self) -> Result<(), FbError> {
+        let in_transaction = self.in_transaction;
         self.in_transaction = false;
 
-        if let Some(tr) = self.def_tr.take() {
-            tr.into_transaction(self).rollback()
+        if in_transaction {
+            let result = self.complete_default_transaction(TransactionData::rollback);
+            self.in_transaction = result.is_err();
+            result
+        } else if let Some(transaction) = self.def_tr.take() {
+            transaction.into_transaction(self).rollback()
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Commit and release the default transaction, if one exists.
+    pub fn commit_transaction(&mut self) -> Result<(), FbError> {
+        self.commit()
+    }
+
+    /// Roll back and release the default transaction, if one exists.
+    pub fn rollback_transaction(&mut self) -> Result<(), FbError> {
+        self.rollback()
+    }
+
+    /// Commit pending changes and keep the active transaction and its settings.
+    /// If there is no active default transaction, this is a no-op.
+    pub fn commit_retaining(&mut self) -> Result<(), FbError> {
+        self.retain_default_transaction(TransactionData::commit_retaining)
+    }
+
+    /// Roll back pending changes and keep the active transaction and its settings.
+    /// If there is no active default transaction, this is a no-op.
+    pub fn rollback_retaining(&mut self) -> Result<(), FbError> {
+        self.retain_default_transaction(TransactionData::rollback_retaining)
+    }
+
+    fn complete_default_transaction(
+        &mut self,
+        operation: impl FnOnce(&mut TransactionData<C>, &mut Self) -> Result<(), FbError>,
+    ) -> Result<(), FbError> {
+        if let Some(mut transaction) = self.def_tr.take() {
+            if let Err(error) = operation(&mut transaction, self) {
+                self.def_tr = Some(transaction);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    fn retain_default_transaction(
+        &mut self,
+        operation: impl FnOnce(&mut TransactionData<C>, &mut Self) -> Result<(), FbError>,
+    ) -> Result<(), FbError> {
+        if let Some(mut transaction) = self.def_tr.take() {
+            let result = operation(&mut transaction, self);
+            self.def_tr = Some(transaction);
+            result
         } else {
             Ok(())
         }

@@ -154,6 +154,15 @@ impl ColumnBuffer {
                 }
             }
 
+            ibase::SQL_TIMESTAMP_TZ | ibase::SQL_TIME_TZ | ibase::SQL_DEC16 | ibase::SQL_DEC34 => {
+                // Let Firebird format these values in the attachment character set.
+                var.sqllen = 128;
+                var.sqlscale = 0;
+                var.sqlsubtype = 0;
+                var.sqltype = ibase::SQL_VARYING as i16 + 1;
+                Text(Varchar::new(128))
+            }
+
             ibase::SQL_INT128 => {
                 var.sqllen = mem::size_of::<i128>() as i16;
                 var.sqltype = ibase::SQL_INT128 as i16 + 1;

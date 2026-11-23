@@ -15,7 +15,7 @@ mod transaction;
 
 pub use charset::Charset;
 pub use connection::*;
-pub use error::FbError;
+pub use error::{ExternalPsqlContext, FbError, SqlDiagnostics};
 pub use params::*;
 pub use row::*;
 pub use statement_info::*;
@@ -27,6 +27,9 @@ pub use decimal::FixedDecimal;
 /// Sql parameter / column data
 pub enum SqlType {
     Text(String),
+
+    /// Bind UTF-8 text as a text BLOB. Result columns still use [`Self::Text`].
+    TextBlob(String),
 
     Integer(i64),
 
