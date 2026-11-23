@@ -7,6 +7,7 @@ mod consts;
 mod events;
 mod raw;
 mod srp;
+mod status_map;
 mod util;
 mod wire;
 mod xsqlda;

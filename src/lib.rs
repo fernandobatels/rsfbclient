@@ -142,11 +142,9 @@
 //!
 //! - For exact fixed-point reads and parameters, use [FixedDecimal](./struct.FixedDecimal.html).
 //!   Converting to a binary floating-point type can round the value.
-//! - **Some Firebird 4+ types are not supported by the row reader**: selecting a
-//!   `DECFLOAT(16/34)`, `TIMESTAMP WITH TIME ZONE` or `TIME WITH TIME ZONE` column (or a
-//!   blob with `sub_type > 1`) fails at describe time with *"Unsupported column type"*.
-//!   Plain `INT128` is preserved as `i128`; `NUMERIC`/`DECIMAL` values backed by INT128
-//!   follow the same `f64` mapping as their lower-precision counterparts.
+//! - **DECFLOAT and temporal values with time zones** are returned as Firebird-formatted
+//!   strings. The column retains its original Firebird type. Blobs with a subtype greater
+//!   than 1 remain unsupported. Plain `INT128` is preserved as `i128`.
 //!
 //! See `examples/type_mapping.rs` for all of the above, live.
 //!
@@ -185,7 +183,10 @@ mod utils;
 pub mod services;
 
 pub use crate::{
-    connection::{Connection, ConnectionConfiguration, FirebirdClientFactory, SimpleConnection},
+    connection::{
+        Connection, ConnectionConfiguration, FirebirdClientFactory, PagedQuery, PausedPagedQuery,
+        SimpleConnection,
+    },
     events::RemoteEventsManager,
     query::{Execute, Queryable},
     statement::Statement,
@@ -193,8 +194,9 @@ pub use crate::{
     utils::{EngineVersion, SystemInfos},
 };
 pub use rsfbclient_core::{
-    Column, ColumnDesc, ColumnToVal, Dialect, FbError, FromRow, IntoParam, IntoParams,
-    ParameterDesc, ParamsType, Row, SqlType, StatementDescription, StmtType,
+    Column, ColumnDesc, ColumnToVal, Dialect, ExternalPsqlContext, FbError, FromRow, IntoParam,
+    IntoParams, ParameterDesc, ParamsType, Row, SqlDiagnostics, SqlType, StatementDescription,
+    StmtType,
 };
 
 #[doc(hidden)]
@@ -211,3 +213,5 @@ pub use builders::*;
 /// Owned native transactions and cancellable events, including multi-database recovery.
 #[cfg(any(feature = "linking", feature = "dynamic_loading"))]
 pub use rsfbclient_native::managed;
+
+pub use crate::connection::{AttachmentInterrupt, StatementCancelHandle};
